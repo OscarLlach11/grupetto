@@ -506,9 +506,9 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 ::-webkit-scrollbar{width:3px;}::-webkit-scrollbar-track{background:var(--black);}::-webkit-scrollbar-thumb{background:var(--border-light);}
 @media(max-width:820px){.main-layout,.race-sub-layout{grid-template-columns:1fr;}.sidebar,.rsp-sidebar{display:none;}nav,.hero,.tabs,.fbar{padding-left:20px;padding-right:20px;}.lpe,.lbi,.rider-card{padding-left:20px;padding-right:20px;}.rsp-main{padding:20px;}}.search-wrap-disc{padding:14px 40px 0;}.search-disc{background:var(--card-bg);border:1px solid var(--border);color:var(--white);padding:9px 14px;font-family:'DM Sans',sans-serif;font-size:13px;width:100%;max-width:340px;transition:border-color .15s;}.search-disc:focus{outline:none;border-color:var(--gold-dim);}.search-disc::placeholder{color:var(--muted);}
 /* PROFILE PAGE */
-.profile-layout{display:grid;grid-template-columns:300px 1fr;min-height:calc(100vh - 57px);}
+.profile-layout{display:grid;grid-template-columns:280px 1fr 280px;min-height:calc(100vh - 57px);}
 .profile-sidebar{border-right:1px solid var(--border);padding:36px 28px;}
-.profile-main{padding:36px 40px;}
+.profile-main{padding:36px 28px;}
 .profile-avatar{width:88px;height:88px;border-radius:50%;background:linear-gradient(135deg,var(--gold-dim),var(--gold));display:flex;align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;font-size:36px;color:var(--black);margin-bottom:16px;cursor:pointer;transition:opacity .15s;flex-shrink:0;}
 .profile-avatar:hover{opacity:.85;}
 .profile-name{font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:3px;margin-bottom:2px;}
@@ -576,11 +576,10 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 .yr-row:hover .yr-num{color:var(--accent);}
 .yr-num{font-family:'Bebas Neue',sans-serif;font-size:18px;min-width:44px;}
 .yr-detail{display:none;padding:8px 0 12px 52px;border-bottom:1px solid var(--border);font-size:12px;color:var(--muted);}
-.rating-bar-row{display:flex;align-items:center;gap:8px;margin-bottom:5px;}
-.rating-bar-label{font-size:11px;color:var(--muted);width:28px;text-align:right;}
-.rating-bar-track{flex:1;height:8px;background:var(--border);border-radius:2px;overflow:hidden;}
-.rating-bar-fill{height:100%;background:var(--accent);border-radius:2px;transition:width .4s;}
-.rating-bar-count{font-size:10px;color:var(--muted);width:24px;}
+.rating-bar-col{display:flex;flex-direction:column;align-items:center;gap:4px;flex:1;}
+.rating-bar-col-track{width:100%;background:var(--border);border-radius:2px 2px 0 0;overflow:hidden;display:flex;align-items:flex-end;height:60px;}
+.rating-bar-col-fill{width:100%;background:var(--gold);border-radius:2px 2px 0 0;transition:height .4s;}
+.rating-bar-col-label{font-size:9px;color:var(--muted);letter-spacing:1px;}
 .recent-activity-card{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);cursor:pointer;}
 .recent-activity-card:hover .ra-name{color:var(--accent);}
 .ra-swatch{width:40px;height:40px;flex-shrink:0;border-radius:2px;}
@@ -735,6 +734,7 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 <!-- PROFILE PAGE -->
 <div id="page-profile" class="page">
   <div class="profile-layout">
+    <!-- Column 1: stats, rating dist, by year -->
     <div class="profile-sidebar">
       <div style="display:flex;align-items:center;gap:14px;margin-bottom:24px;">
         <div class="profile-avatar" id="profile-avatar" onclick="editUsername()">?</div>
@@ -747,26 +747,28 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
       <div style="margin-top:8px;">
         <button class="bs" style="width:100%;font-size:9px;padding:8px;" onclick="openEditProfile()">✏ Edit Profile</button>
       </div>
-      <!-- Ratings distribution -->
       <div style="margin-top:24px;">
         <div class="profile-section-title" style="font-size:13px;margin-bottom:12px;">Rating Distribution</div>
         <div id="profile-rating-dist"></div>
       </div>
-      <!-- Yearly stats -->
       <div style="margin-top:24px;">
         <div class="profile-section-title" style="font-size:13px;margin-bottom:12px;">By Year</div>
         <div id="profile-yearly-stats"></div>
       </div>
     </div>
-    <div class="profile-main">
+    <!-- Column 2: favourite riders + favourite race -->
+    <div class="profile-main" style="border-right:1px solid var(--border);">
       <div class="profile-section-title">Favourite Riders</div>
       <div class="fav-riders-grid" id="fav-riders-grid"></div>
       <div class="profile-section-title">Favourite Race</div>
       <div id="fav-race-display"></div>
-      <!-- Recent Activity -->
-      <div class="profile-section-title" style="margin-top:32px;">Recent Activity</div>
+    </div>
+    <!-- Column 3: countries, activity, reviews -->
+    <div class="profile-main">
+      <div class="profile-section-title">Countries Watched</div>
+      <div id="profile-countries"></div>
+      <div class="profile-section-title" style="margin-top:28px;">Recent Activity</div>
       <div id="profile-recent-activity"></div>
-      <!-- Recent Reviews -->
       <div class="profile-section-title" style="margin-top:28px;">Recent Reviews</div>
       <div id="profile-recent-reviews"></div>
     </div>
@@ -2864,17 +2866,18 @@ function renderProfile(){
   Object.values(userLog).forEach(rl=>(rl.watches||[]).forEach(w=>Object.values(w.stages||{}).forEach(s=>{if(s.rating) allRatings.push(s.rating);})));
   const distEl = document.getElementById('profile-rating-dist');
   if(allRatings.length){
-    // Half-star buckets from 0.5 to 5.0
     const buckets={};
     for(let v=0.5;v<=5.0;v+=0.5) buckets[v]=0;
     allRatings.forEach(r=>{ const k=Math.round(r*2)/2; if(buckets[k]!==undefined) buckets[k]++; });
     const maxCnt=Math.max(...Object.values(buckets),1);
-    distEl.innerHTML=Object.entries(buckets).reverse().map(([v,cnt])=>`
-      <div class="rating-bar-row">
-        <div class="rating-bar-label">${parseFloat(v).toFixed(1)}</div>
-        <div class="rating-bar-track"><div class="rating-bar-fill" style="width:${Math.round(cnt/maxCnt*100)}%"></div></div>
-        <div class="rating-bar-count">${cnt||''}</div>
-      </div>`).join('');
+    distEl.innerHTML=`<div style="display:flex;align-items:flex-end;gap:2px;height:80px;margin-bottom:4px;">`+
+      Object.entries(buckets).map(([v,cnt])=>`
+        <div class="rating-bar-col">
+          <div class="rating-bar-col-track">
+            <div class="rating-bar-col-fill" style="height:${Math.round(cnt/maxCnt*100)}%;"></div>
+          </div>
+          <div class="rating-bar-col-label">${parseFloat(v)%1===0?v:''}</div>
+        </div>`).join('')+`</div>`;
   } else {
     distEl.innerHTML='<div style="color:var(--muted);font-size:11px;">Rate some races to see your distribution.</div>';
   }
@@ -2985,7 +2988,29 @@ function renderProfile(){
     raEl.innerHTML='<div style="color:var(--muted);font-size:12px;">No logged races yet.</div>';
   }
 
-  // ── Recent Reviews (Letterboxd style) ────────────────────────────────
+  // ── Countries watched ─────────────────────────────────────────────────
+  const countriesEl = document.getElementById('profile-countries');
+  const countryCounts = {};
+  all.forEach(([id]) => {
+    const r = RACES.find(x => x.id === id);
+    if (r && r.country) {
+      const key = `${r.flag||''} ${r.country}`.trim();
+      countryCounts[key] = (countryCounts[key] || 0) + 1;
+    }
+  });
+  const sortedCountries = Object.entries(countryCounts).sort((a,b) => b[1]-a[1]);
+  if (sortedCountries.length) {
+    countriesEl.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:8px;">` +
+      sortedCountries.map(([country, cnt]) =>
+        `<div style="display:flex;align-items:center;gap:6px;background:var(--card-bg);
+                     border:1px solid var(--border);padding:5px 10px;font-size:11px;letter-spacing:1px;">
+          <span>${country}</span>
+          <span style="color:var(--muted);font-size:10px;">${cnt}</span>
+        </div>`
+      ).join('') + `</div>`;
+  } else {
+    countriesEl.innerHTML = '<div style="color:var(--muted);font-size:12px;">Log some races to see countries.</div>';
+  }
   const withReviews = all.filter(([,w])=>w.review&&w.review.trim()).map(([id,w])=>({id,w,ts:w.ts||0})).sort((a,b)=>b.ts-a.ts).slice(0,5);
   // Also include stage reviews
   const stageReviews=[];
