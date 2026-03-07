@@ -779,6 +779,19 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
       </div>
     </div>
 
+    <!-- LIVE dropdown -->
+    <div class="log-filter-dd" id="lfd-live">
+      <button class="log-fdd-btn" onclick="toggleLogDD('lfd-live')">Viewing <span class="lfd-val" id="lfd-live-val"></span> ▾</button>
+      <div class="log-dd-panel" style="min-width:160px;padding:16px;">
+        <div style="font-size:9px;letter-spacing:2px;color:var(--muted);margin-bottom:10px;">VIEWING</div>
+        <div style="display:flex;flex-direction:column;gap:4px;">
+          <div class="lfd-type-opt" data-v="" onclick="setLogFilter('live','')">All</div>
+          <div class="lfd-type-opt" data-v="live" onclick="setLogFilter('live','live')">🔴 Live</div>
+          <div class="lfd-type-opt" data-v="replay" onclick="setLogFilter('live','replay')">Replay</div>
+        </div>
+      </div>
+    </div>
+
     <!-- SORT dropdown -->
     <div class="log-filter-dd" id="lfd-sort">
       <button class="log-fdd-btn" onclick="toggleLogDD('lfd-sort')">Sort: <span class="lfd-val" id="lfd-sort-val">Date</span> ▾</button>
@@ -2034,7 +2047,7 @@ function showPage(p){
 // ════════════════════════════════════════════════════════
 let aTab='all',aFil='all',aSearch='';
 // Log-specific filters (separate from discover)
-let logFilter = { rating: 0, country: '', type: '', sort: 'date' };
+let logFilter = { rating: 0, country: '', type: '', sort: 'date', live: '' };
 
 function buildTabs(){
   const b=document.getElementById('tabs-bar');
@@ -2068,7 +2081,7 @@ function setLogFilter(key, val){
   renderLogPage();
 }
 function clearLogFilters(){
-  logFilter = { rating:0, country:'', type:'', sort:'date' };
+  logFilter = { rating:0, country:'', type:'', sort:'date', live:'' };
   updateLogFilterUI();
   renderLogPage();
 }
@@ -2104,7 +2117,15 @@ function updateLogFilterUI(){
     o.classList.toggle('active', o.dataset.v===logFilter.type);
   });
 
-  const hasFilter = logFilter.rating || logFilter.country || logFilter.type;
+  const liveEl=document.getElementById('lfd-live-val');
+  if(liveEl) liveEl.textContent = logFilter.live==='live' ? '🔴 Live' : logFilter.live==='replay' ? 'Replay' : '';
+
+  // Live options
+  document.querySelectorAll('#lfd-live .lfd-type-opt').forEach(o=>{
+    o.classList.toggle('active', o.dataset.v===logFilter.live);
+  });
+
+  const hasFilter = logFilter.rating || logFilter.country || logFilter.type || logFilter.live;
   const cl=document.getElementById('log-clear-filters');
   if(cl) cl.style.display = hasFilter ? 'block' : 'none';
 
@@ -2686,6 +2707,8 @@ function renderLogPage(){
       if(key!==logFilter.country) return false;
     }
     if(logFilter.type && r.type!==logFilter.type) return false;
+    if(logFilter.live==='live' && !w.live) return false;
+    if(logFilter.live==='replay' && w.live) return false;
     return true;
   });
 
