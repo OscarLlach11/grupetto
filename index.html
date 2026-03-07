@@ -1832,6 +1832,7 @@ function showPage(p){
   document.querySelectorAll('.nav-a').forEach(x=>x.classList.remove('active'));
   const nb=document.getElementById('nav-'+p); if(nb) nb.classList.add('active');
   aPg=p;
+  if(p!=='discover') curRacePageId=null;
   if(p==='log') renderLogPage();
   else if(p==='top') renderLeaderboard();
   else if(p==='stats') renderStats();
@@ -1882,7 +1883,7 @@ function availYears(id){
 // ════════════════════════════════════════════════════════
 //  RENDER ALL
 // ════════════════════════════════════════════════════════
-function renderAll(){renderGrid();renderSidebar();updateStats();}
+function renderAll(){renderGrid();renderSidebar();updateStats();if(curRacePageId) openRacePage(curRacePageId);}
 
 function filteredRaces(){
   return RACES.filter(r=>{
@@ -1926,7 +1927,9 @@ function renderGrid(){
 // ════════════════════════════════════════════════════════
 //  RACE SUBPAGE
 // ════════════════════════════════════════════════════════
+let curRacePageId = null;
 function openRacePage(id){
+  curRacePageId = id;
   const r=RACES.find(x=>x.id===id); if(!r) return;
   const rl=userLog[id]||{};
   const watches=(rl.watches||[]);
@@ -2281,7 +2284,10 @@ async function saveLog(){
     const logId=await saveLogToSupabase(curId,watchEntry);
     if(logId){watchEntry.id=logId;persist();}
   }
-  closeMO('log-mo');toast(`${year} logged ✓`);renderAll();
+  const savedYear = year;
+  closeMO('log-mo');
+  toast(`${savedYear} logged ✓`);
+  renderAll();
 }
 
 // ════════════════════════════════════════════════════════
