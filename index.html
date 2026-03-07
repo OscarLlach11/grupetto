@@ -63,13 +63,27 @@
     if (!email)              { toast('Please enter your email');       return; }
     if (password.length < 6) { toast('Password min 6 characters');    return; }
 
-    const { error } = await sb.auth.signUp({
+    // Auto-generate handle from email prefix, cleaned up
+    const handle = email.split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g,'').slice(0,24) || 'cyclist';
+
+    const { data, error } = await sb.auth.signUp({
       email,
       password,
-      options: { data: { display_name: name } }
+      options: { data: { display_name: name, handle } }
     });
 
     if (error) { toast(error.message); return; }
+    // Save initial profile with handle
+    if(data?.user){
+      await sb.from('profiles').upsert({
+        user_id: data.user.id,
+        display_name: name,
+        handle,
+      }, { onConflict: 'user_id' });
+      profile.name = name;
+      profile.handle = handle;
+      persistProfile();
+    }
     toast('Check your email to confirm your account ✓');
     closeMO('auth-mo');
   }
@@ -801,20 +815,23 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 
 <!-- EDIT PROFILE MODAL -->
 <div class="mo" id="edit-profile-mo" onclick="if(event.target===this){profileEditMode=false;renderProfile();handleMOClick(event,'edit-profile-mo')}">
-  <div class="modal" style="max-width:460px;">
-    <div class="mbody" style="padding:24px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+  <div class="modal" style="max-width:600px;max-height:90vh;display:flex;flex-direction:column;">
+    <div class="mbody" style="padding:28px;overflow-y:auto;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
         <span style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:3px;color:var(--gold);">Edit Profile</span>
         <button class="mcls" onclick="profileEditMode=false;renderProfile();closeMO('edit-profile-mo')" style="position:static;">✕</button>
       </div>
+
       <label class="flbl">Display Name</label>
-      <input type="text" class="dinp" id="ep-name" style="width:100%;margin-bottom:14px;" maxlength="30" placeholder="Your name">
-      <label class="flbl">Handle</label>
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:20px;">
-        <span style="color:var(--muted);font-size:14px;">@</span>
-        <input type="text" class="dinp" id="ep-handle" style="flex:1;" maxlength="24" placeholder="yourhandle">
-      </div>
-      <button class="bp" onclick="saveProfile()" style="width:100%;">Save</button>
+      <input type="text" class="dinp" id="ep-name" style="width:100%;margin-bottom:20px;" maxlength="30" placeholder="Your name">
+
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:2px;color:var(--gold);margin-bottom:12px;">Favourite Riders</div>
+      <div id="ep-riders-grid" style="display:flex;gap:10px;margin-bottom:24px;flex-wrap:wrap;"></div>
+
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:2px;color:var(--gold);margin-bottom:12px;">Favourite Race</div>
+      <div id="ep-fav-race-display" style="margin-bottom:24px;"></div>
+
+      <button class="bp" onclick="saveProfile()" style="width:100%;">Save Changes</button>
     </div>
   </div>
 </div>
@@ -1978,7 +1995,8 @@ function openRacePage(id, preferYear){
   curRacePageId = id;
   const r=RACES.find(x=>x.id===id); if(!r) return;
   // Update hash - use pushState so back button works
-  history.pushState(null, '', year ? `#/race/${id}/${year}` : `#/race/${id}`);
+  const hashYear = preferYear || availYears(id)[0];
+  history.pushState(null, '', hashYear ? `#/race/${id}/${hashYear}` : `#/race/${id}`);
   const rl=userLog[id]||{};
   const watches=(rl.watches||[]);
   const cnt=getStageCount(id);
@@ -3065,19 +3083,19 @@ function renderProfile(){
     const fr = profile.favRace;
     const race = RACES.find(x=>x.id===fr.id);
     const label = fr.stageNum ? `Stage ${fr.stageNum}, ${fr.year} edition` : `${fr.year} edition`;
-    favRaceEl.innerHTML = `<div class="fav-race-card filled" onclick="openFavRacePicker()">
+    favRaceEl.innerHTML = `<div class="fav-race-card filled" onclick="openRacePage('${fr.id}', ${fr.year})" style="cursor:pointer;">
       <div class="fav-race-swatch" style="background:${race?race.gradient:'var(--border)'}"></div>
       <div class="fav-race-info">
         <div class="fav-race-name">${race?race.name:'Unknown race'}</div>
         <div class="fav-race-sub">${label}</div>
-        <div style="margin-top:6px;font-size:10px;color:var(--muted);letter-spacing:1px;">Click to change</div>
+        <div style="margin-top:6px;font-size:10px;color:var(--muted);letter-spacing:1px;">★ All-time favourite</div>
       </div>
     </div>`;
   } else {
-    favRaceEl.innerHTML = `<div class="fav-race-card" onclick="openFavRacePicker()">
-      <div class="fav-race-swatch" style="background:var(--border);display:flex;align-items:center;justify-content:center;font-size:24px;color:var(--border-light);">+</div>
+    favRaceEl.innerHTML = `<div class="fav-race-card" style="cursor:default;border-style:dashed;">
+      <div class="fav-race-swatch" style="background:var(--border);display:flex;align-items:center;justify-content:center;font-size:24px;color:var(--border-light);">★</div>
       <div class="fav-race-info">
-        <div class="fav-race-empty">Choose your all-time favourite edition — a specific year's race or a single stage</div>
+        <div class="fav-race-empty" style="color:var(--muted);">Set your all-time favourite in Edit Profile</div>
       </div>
     </div>`;
   }
@@ -3158,16 +3176,61 @@ let profileEditMode = false;
 
 function openEditProfile(){
   document.getElementById('ep-name').value = profile.name||'';
-  document.getElementById('ep-handle').value = profile.handle||'';
+  renderEPRiders();
+  renderEPFavRace();
   profileEditMode = true;
   renderProfile();
   openMO('edit-profile-mo');
 }
+
+function renderEPRiders(){
+  const grid = document.getElementById('ep-riders-grid');
+  if(!grid) return;
+  if(!Array.isArray(profile.favRiders) || profile.favRiders.length < 4) profile.favRiders = [null,null,null,null];
+  grid.innerHTML = profile.favRiders.map((rider, i) => {
+    if(rider){
+      const name = rider.name || rider;
+      const imgSrc = rider.imageUrl && rider.imageUrl !== 'none' ? rider.imageUrl : null;
+      const col = riderColor(name); const ini = riderInitials(name);
+      const photo = imgSrc
+        ? `<img src="${imgSrc}" style="width:100%;height:100%;object-fit:cover;object-position:center top;" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div style="display:none;width:100%;height:100%;background:${col};align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;font-size:18px;color:#fff;">${ini}</div>`
+        : `<div style="width:100%;height:100%;background:${col};display:flex;align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;font-size:18px;color:#fff;">${ini}</div>`;
+      return `<div onclick="openRiderPicker(${i})" style="width:90px;aspect-ratio:2/3;position:relative;cursor:pointer;border:1px solid var(--border-light);overflow:hidden;flex-shrink:0;" title="Change rider">
+        ${photo}
+        <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.7);padding:4px 5px;font-size:8px;letter-spacing:0.5px;text-transform:uppercase;line-height:1.2;">${formatRiderName(name)}</div>
+        <div style="position:absolute;inset:0;background:rgba(0,0,0,0);display:flex;align-items:center;justify-content:center;font-size:16px;opacity:0;transition:all .15s;" onmouseover="this.style.background='rgba(0,0,0,0.5)';this.style.opacity=1" onmouseout="this.style.background='rgba(0,0,0,0)';this.style.opacity=0">✏️</div>
+      </div>`;
+    }
+    return `<div onclick="openRiderPicker(${i})" style="width:90px;aspect-ratio:2/3;background:var(--card-bg);border:1px dashed var(--border);display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;gap:6px;flex-shrink:0;">
+      <div style="font-size:20px;color:var(--border-light);">+</div>
+      <div style="font-size:8px;color:var(--muted);letter-spacing:1px;">RIDER ${i+1}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderEPFavRace(){
+  const el = document.getElementById('ep-fav-race-display');
+  if(!el) return;
+  if(profile.favRace){
+    const fr = profile.favRace;
+    const race = RACES.find(x=>x.id===fr.id);
+    el.innerHTML = `<div onclick="openFavRacePicker()" style="display:flex;align-items:center;gap:14px;padding:12px;background:var(--card-bg);border:1px solid var(--border-light);cursor:pointer;">
+      <div style="width:40px;height:40px;background:${race?race.gradient:'var(--border)'};flex-shrink:0;"></div>
+      <div style="flex:1;">
+        <div style="font-size:12px;letter-spacing:1px;">${race?race.name:'Unknown'}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px;">${fr.year}${fr.stageNum?' · Stage '+fr.stageNum:''}</div>
+      </div>
+      <div style="font-size:10px;color:var(--muted);">Change ›</div>
+    </div>`;
+  } else {
+    el.innerHTML = `<div onclick="openFavRacePicker()" style="padding:12px;background:var(--card-bg);border:1px dashed var(--border);cursor:pointer;text-align:center;color:var(--muted);font-size:11px;letter-spacing:1px;">+ Choose Favourite Race</div>`;
+  }
+}
+
 function saveProfile(){
   const n = document.getElementById('ep-name').value.trim();
-  const h = document.getElementById('ep-handle').value.trim().replace(/^@/,'').replace(/\s+/g,'');
   if(n) profile.name = n;
-  if(h) profile.handle = h;
+  // handle is never changed — it's set from user_id on signup
   persistProfile();
   if(currentUser) saveProfileToSupabase();
   closeMO('edit-profile-mo');
@@ -3256,7 +3319,12 @@ function selectFavRider(rider){
   persistProfile();
   if(currentUser) saveProfileToSupabase();
   closeMO('rider-picker-mo');
-  renderProfile();
+  // Re-render EP modal grid if open, otherwise re-render profile
+  if(document.getElementById('edit-profile-mo').classList.contains('open')){
+    renderEPRiders();
+  } else {
+    renderProfile();
+  }
   const name = rider.name || rider;
   toast(`${name} added to favourites`);
 }
@@ -3315,7 +3383,11 @@ function selectFavRace(id, year, stageNum){
   persistProfile();
   if(currentUser) saveProfileToSupabase();
   closeMO('race-picker-mo');
-  renderProfile();
+  if(document.getElementById('edit-profile-mo').classList.contains('open')){
+    renderEPFavRace();
+  } else {
+    renderProfile();
+  }
   const r = RACES.find(x=>x.id===id);
   toast(`${r?r.name:'Race'} ${year} set as favourite`);
 }
@@ -3395,23 +3467,41 @@ async function renderRiderPage(inputName){
   const el = document.getElementById('rider-page-inner');
   el.innerHTML = `<div style="padding:60px;text-align:center;color:var(--muted);">Loading rider data…</div>`;
 
-  // Try the name as-is (DB format: "Pogačar Tadej"), then reversed (display format was passed)
+  // Try the name as-is (DB format: "Contador Alberto"), then reversed, then partial wildcard
   const namesToTry = [inputName];
-  // If it looks like display format "First Last", try reversing to "Last First"
   const parts = inputName.trim().split(' ').filter(Boolean);
   if(parts.length >= 2){
     const reversed = parts[parts.length-1] + ' ' + parts.slice(0,parts.length-1).join(' ');
     if(reversed !== inputName) namesToTry.push(reversed);
+    // Also try wildcard on last name (most reliable)
+    namesToTry.push(`%${parts[parts.length-1]}%`);
+    namesToTry.push(`%${parts[0]}%`);
   }
 
+  console.log('renderRiderPage: searching for', namesToTry);
   let rows = null;
   for(const name of namesToTry){
     const { data, error } = await sb.from('startlists')
       .select('rider_name, team_name, nationality, image_url, race_slug, year, stage_num')
       .ilike('rider_name', name)
-      .order('year', { ascending: false });
+      .order('year', { ascending: false })
+      .limit(200);
     if(error) console.error('startlists error:', error, 'for name:', name);
-    if(data && data.length){ rows = data; break; }
+    console.log('startlists query', name, '→', data?.length, 'rows', error?.message);
+    if(data && data.length){
+      // If wildcard returned multiple riders, filter to best match
+      if(name.includes('%') && data.length > 1){
+        const exact = data.filter(r => r.rider_name.toLowerCase() === inputName.toLowerCase() ||
+          r.rider_name.toLowerCase() === (parts[parts.length-1]+' '+parts.slice(0,parts.length-1).join(' ')).toLowerCase());
+        rows = exact.length ? exact : [data[0]]; // take first if no exact match
+        // Filter all rows to just this rider
+        const matchName = rows[0].rider_name;
+        rows = data.filter(r => r.rider_name === matchName);
+      } else {
+        rows = data;
+      }
+      break;
+    }
   }
 
   // rawName = DB format for display reversal
