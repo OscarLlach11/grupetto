@@ -212,7 +212,7 @@
   // ── Save profile ──────────────────────────────────────────────────────────
   async function saveProfileToSupabase() {
     if (!currentUser) return;
-    await sb.from('profiles').upsert({
+    const { error } = await sb.from('profiles').upsert({
       user_id:        currentUser.id,
       display_name:   profile.name,
       handle:         profile.handle,
@@ -222,6 +222,7 @@
       fav_race_year:  profile.favRace?.year  || null,
       fav_race_stage: profile.favRace?.stageNum || null,
     });
+    if (error) { console.error('saveProfileToSupabase error:', error); toast('Profile save failed: ' + error.message); }
   }
 
   // ── Toggle watchlist ──────────────────────────────────────────────────────
@@ -531,9 +532,9 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 .profile-stat-l{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-top:2px;}
 .profile-section-title{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:3px;color:var(--gold);margin-bottom:16px;margin-top:28px;}
 .fav-riders-grid{display:flex;gap:10px;margin-bottom:32px;flex-wrap:wrap;}
-.fav-rider-slot{background:var(--card-bg);border:1px solid var(--border);text-align:center;cursor:pointer;transition:border-color .15s;width:120px;aspect-ratio:2/3;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:14px 10px;flex-shrink:0;}
+.fav-rider-slot{background:var(--card-bg);border:1px solid var(--border);text-align:center;cursor:pointer;transition:border-color .15s;width:144px;aspect-ratio:2/3;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:14px 10px;flex-shrink:0;}
 .fav-rider-slot:hover{border-color:var(--gold-dim);}
-.fav-rider-slot.filled{border-color:var(--border-light);padding:0;justify-content:flex-end;position:relative;overflow:hidden;width:120px;aspect-ratio:2/3;}
+.fav-rider-slot.filled{border-color:var(--border-light);padding:0;justify-content:flex-end;position:relative;overflow:hidden;width:144px;aspect-ratio:2/3;}
 .fav-rider-slot.filled:hover{border-color:var(--gold);}
 .fav-rider-photo{width:100%;height:100%;object-fit:cover;object-position:center top;display:block;}
 .fav-rider-photo-placeholder{width:100%;height:120px;display:flex;align-items:center;justify-content:center;background:var(--card-bg);}
@@ -2282,7 +2283,6 @@ async function saveLog(){
   if(!userLog[curId]) userLog[curId]={watches:[],range:[]};
   const rl=userLog[curId];
   const entry={year,date,live:wholeLive,rating:formRating,review,stages:{},ts:Date.now()};
-  // Merge stages if they exist
   if(curWatchIdx!==null&&rl.watches[curWatchIdx]){
     entry.stages=rl.watches[curWatchIdx].stages||{};
     rl.watches[curWatchIdx]=entry;
@@ -2291,16 +2291,19 @@ async function saveLog(){
     curWatchIdx=rl.watches.length-1;
   }
   persist();
-  // Save to Supabase if signed in
-  if(currentUser){
-    const watchEntry=rl.watches[curWatchIdx];
-    const logId=await saveLogToSupabase(curId,watchEntry);
-    if(logId){watchEntry.id=logId;persist();}
-  }
+  // Close modal and show toast immediately
   const savedYear = year;
+  const savedId = curId;
+  const savedIdx = curWatchIdx;
   closeMO('log-mo');
   toast(`${savedYear} logged ✓`);
   renderAll();
+  // Save to Supabase in background
+  if(currentUser){
+    const watchEntry=rl.watches[savedIdx];
+    const logId=await saveLogToSupabase(savedId, watchEntry);
+    if(logId){watchEntry.id=logId; persist();}
+  }
 }
 
 // ════════════════════════════════════════════════════════
