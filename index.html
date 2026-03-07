@@ -2911,14 +2911,8 @@ function renderProfile(){
   }
   grid.innerHTML = profile.favRiders.map((rider, i) => {
     if(rider){
-      const name = rider.name || rider; // backwards compat with plain strings
-      const url  = rider.url  || null;
-      const pcsImg = url
-        ? `https://www.procyclingstats.com/images/riders/medium/${url.replace('rider/','')}.jpg`
-        : null;
-      const imgSrc = pcsImg
-        ? `https://wsrv.nl/?url=${encodeURIComponent(pcsImg)}&w=200&h=200&fit=cover&a=top`
-        : null;
+      const name = rider.name || rider;
+      const imgSrc = rider.imageUrl && rider.imageUrl !== 'none' ? rider.imageUrl : null;
       const col = riderColor(name);
       const ini = riderInitials(name);
       const photoHtml = imgSrc
@@ -3060,7 +3054,7 @@ async function searchRidersFromSupabase(q){
 
   const { data, error } = await sb
     .from('startlists')
-    .select('rider_name, team_name, nationality, rider_url')
+    .select('rider_name, team_name, nationality, rider_url, image_url')
     .ilike('rider_name', `%${q}%`)
     .order('rider_name')
     .limit(80);
@@ -3074,18 +3068,13 @@ async function searchRidersFromSupabase(q){
 
   if(!unique.length){ el.innerHTML='<div style="color:var(--muted);font-size:12px;padding:10px 0;">No riders found.</div>'; return; }
 
-  window._riderPickerFiltered = unique.map(r => ({name: r.rider_name, url: r.rider_url}));
+  window._riderPickerFiltered = unique.map(r => ({name: r.rider_name, url: r.rider_url, imageUrl: r.image_url}));
 
   el.innerHTML = unique.map((r, idx) => {
     const col = riderColor(r.rider_name);
     const ini = riderInitials(r.rider_name);
     const isCur = (profile.favRiders||[]).some(fr => fr && (fr.name||fr) === r.rider_name);
-    const pcsImg = r.rider_url
-      ? `https://www.procyclingstats.com/images/riders/medium/${r.rider_url.replace('rider/','')}.jpg`
-      : null;
-    const imgSrc = pcsImg
-      ? `https://wsrv.nl/?url=${encodeURIComponent(pcsImg)}&w=80&h=80&fit=cover&a=top`
-      : null;
+    const imgSrc = r.image_url && r.image_url !== 'none' ? r.image_url : null;
     const meta = [r.team_name, r.nationality].filter(Boolean).join(' · ');
     const thumb = imgSrc
       ? `<img src="${imgSrc}" style="width:36px;height:36px;object-fit:cover;object-position:top;border-radius:2px;flex-shrink:0;"
@@ -3115,7 +3104,9 @@ function selectFavRiderByIdx(idx){
 
 function selectFavRider(rider){
   if(!profile.favRiders) profile.favRiders=[null,null,null,null];
-  profile.favRiders[_riderSlot] = typeof rider === 'string' ? {name: rider, url: null} : rider;
+  profile.favRiders[_riderSlot] = typeof rider === 'string'
+    ? {name: rider, url: null, imageUrl: null}
+    : rider;
   persistProfile();
   if(currentUser) saveProfileToSupabase();
   closeMO('rider-picker-mo');
