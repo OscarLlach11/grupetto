@@ -132,34 +132,39 @@
       .eq('user_id', uid)
       .order('created_at', { ascending: false });
 
-    userLog = {};
-    (logs || []).forEach(log => {
-      if (!userLog[log.slug]) userLog[log.slug] = { watches: [] };
-      const stages = {};
-      (log.stage_logs || []).forEach(s => {
-        stages[s.stage_num] = {
-          rating: s.rating,
-          review: s.review,
-          date:   s.date_watched,
-          live:   s.watched_live,
-        };
+    if (logs && logs.length > 0) {
+      userLog = {};
+      logs.forEach(log => {
+        if (!userLog[log.slug]) userLog[log.slug] = { watches: [] };
+        const stages = {};
+        (log.stage_logs || []).forEach(s => {
+          stages[s.stage_num] = {
+            rating: s.rating,
+            review: s.review,
+            date:   s.date_watched,
+            live:   s.watched_live,
+          };
+        });
+        userLog[log.slug].watches.push({
+          id:     log.id,
+          year:   log.year,
+          date:   log.date_watched,
+          live:   log.watched_live,
+          rating: parseFloat(log.rating) || 0,
+          review: log.review || '',
+          stages,
+          ts:     new Date(log.created_at).getTime(),
+        });
       });
-      userLog[log.slug].watches.push({
-        id:     log.id,
-        year:   log.year,
-        date:   log.date_watched,
-        live:   log.watched_live,
-        rating: parseFloat(log.rating) || 0,
-        review: log.review || '',
-        stages,
-        ts:     new Date(log.created_at).getTime(),
-      });
-    });
+      persist(); // sync back to localStorage
+    }
+    // else: keep whatever is in localStorage already
   }
 
   // ── Save race log ─────────────────────────────────────────────────────────
   async function saveLogToSupabase(slug, watchEntry) {
-    if (!currentUser) return null;
+    if (!currentUser) { console.warn('saveLogToSupabase: no currentUser'); toast('Not signed in — log saved locally only'); return null; }
+    console.log('saveLogToSupabase: inserting', slug, watchEntry.year, 'user:', currentUser.id);
 
     const row = {
       user_id:      currentUser.id,
@@ -1826,31 +1831,6 @@ let wholeLive=false;
 // ════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', async () => {
   buildTabs();
-
-  // Load races from Supabase, fall back to hardcoded array
-  try {
-    const { data: dbRaces, error } = await sb.from('races').select('*').order('name');
-    if (!error && dbRaces && dbRaces.length) {
-      RACES = dbRaces.map(r => ({
-        id:          r.slug,
-        name:        r.name,
-        country:     r.country,
-        flag:        r.flag        || '',
-        type:        r.race_type   || r.type || 'Classic',
-        firstYear:   r.first_year  || r.firstYear || 1900,
-        tvYear:      r.tv_year     || r.tvYear    || 1980,
-        distance:    r.distance    || '',
-        gradient:    r.gradient    || 'linear-gradient(135deg,#1a1a1a,#333)',
-        swatch:      r.swatch      || '#333',
-        description: r.description || '',
-      }));
-      // Reset race picker cache since RACES changed
-      _racePickerOpts = null;
-    }
-  } catch(e) {
-    console.warn('Could not load races from Supabase, using fallback', e);
-  }
-
   renderAll();
   document.getElementById('stat-races').textContent = RACES.length;
 });
@@ -2941,6 +2921,7 @@ function renderProfile(){
     const buckets={};
     for(let v=0.5;v<=5.0;v+=0.5) buckets[v.toFixed(1)]=0;
     allRatings.forEach(r=>{ const k=(Math.round(r*2)/2).toFixed(1); if(buckets[k]!==undefined) buckets[k]++; });
+    const maxCnt=Math.max(...Object.values(buckets),1);
     const BAR_MAX_H = 52;
     distEl.innerHTML=`<div style="display:flex;align-items:flex-end;gap:2px;height:${BAR_MAX_H+16}px;">`+
       Object.entries(buckets).map(([v,cnt])=>{
