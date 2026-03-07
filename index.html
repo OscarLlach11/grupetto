@@ -309,6 +309,9 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 .nav-cta{background:var(--gold)!important;color:var(--black)!important;padding:8px 16px;font-weight:500!important;font-size:10px!important;}
 /* PAGES */
 .page{display:none;animation:fadeUp .25s ease;}.page.active{display:block;}
+#page-rider, #page-race{display:none;flex-direction:column;height:calc(100vh - 57px);overflow:hidden;}
+#page-rider.active, #page-race.active{display:flex;}
+#page-rider .rider-scroll-body, #page-race .race-scroll-body{flex:1;overflow-y:auto;}
 @keyframes fadeUp{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
 /* HERO */
 .hero{padding:64px 40px 44px;position:relative;overflow:hidden;border-bottom:1px solid var(--border);}
@@ -494,7 +497,7 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 /* RACE SUBPAGE */
 .race-sub-layout{display:grid;grid-template-columns:1fr 300px;min-height:calc(100vh - 57px);}
 .rsp-main{padding:32px 36px;border-right:1px solid var(--border);}
-.rsp-sidebar{padding:24px 18px;position:sticky;top:57px;height:calc(100vh - 57px);overflow-y:auto;}
+.rsp-sidebar{padding:24px 18px;position:sticky;top:0;height:calc(100vh - 57px - 45px);overflow-y:auto;}
 .rsp-banner{height:200px;border-radius:2px;display:flex;align-items:flex-end;padding:20px 24px;position:relative;overflow:hidden;margin-bottom:24px;}
 .rsp-banner::after{content:'';position:absolute;inset:0;background:linear-gradient(0deg,rgba(10,10,10,.85) 0%,transparent 60%);}
 .rsp-ttl{font-family:'Bebas Neue',sans-serif;font-size:42px;letter-spacing:2px;line-height:.9;position:relative;z-index:1;}
@@ -866,22 +869,26 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 
 <!-- RACE SUBPAGE -->
 <div id="page-race" class="page">
-  <div style="position:sticky;top:0;z-index:10;background:var(--bg);padding:12px 24px;border-bottom:1px solid var(--border);">
+  <div style="background:var(--bg);padding:12px 24px;border-bottom:1px solid var(--border);flex-shrink:0;">
     <button class="bs" style="font-size:10px;" onclick="history.back()">← Back</button>
   </div>
-  <div class="race-sub-layout">
-    <div class="rsp-main" id="rsp-main"></div>
-    <div class="rsp-sidebar" id="rsp-sidebar"></div>
+  <div class="race-scroll-body">
+    <div class="race-sub-layout">
+      <div class="rsp-main" id="rsp-main"></div>
+      <div class="rsp-sidebar" id="rsp-sidebar"></div>
+    </div>
   </div>
 </div>
 
 <!-- RIDER PAGE -->
 <div id="page-rider" class="page">
-  <div style="position:sticky;top:0;z-index:10;background:var(--bg);padding:16px 24px;border-bottom:1px solid var(--border);">
+  <div style="position:sticky;top:0;z-index:10;background:var(--bg);padding:12px 24px;border-bottom:1px solid var(--border);flex-shrink:0;">
     <button class="bs" id="rider-back-btn" style="font-size:10px;" onclick="history.back()">← Back</button>
   </div>
-  <div style="max-width:900px;margin:0 auto;padding:32px 24px;">
-    <div id="rider-page-inner"></div>
+  <div class="rider-scroll-body">
+    <div style="max-width:900px;margin:0 auto;padding:32px 24px;">
+      <div id="rider-page-inner"></div>
+    </div>
   </div>
 </div>
 
@@ -2113,33 +2120,50 @@ function openRacePage(id, preferYear){
   if(years.length) renderRSPResults(id,years[0]);
 }
 
-function renderRSPResults(id,year){
-  const el=document.getElementById('rsp-results'); if(!el) return;
-  const res=RACE_RESULTS[id]?.[year];
-  const r2=RACES.find(x=>x.id===id);
-  const cnt=getStageCount(id);
-  const pcsUrl='https://www.procyclingstats.com/'+encodeURIComponent(id.replace(/-/g,'').replace(/'/g,''));
-  let html='';
-  if(res){
-    html+=`<div style="font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:2px;color:var(--ml);margin-bottom:10px;">${year} Results</div>`;
-    html+=`<div>`;
-    res.top10.forEach((n,i)=>{
-      html+=`<div class="top10-row">
+async function renderRSPResults(id, year){
+  const el = document.getElementById('rsp-results'); if(!el) return;
+  el.innerHTML = `<div style="font-size:11px;color:var(--muted);">Loading results…</div>`;
+
+  // Find the PCS slug for this race
+  const pcsSlug = Object.entries(PCS_SLUG_MAP).find(([k,v]) => v === id)?.[0] || id;
+
+  const { data, error } = await sb.from('race_results')
+    .select('top10, race_type')
+    .eq('slug', pcsSlug)
+    .eq('year', year)
+    .maybeSingle();
+
+  if(error) console.warn('race_results error:', error.message, 'slug:', pcsSlug, 'year:', year);
+
+  const top10 = data?.top10;
+  const hardcoded = RACE_RESULTS[id]?.[year];
+  let html = '';
+
+  if(top10 && top10.length){
+    html += `<div style="font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:2px;color:var(--ml);margin-bottom:10px;">${year} Results</div><div>`;
+    top10.forEach((name, i) => {
+      html += `<div class="top10-row">
         <span class="t10-pos">${i+1}</span>
-        <span class="t10-name">${n}</span>
+        <span class="t10-name" data-rider="${encodeURIComponent(name)}" style="cursor:pointer;" onclick="navToRider(decodeURIComponent(this.dataset.rider))" onmouseover="this.style.color='var(--gold)'" onmouseout="this.style.color=''">${formatRiderName(name)}</span>
       </div>`;
     });
-    html+=`</div>`;
-    if(res.jerseys&&res.jerseys.length){
-      html+=`<div style="font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:2px;color:var(--ml);margin:14px 0 8px;">Jerseys</div>`;
-      res.jerseys.forEach(([icon,type,rider])=>{
-        html+=`<div class="jersey-row"><span class="jersey-icon">${icon}</span><div><div class="jersey-type">${type}</div><div class="jersey-rider">${rider}</div></div></div>`;
+    html += `</div>`;
+  } else if(hardcoded){
+    html += `<div style="font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:2px;color:var(--ml);margin-bottom:10px;">${year} Results</div><div>`;
+    hardcoded.top10.forEach((n,i) => {
+      html += `<div class="top10-row"><span class="t10-pos">${i+1}</span><span class="t10-name">${n}</span></div>`;
+    });
+    html += `</div>`;
+    if(hardcoded.jerseys?.length){
+      html += `<div style="font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:2px;color:var(--ml);margin:14px 0 8px;">Jerseys</div>`;
+      hardcoded.jerseys.forEach(([icon,type,rider]) => {
+        html += `<div class="jersey-row"><span class="jersey-icon">${icon}</span><div><div class="jersey-type">${type}</div><div class="jersey-rider">${rider}</div></div></div>`;
       });
     }
   } else {
-    html=`<div style="font-size:12px;color:var(--muted);font-style:italic;line-height:1.8;">No results data for ${year}.<br>Check ProCyclingStats.com for full results.</div>`;
+    html = `<div style="font-size:12px;color:var(--muted);font-style:italic;line-height:1.8;">No results data for ${year}.<br><a href="https://www.procyclingstats.com" target="_blank" style="color:var(--gold-dim);">ProCyclingStats.com</a></div>`;
   }
-  el.innerHTML=html;
+  el.innerHTML = html;
 }
 
 // ════════════════════════════════════════════════════════
