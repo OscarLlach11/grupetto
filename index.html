@@ -212,16 +212,17 @@
   // ── Save profile ──────────────────────────────────────────────────────────
   async function saveProfileToSupabase() {
     if (!currentUser) return;
-    const { error } = await sb.from('profiles').upsert({
+    const payload = {
       user_id:        currentUser.id,
       display_name:   profile.name,
       handle:         profile.handle,
       avatar_url:     profile.avatarUrl || null,
       fav_riders:     profile.favRiders,
-      fav_race_slug:  profile.favRace?.id   || null,
-      fav_race_year:  profile.favRace?.year  || null,
-      fav_race_stage: profile.favRace?.stageNum || null,
-    });
+      fav_race_slug:  profile.favRace?.id        || null,
+      fav_race_year:  profile.favRace?.year       || null,
+      fav_race_stage: profile.favRace?.stageNum   || null,
+    };
+    const { error } = await sb.from('profiles').upsert(payload, { onConflict: 'user_id' });
     if (error) { console.error('saveProfileToSupabase error:', error); toast('Profile save failed: ' + error.message); }
   }
 
@@ -542,7 +543,7 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 .fav-rider-icon{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;font-size:16px;flex-shrink:0;}
 .fav-rider-name{font-size:11px;text-align:center;line-height:1.3;color:var(--white);}
 .fav-rider-empty{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);}
-.fav-race-card{background:var(--card-bg);border:1px solid var(--border);display:flex;align-items:center;gap:16px;padding:16px;cursor:pointer;transition:border-color .15s;max-width:520px;}
+.fav-race-card{background:var(--card-bg);border:1px solid var(--border);display:flex;align-items:center;gap:16px;padding:16px;cursor:pointer;transition:border-color .15s;width:calc(4 * 144px + 3 * 10px);box-sizing:border-box;}
 .fav-race-card:hover{border-color:var(--gold-dim);}
 .fav-race-card.filled:hover{border-color:var(--gold);}
 .fav-race-swatch{width:60px;height:60px;flex-shrink:0;}
@@ -3030,8 +3031,8 @@ function renderProfile(){
     </div>`;
   }
 
-  // ── Recent Activity (4 most recent) ──────────────────────────────────
-  const recent = all.map(([id,w])=>({id,w,ts:w.ts||0})).sort((a,b)=>b.ts-a.ts).slice(0,4);
+  // ── Recent Activity (5 most recent) ──────────────────────────────────
+  const recent = all.map(([id,w])=>({id,w,ts:w.ts||0})).sort((a,b)=>b.ts-a.ts).slice(0,5);
   const raEl = document.getElementById('profile-recent-activity');
   if(recent.length){
     raEl.innerHTML = recent.map(({id,w})=>{
@@ -3072,26 +3073,21 @@ function renderProfile(){
   } else {
     countriesEl.innerHTML = '<div style="color:var(--muted);font-size:12px;">Log some races to see countries.</div>';
   }
-  const withReviews = all.filter(([,w])=>w.review&&w.review.trim()).map(([id,w])=>({id,w,ts:w.ts||0})).sort((a,b)=>b.ts-a.ts).slice(0,5);
-  // Also include stage reviews
-  const stageReviews=[];
-  Object.entries(userLog).forEach(([id,rl])=>(rl.watches||[]).forEach(w=>{
-    Object.entries(w.stages||{}).forEach(([stNum,s])=>{
-      if(s.review&&s.review.trim()) stageReviews.push({id,w,stNum,s,ts:s.date?new Date(s.date).getTime():0});
-    });
-  }));
-  stageReviews.sort((a,b)=>b.ts-a.ts);
+
+  // ── Recent Reviews (5 most recent with a review) ──────────────────────
+  const withReviews = all
+    .filter(([,w])=>w.review&&w.review.trim())
+    .map(([id,w])=>({id,w,ts:w.ts||0}))
+    .sort((a,b)=>b.ts-a.ts)
+    .slice(0,5);
   const revEl = document.getElementById('profile-recent-reviews');
-  const allRevItems=[...withReviews.map(({id,w})=>({id,w,stNum:null})),...stageReviews.slice(0,3).map(({id,w,stNum,s})=>({id,w,stNum,s}))].slice(0,6);
-  if(allRevItems.length){
-    revEl.innerHTML=allRevItems.map(({id,w,stNum,s})=>{
+  if(withReviews.length){
+    revEl.innerHTML=withReviews.map(({id,w})=>{
       const r=RACES.find(x=>x.id===id)||{name:id};
-      const label = stNum ? `${r.name} ${w.year} · Stage ${stNum}` : `${r.name} ${w.year}`;
-      const rating = stNum ? (s.rating||null) : (w.rating||null);
-      const review = stNum ? s.review : w.review;
+      const rating = w.rating||null;
       return `<div class="review-card">
-        <div class="review-race">${label}${rating?` · ★ ${rating}`:''}</div>
-        <div class="review-text">"${review.slice(0,220)}${review.length>220?'…':''}"</div>
+        <div class="review-race">${r.name} ${w.year}${rating?` · ★ ${rating}`:''}</div>
+        <div class="review-text">"${w.review.slice(0,220)}${w.review.length>220?'…':''}"</div>
       </div>`;
     }).join('');
   } else {
