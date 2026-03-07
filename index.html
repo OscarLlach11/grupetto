@@ -309,9 +309,9 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 .nav-cta{background:var(--gold)!important;color:var(--black)!important;padding:8px 16px;font-weight:500!important;font-size:10px!important;}
 /* PAGES */
 .page{display:none;animation:fadeUp .25s ease;}.page.active{display:block;}
-#page-rider, #page-race{display:none;flex-direction:column;height:calc(100vh - 57px);overflow:hidden;}
-#page-rider.active, #page-race.active{display:flex;}
-#page-rider .rider-scroll-body, #page-race .race-scroll-body{flex:1;overflow-y:auto;}
+#page-rider, #page-race, #page-review{display:none;flex-direction:column;height:calc(100vh - 57px);overflow:hidden;}
+#page-rider.active, #page-race.active, #page-review.active{display:flex;}
+#page-rider .rider-scroll-body, #page-race .race-scroll-body, #page-review .race-scroll-body{flex:1;overflow-y:auto;}
 @keyframes fadeUp{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
 /* HERO */
 .hero{padding:64px 40px 44px;position:relative;overflow:hidden;border-bottom:1px solid var(--border);}
@@ -627,9 +627,17 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 .ra-swatch{width:40px;height:40px;flex-shrink:0;border-radius:2px;}
 .ra-name{font-size:13px;font-weight:600;transition:color .15s;}
 .ra-meta{font-size:11px;color:var(--muted);margin-top:2px;}
-.review-card{padding:12px 0;border-bottom:1px solid var(--border);}
+.review-card{padding:12px 0;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s;}
+.review-card:hover{background:rgba(255,255,255,.02);}
 .review-race{font-size:12px;font-weight:600;color:var(--accent);margin-bottom:4px;}
 .review-text{font-size:12px;color:var(--text);line-height:1.6;font-style:italic;}
+.rv-like-btn{display:flex;align-items:center;gap:6px;background:none;border:1px solid var(--border);color:var(--muted);padding:6px 14px;font-size:11px;letter-spacing:1px;cursor:pointer;transition:all .15s;}
+.rv-like-btn:hover,.rv-like-btn.liked{border-color:var(--gold);color:var(--gold);}
+.rv-comment-input{width:100%;background:var(--card-bg);border:1px solid var(--border);color:var(--text);padding:10px 14px;font-family:'DM Sans',sans-serif;font-size:13px;resize:vertical;min-height:80px;box-sizing:border-box;transition:border-color .15s;}
+.rv-comment-input:focus{outline:none;border-color:var(--gold-dim);}
+.rv-comment{padding:14px 0;border-bottom:1px solid var(--border);}
+.rv-comment-author{font-size:11px;letter-spacing:1px;color:var(--gold);margin-bottom:4px;}
+.rv-comment-text{font-size:13px;color:var(--text);line-height:1.6;}
 .rider-page-header{display:flex;gap:24px;padding:28px 28px 20px;border-bottom:1px solid var(--border);align-items:flex-end;}
 .rider-page-photo{width:100px;aspect-ratio:2/3;object-fit:cover;object-position:center top;flex-shrink:0;}
 .rider-page-photo-placeholder{width:100px;aspect-ratio:2/3;display:flex;align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;font-size:32px;color:#fff;flex-shrink:0;}
@@ -965,6 +973,18 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
   <div class="rider-scroll-body">
     <div style="max-width:900px;margin:0 auto;padding:32px 24px;">
       <div id="rider-page-inner"></div>
+    </div>
+  </div>
+</div>
+
+<!-- REVIEW PAGE -->
+<div id="page-review" class="page">
+  <div style="background:var(--bg);padding:12px 24px;border-bottom:1px solid var(--border);flex-shrink:0;">
+    <button class="bs" style="font-size:10px;" onclick="history.back()">← Back</button>
+  </div>
+  <div class="race-scroll-body">
+    <div style="max-width:760px;margin:0 auto;padding:40px 24px;">
+      <div id="review-page-inner"></div>
     </div>
   </div>
 </div>
@@ -3435,12 +3455,17 @@ function renderProfile(){
     .slice(0,5);
   const revEl = document.getElementById('profile-recent-reviews');
   if(withReviews.length){
+    const userHandle = profile.handle || 'user';
     revEl.innerHTML=withReviews.map(({id,w})=>{
       const r=RACES.find(x=>x.id===id)||{name:id};
       const rating = w.rating||null;
-      return `<div class="review-card">
+      // Find which review number this is (1-indexed among reviews for this race)
+      const allReviewsForRace = (userLog[id]?.watches||[]).filter(x=>x.review&&x.review.trim()).sort((a,b)=>(a.ts||0)-(b.ts||0));
+      const n = allReviewsForRace.findIndex(x=>x.ts===w.ts)+1 || 1;
+      return `<div class="review-card" onclick="navToReview('${userHandle}','${id}',${w.year},${n})">
         <div class="review-race">${r.name} ${w.year}${rating?` · ★ ${rating}`:''}</div>
         <div class="review-text">"${w.review.slice(0,220)}${w.review.length>220?'…':''}"</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:6px;letter-spacing:.5px;">View review →</div>
       </div>`;
     }).join('');
   } else {
@@ -3716,10 +3741,163 @@ function handleRoute(hash){
     openRacePage(slug, year);
   } else if(parts[0] === 'rider' && parts[1]) {
     openRiderPageBySlug(parts[1]);
+  } else if(parts[0] === 'review' && parts[1] && parts[2] && parts[3]) {
+    // #/review/{handle}/{raceId}/{year}[/{n}]
+    openReviewPage(parts[1], parts[2], parseInt(parts[3]), parts[4] ? parseInt(parts[4]) : 1);
   }
 }
 
 window.addEventListener('popstate', () => handleRoute(location.hash));
+
+// ════════════════════════════════════════════════════════
+//  REVIEW PAGE
+// ════════════════════════════════════════════════════════
+function navToReview(handle, raceId, year, n){
+  n = n || 1;
+  const hash = `#/review/${handle}/${raceId}/${year}${n>1?'/'+n:''}`;
+  history.pushState(null, '', hash);
+  openReviewPage(handle, raceId, year, n);
+}
+
+async function openReviewPage(handle, raceId, year, n){
+  n = n || 1;
+  document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));
+  document.getElementById('page-review').classList.add('active');
+  document.querySelectorAll('.nav-a').forEach(x=>x.classList.remove('active'));
+
+  const el = document.getElementById('review-page-inner');
+  el.innerHTML = `<div style="color:var(--muted);padding:40px 0;">Loading review…</div>`;
+
+  const r = RACES.find(x=>x.id===raceId);
+
+  // Find the watch entry: watches with a review, sorted by ts, pick nth
+  let reviewEntry = null, reviewUserHandle = handle, isOwnReview = false;
+
+  if(handle === (profile.handle || '') || !handle){
+    // Own review from localStorage
+    isOwnReview = true;
+    const rl = userLog[raceId] || {};
+    const reviewWatches = (rl.watches||[]).filter(w=>w.review&&w.review.trim()).sort((a,b)=>(a.ts||0)-(b.ts||0));
+    reviewEntry = reviewWatches[n-1] || null;
+  } else {
+    // Another user's review — fetch from Supabase
+    const { data: pData } = await sb.from('profiles').select('user_id,display_name,handle').eq('handle', handle).maybeSingle();
+    if(pData){
+      const { data: logData } = await sb.from('race_logs').select('log_data').eq('user_id', pData.user_id).eq('race_id', raceId).maybeSingle();
+      if(logData?.log_data){
+        const rl = logData.log_data;
+        const reviewWatches = (rl.watches||[]).filter(w=>w.review&&w.review.trim()).sort((a,b)=>(a.ts||0)-(b.ts||0));
+        reviewEntry = reviewWatches[n-1] || null;
+        reviewUserHandle = handle;
+      }
+    }
+  }
+
+  if(!reviewEntry){
+    el.innerHTML = `<div style="color:var(--muted);padding:40px 0;text-align:center;">Review not found.</div>`;
+    return;
+  }
+
+  // Get like count & whether current user liked it
+  const reviewKey = `${handle}/${raceId}/${year}/${n}`;
+  const { data: likesData } = await sb.from('review_likes').select('user_id').eq('review_key', reviewKey);
+  const likeCount = likesData?.length || 0;
+  const myUserId = currentUser?.id;
+  const iLiked = myUserId && likesData?.some(l=>l.user_id===myUserId);
+  const isMyReview = isOwnReview || (myUserId && handle===(profile.handle||''));
+
+  // Get comments
+  const { data: commentsData } = await sb.from('review_comments')
+    .select('id, user_id, handle, display_name, text, created_at')
+    .eq('review_key', reviewKey)
+    .order('created_at', { ascending: true });
+
+  const rName = r ? r.name : raceId;
+  const rGradient = r ? r.gradient : 'var(--border)';
+
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:28px;padding-bottom:24px;border-bottom:1px solid var(--border);">
+      <div style="width:56px;height:56px;flex-shrink:0;background:${rGradient};"></div>
+      <div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:3px;">${rName}</div>
+        <div style="font-size:12px;color:var(--muted);">${year} Edition · Review by <span style="color:var(--gold);">@${handle}</span>${n>1?` (review #${n})`:''}</div>
+      </div>
+    </div>
+
+    <div style="margin-bottom:24px;">
+      ${reviewEntry.rating ? `<div style="margin-bottom:10px;">${starsHTML(reviewEntry.rating,16)}</div>` : ''}
+      ${reviewEntry.live ? `<span style="font-size:9px;letter-spacing:1.5px;color:#e55;border:1px solid #e55;padding:2px 8px;margin-bottom:12px;display:inline-block;">WATCHED LIVE</span>` : ''}
+      <div style="font-size:15px;line-height:1.8;color:var(--text);margin-top:12px;white-space:pre-wrap;">${reviewEntry.review}</div>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:16px;padding:16px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin-bottom:32px;">
+      <button id="rv-like-btn" class="rv-like-btn ${iLiked?'liked':''}" onclick="toggleReviewLike('${reviewKey}',this)" ${isMyReview?'disabled title="You cannot like your own review"':''}>
+        ${iLiked?'♥':'♡'} <span id="rv-like-count">${likeCount}</span> ${likeCount===1?'like':'likes'}
+      </button>
+    </div>
+
+    <div style="margin-bottom:24px;">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:3px;margin-bottom:16px;">Comments <span style="color:var(--muted);font-size:14px;">${commentsData?.length||0}</span></div>
+      <div id="rv-comments-list">
+        ${(commentsData||[]).map(c=>`
+          <div class="rv-comment">
+            <div class="rv-comment-author">@${c.handle||c.display_name||'User'} <span style="color:var(--muted);font-weight:400;font-size:10px;margin-left:6px;">${fmtDate((c.created_at||'').split('T')[0])}</span></div>
+            <div class="rv-comment-text">${c.text}</div>
+          </div>`).join('') || '<div style="color:var(--muted);font-size:12px;padding:12px 0;">No comments yet. Be the first!</div>'}
+      </div>
+      ${currentUser ? `
+        <div style="margin-top:20px;">
+          <textarea class="rv-comment-input" id="rv-comment-input" placeholder="Write a comment…"></textarea>
+          <button class="bs" style="margin-top:8px;" onclick="submitReviewComment('${reviewKey}')">Post Comment</button>
+        </div>` : `<div style="color:var(--muted);font-size:12px;margin-top:16px;">Sign in to leave a comment.</div>`}
+    </div>`;
+}
+
+async function toggleReviewLike(reviewKey, btn){
+  if(!currentUser) { toast('Sign in to like reviews'); return; }
+  const myUserId = currentUser.id;
+  const countEl = document.getElementById('rv-like-count');
+  const isLiked = btn.classList.contains('liked');
+
+  if(isLiked){
+    await sb.from('review_likes').delete().eq('review_key', reviewKey).eq('user_id', myUserId);
+    btn.classList.remove('liked');
+    btn.innerHTML = `♡ <span id="rv-like-count">${Math.max(0,(parseInt(countEl?.textContent)||1)-1)}</span> likes`;
+  } else {
+    await sb.from('review_likes').insert({ review_key: reviewKey, user_id: myUserId });
+    btn.classList.add('liked');
+    btn.innerHTML = `♥ <span id="rv-like-count">${(parseInt(countEl?.textContent)||0)+1}</span> likes`;
+  }
+}
+
+async function submitReviewComment(reviewKey){
+  if(!currentUser) return;
+  const input = document.getElementById('rv-comment-input');
+  const text = input?.value?.trim();
+  if(!text) return;
+  input.value = '';
+  const displayName = profile.name || currentUser.email.split('@')[0];
+  const handle = profile.handle || currentUser.email.split('@')[0];
+  const { data, error } = await sb.from('review_comments').insert({
+    review_key: reviewKey,
+    user_id: currentUser.id,
+    handle,
+    display_name: displayName,
+    text
+  }).select().single();
+  if(error){ toast('Error posting comment'); console.error(error); return; }
+  // Append to list
+  const list = document.getElementById('rv-comments-list');
+  if(list){
+    const placeholder = list.querySelector('div[style*="No comments"]');
+    if(placeholder) placeholder.remove();
+    list.insertAdjacentHTML('beforeend', `
+      <div class="rv-comment">
+        <div class="rv-comment-author">@${handle} <span style="color:var(--muted);font-weight:400;font-size:10px;margin-left:6px;">just now</span></div>
+        <div class="rv-comment-text">${text}</div>
+      </div>`);
+  }
+}
 
 function openRacePageBySlug(id, preferYear){
   openRacePage(id, preferYear);
