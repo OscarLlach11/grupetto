@@ -2941,15 +2941,15 @@ function renderProfile(){
     const buckets={};
     for(let v=0.5;v<=5.0;v+=0.5) buckets[v.toFixed(1)]=0;
     allRatings.forEach(r=>{ const k=(Math.round(r*2)/2).toFixed(1); if(buckets[k]!==undefined) buckets[k]++; });
-    const maxCnt=Math.max(...Object.values(buckets),1);
-    distEl.innerHTML=`<div style="display:flex;align-items:flex-end;gap:2px;">`+
-      Object.entries(buckets).map(([v,cnt])=>`
-        <div style="display:flex;flex-direction:column;align-items:center;flex:1;gap:2px;">
-          <div style="width:100%;height:52px;display:flex;align-items:flex-end;overflow:hidden;">
-            <div style="width:100%;background:${cnt>0?'var(--gold)':'var(--border)'};border-radius:2px 2px 0 0;height:${maxCnt>0?Math.round(cnt/maxCnt*100):0}%;min-height:${cnt>0?'2px':'1px'};transition:height .4s;"></div>
-          </div>
-          <div style="font-size:8px;color:var(--muted);">${parseFloat(v)%1===0?parseFloat(v):''}</div>
-        </div>`).join('')+`</div>`;
+    const BAR_MAX_H = 52;
+    distEl.innerHTML=`<div style="display:flex;align-items:flex-end;gap:2px;height:${BAR_MAX_H+16}px;">`+
+      Object.entries(buckets).map(([v,cnt])=>{
+        const barH = maxCnt>0 ? Math.max(Math.round(cnt/maxCnt*BAR_MAX_H), cnt>0?2:0) : 0;
+        return `<div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end;flex:1;height:100%;">
+          <div style="width:100%;height:${barH}px;background:${cnt>0?'var(--gold)':'var(--border)'};border-radius:2px 2px 0 0;flex-shrink:0;"></div>
+          <div style="font-size:8px;color:var(--muted);margin-top:3px;line-height:1;">${parseFloat(v)%1===0?parseFloat(v):''}</div>
+        </div>`;
+      }).join('')+`</div>`;
   } else {
     distEl.innerHTML='<div style="color:var(--muted);font-size:11px;">Rate some races to see your distribution.</div>';
   }
