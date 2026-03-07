@@ -340,6 +340,8 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 .log-dd-opt{padding:9px 16px;font-size:12px;color:var(--muted);cursor:pointer;transition:background .1s,color .1s;letter-spacing:.5px;}
 .log-dd-opt:hover{background:rgba(255,255,255,.05);color:var(--text);}
 .log-dd-opt.active{color:var(--gold);}
+.lfd-type-opt{padding:8px 12px;font-size:12px;color:var(--muted);cursor:pointer;border:1px solid var(--border);transition:all .12s;letter-spacing:.5px;text-align:center;}
+.lfd-type-opt:hover,.lfd-type-opt.active{color:var(--gold);border-color:var(--gold);background:rgba(212,175,55,.06);}
 .fl{font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);margin-right:4px;}
 .fb{background:transparent;border:1px solid var(--border);color:var(--ml);padding:4px 11px;font-size:10px;letter-spacing:2px;text-transform:uppercase;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .2s;}
 .fb:hover,.fb.active{border-color:var(--gold);color:var(--gold);}
@@ -743,24 +745,41 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
   <!-- LOG FILTER BAR -->
   <div id="log-filter-bar" style="display:flex;align-items:center;gap:0;border-bottom:1px solid var(--border);padding:0 40px;flex-wrap:wrap;background:var(--bg);position:sticky;top:0;z-index:5;">
     <span style="font-size:10px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;margin-right:16px;padding:14px 0;">Filter</span>
+
+    <!-- RATING dropdown -->
     <div class="log-filter-dd" id="lfd-rating">
       <button class="log-fdd-btn" onclick="toggleLogDD('lfd-rating')">Rating <span class="lfd-val" id="lfd-rating-val"></span> ▾</button>
-      <div class="log-dd-panel">
-        <div class="log-dd-opt" onclick="setLogFilter('rating',0)">Any Rating</div>
-        ${[5,4.5,4,3.5,3,2.5,2,1.5,1,0.5].map(v=>`<div class="log-dd-opt" onclick="setLogFilter('rating',${v})">★ ${v}</div>`).join('')}
+      <div class="log-dd-panel" style="min-width:220px;padding:16px;">
+        <div style="font-size:9px;letter-spacing:2px;color:var(--muted);margin-bottom:12px;">RATING</div>
+        <div id="lfd-hs-wrap"></div>
+        <div style="border-top:1px solid var(--border);margin-top:12px;padding-top:10px;">
+          <div class="log-dd-opt" style="padding:4px 0;font-size:11px;" onclick="setLogFilter('rating',0)">Any Rating</div>
+        </div>
       </div>
     </div>
+
+    <!-- COUNTRY dropdown -->
     <div class="log-filter-dd" id="lfd-country">
       <button class="log-fdd-btn" onclick="toggleLogDD('lfd-country')">Country <span class="lfd-val" id="lfd-country-val"></span> ▾</button>
       <div class="log-dd-panel" id="lfd-country-panel"></div>
     </div>
+
+    <!-- TYPE dropdown -->
     <div class="log-filter-dd" id="lfd-type">
       <button class="log-fdd-btn" onclick="toggleLogDD('lfd-type')">Type <span class="lfd-val" id="lfd-type-val"></span> ▾</button>
-      <div class="log-dd-panel">
-        <div class="log-dd-opt" onclick="setLogFilter('type','')">Any Type</div>
-        ${['Grand Tour','Monument','Classic','Stage Race'].map(t=>`<div class="log-dd-opt" onclick="setLogFilter('type','${t}')">${t}</div>`).join('')}
+      <div class="log-dd-panel" style="min-width:200px;padding:16px;">
+        <div style="font-size:9px;letter-spacing:2px;color:var(--muted);margin-bottom:10px;">RACE TYPE</div>
+        <div style="display:flex;flex-direction:column;gap:4px;">
+          <div class="lfd-type-opt" data-v="" onclick="setLogFilter('type','')">All Types</div>
+          <div class="lfd-type-opt" data-v="Grand Tour" onclick="setLogFilter('type','Grand Tour')">Grand Tour</div>
+          <div class="lfd-type-opt" data-v="Monument" onclick="setLogFilter('type','Monument')">Monument</div>
+          <div class="lfd-type-opt" data-v="Classic" onclick="setLogFilter('type','Classic')">Classic</div>
+          <div class="lfd-type-opt" data-v="Stage Race" onclick="setLogFilter('type','Stage Race')">Stage Race</div>
+        </div>
       </div>
     </div>
+
+    <!-- SORT dropdown -->
     <div class="log-filter-dd" id="lfd-sort">
       <button class="log-fdd-btn" onclick="toggleLogDD('lfd-sort')">Sort: <span class="lfd-val" id="lfd-sort-val">Date</span> ▾</button>
       <div class="log-dd-panel">
@@ -770,6 +789,7 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
         <div class="log-dd-opt" onclick="setLogFilter('sort','year')">Edition Year</div>
       </div>
     </div>
+
     <div id="log-clear-filters" style="display:none;margin-left:auto;">
       <button onclick="clearLogFilters()" style="font-size:10px;letter-spacing:1px;color:var(--gold);background:none;border:1px solid var(--gold-dim);padding:5px 12px;cursor:pointer;transition:border-color .15s;" onmouseover="this.style.borderColor='var(--gold)'" onmouseout="this.style.borderColor='var(--gold-dim)'">✕ Clear Filters</button>
     </div>
@@ -2029,6 +2049,14 @@ function setSearch(v){aSearch=v.toLowerCase();renderGrid();}
 function toggleLogDD(id){
   document.querySelectorAll('.log-filter-dd').forEach(d=>{ if(d.id!==id) d.classList.remove('open'); });
   document.getElementById(id).classList.toggle('open');
+  // Build half-star widget when rating dropdown opens
+  if(id==='lfd-rating' && document.getElementById('lfd-rating').classList.contains('open')){
+    const wrap = document.getElementById('lfd-hs-wrap');
+    if(wrap){
+      wrap.innerHTML = buildHSHTML('lfd-hs', 'filter', null, logFilter.rating||0);
+      attachHSEvents('lfd-hs');
+    }
+  }
 }
 document.addEventListener('click', e=>{
   if(!e.target.closest('.log-filter-dd')) document.querySelectorAll('.log-filter-dd').forEach(d=>d.classList.remove('open'));
@@ -2062,14 +2090,25 @@ function updateLogFilterUI(){
   const tEl=document.getElementById('lfd-type-val');
   const sEl=document.getElementById('lfd-sort-val');
   if(rEl) rEl.textContent = logFilter.rating ? `★${logFilter.rating}` : '';
-  if(cEl) cEl.textContent = logFilter.country ? logFilter.country.replace(/^\S+\s*/,'') : ''; // strip flag
+  if(cEl) cEl.textContent = logFilter.country ? logFilter.country.replace(/^\S+\s*/,'') : '';
   if(tEl) tEl.textContent = logFilter.type || '';
   const sortLabels={date:'Date',rating:'Rating',name:'Name',year:'Year'};
   if(sEl) sEl.textContent = sortLabels[logFilter.sort]||'Date';
+
+  // Refresh HS widget if open
+  const hsWrap = document.getElementById('lfd-hs');
+  if(hsWrap) hsUpdateDisplay(hsWrap, logFilter.rating||0);
+
+  // Type options
+  document.querySelectorAll('.lfd-type-opt').forEach(o=>{
+    o.classList.toggle('active', o.dataset.v===logFilter.type);
+  });
+
   const hasFilter = logFilter.rating || logFilter.country || logFilter.type;
   const cl=document.getElementById('log-clear-filters');
   if(cl) cl.style.display = hasFilter ? 'block' : 'none';
-  // Populate country dropdown from logged races
+
+  // Country dropdown
   const panel=document.getElementById('lfd-country-panel');
   if(panel){
     const all=allEntries();
@@ -2586,8 +2625,14 @@ function attachHSEvents(containerId){
   };
 }
 
-function hsGetRating(which, sn){ return which === 'overall' ? formRating : (stRatings[sn] || 0); }
-function hsSetRating(which, sn, v){ if(which === 'overall') formRating = v; else stRatings[sn] = v; }
+function hsGetRating(which, sn){
+  if(which === 'filter') return logFilter.rating || 0;
+  return which === 'overall' ? formRating : (stRatings[sn] || 0);
+}
+function hsSetRating(which, sn, v){
+  if(which === 'filter'){ setLogFilter('rating', v); return; }
+  if(which === 'overall') formRating = v; else stRatings[sn] = v;
+}
 
 function hsUpdateDisplay(wrap, v){
   if(!wrap) return;
