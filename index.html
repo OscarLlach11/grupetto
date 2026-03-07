@@ -331,6 +331,15 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 .tab{font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--ml);padding:14px 0;margin-right:24px;cursor:pointer;border-bottom:2px solid transparent;transition:all .2s;white-space:nowrap;}
 .tab:hover{color:var(--white);} .tab.active{color:var(--gold);border-bottom-color:var(--gold);}
 .fbar{display:flex;gap:6px;padding:16px 40px;flex-wrap:wrap;align-items:center;border-bottom:1px solid var(--border);}
+.log-filter-dd{position:relative;}
+.log-fdd-btn{background:none;border:none;color:var(--muted);font-family:'DM Sans',sans-serif;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;padding:14px 16px;cursor:pointer;transition:color .15s;white-space:nowrap;}
+.log-fdd-btn:hover,.log-filter-dd.open .log-fdd-btn{color:var(--text);}
+.lfd-val{color:var(--gold);margin:0 3px;}
+.log-dd-panel{display:none;position:absolute;top:100%;left:0;background:var(--off-black);border:1px solid var(--border-light);min-width:160px;z-index:100;max-height:280px;overflow-y:auto;}
+.log-filter-dd.open .log-dd-panel{display:block;}
+.log-dd-opt{padding:9px 16px;font-size:12px;color:var(--muted);cursor:pointer;transition:background .1s,color .1s;letter-spacing:.5px;}
+.log-dd-opt:hover{background:rgba(255,255,255,.05);color:var(--text);}
+.log-dd-opt.active{color:var(--gold);}
 .fl{font-size:9px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);margin-right:4px;}
 .fb{background:transparent;border:1px solid var(--border);color:var(--ml);padding:4px 11px;font-size:10px;letter-spacing:2px;text-transform:uppercase;cursor:pointer;font-family:'DM Sans',sans-serif;transition:all .2s;}
 .fb:hover,.fb.active{border-color:var(--gold);color:var(--gold);}
@@ -730,6 +739,40 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
       <div><div class="hstat-n" id="log-races">0</div><div class="hstat-l">Distinct Races</div></div>
     </div>
     <button class="bdanger" style="margin-top:20px;" onclick="confirmClearAll()">⚠ Clear All Logs</button>
+  </div>
+  <!-- LOG FILTER BAR -->
+  <div id="log-filter-bar" style="display:flex;align-items:center;gap:0;border-bottom:1px solid var(--border);padding:0 40px;flex-wrap:wrap;background:var(--bg);position:sticky;top:0;z-index:5;">
+    <span style="font-size:10px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;margin-right:16px;padding:14px 0;">Filter</span>
+    <div class="log-filter-dd" id="lfd-rating">
+      <button class="log-fdd-btn" onclick="toggleLogDD('lfd-rating')">Rating <span class="lfd-val" id="lfd-rating-val"></span> ▾</button>
+      <div class="log-dd-panel">
+        <div class="log-dd-opt" onclick="setLogFilter('rating',0)">Any Rating</div>
+        ${[5,4.5,4,3.5,3,2.5,2,1.5,1,0.5].map(v=>`<div class="log-dd-opt" onclick="setLogFilter('rating',${v})">★ ${v}</div>`).join('')}
+      </div>
+    </div>
+    <div class="log-filter-dd" id="lfd-country">
+      <button class="log-fdd-btn" onclick="toggleLogDD('lfd-country')">Country <span class="lfd-val" id="lfd-country-val"></span> ▾</button>
+      <div class="log-dd-panel" id="lfd-country-panel"></div>
+    </div>
+    <div class="log-filter-dd" id="lfd-type">
+      <button class="log-fdd-btn" onclick="toggleLogDD('lfd-type')">Type <span class="lfd-val" id="lfd-type-val"></span> ▾</button>
+      <div class="log-dd-panel">
+        <div class="log-dd-opt" onclick="setLogFilter('type','')">Any Type</div>
+        ${['Grand Tour','Monument','Classic','Stage Race'].map(t=>`<div class="log-dd-opt" onclick="setLogFilter('type','${t}')">${t}</div>`).join('')}
+      </div>
+    </div>
+    <div class="log-filter-dd" id="lfd-sort">
+      <button class="log-fdd-btn" onclick="toggleLogDD('lfd-sort')">Sort: <span class="lfd-val" id="lfd-sort-val">Date</span> ▾</button>
+      <div class="log-dd-panel">
+        <div class="log-dd-opt" onclick="setLogFilter('sort','date')">Date Logged</div>
+        <div class="log-dd-opt" onclick="setLogFilter('sort','rating')">Rating</div>
+        <div class="log-dd-opt" onclick="setLogFilter('sort','name')">Race Name</div>
+        <div class="log-dd-opt" onclick="setLogFilter('sort','year')">Edition Year</div>
+      </div>
+    </div>
+    <div id="log-clear-filters" style="display:none;margin-left:auto;">
+      <button onclick="clearLogFilters()" style="font-size:10px;letter-spacing:1px;color:var(--gold);background:none;border:1px solid var(--gold-dim);padding:5px 12px;cursor:pointer;transition:border-color .15s;" onmouseover="this.style.borderColor='var(--gold)'" onmouseout="this.style.borderColor='var(--gold-dim)'">✕ Clear Filters</button>
+    </div>
   </div>
   <div id="log-list"><div class="empty">No editions logged yet.</div></div>
 </div>
@@ -1959,7 +2002,7 @@ function showPage(p){
     history.replaceState(null, '', location.pathname);
   }
   if(p!=='discover') curRacePageId=null;
-  if(p==='log') { renderLogPage(); renderActiveFilterBanner(); }
+  if(p==='log') renderLogPage();
   else if(p==='top') renderLeaderboard();
   else if(p==='stats') renderStats();
   else if(p==='profile') renderProfile();
@@ -1969,7 +2012,10 @@ function showPage(p){
 // ════════════════════════════════════════════════════════
 //  TABS / FILTERS / SEARCH
 // ════════════════════════════════════════════════════════
-let aTab='all',aFil='all',aSearch='',aCountry='',aRating=0;
+let aTab='all',aFil='all',aSearch='';
+// Log-specific filters (separate from discover)
+let logFilter = { rating: 0, country: '', type: '', sort: 'date' };
+
 function buildTabs(){
   const b=document.getElementById('tabs-bar');
   const ts=[{k:'all',l:'All'},...['Grand Tour','Monument','Classic','Stage Race'].map(t=>({k:t,l:t+'s'}))];
@@ -1979,35 +2025,59 @@ function setTab(el,t){aTab=t;document.querySelectorAll('.tab').forEach(x=>x.clas
 function setFilter(el,f){aFil=f;document.querySelectorAll('.fb').forEach(x=>x.classList.remove('active'));el.classList.add('active');renderGrid();}
 function setSearch(v){aSearch=v.toLowerCase();renderGrid();}
 
+// ── Log filter dropdown logic ────────────────────────────
+function toggleLogDD(id){
+  document.querySelectorAll('.log-filter-dd').forEach(d=>{ if(d.id!==id) d.classList.remove('open'); });
+  document.getElementById(id).classList.toggle('open');
+}
+document.addEventListener('click', e=>{
+  if(!e.target.closest('.log-filter-dd')) document.querySelectorAll('.log-filter-dd').forEach(d=>d.classList.remove('open'));
+});
+function setLogFilter(key, val){
+  logFilter[key] = val;
+  document.querySelectorAll('.log-filter-dd').forEach(d=>d.classList.remove('open'));
+  updateLogFilterUI();
+  renderLogPage();
+}
+function clearLogFilters(){
+  logFilter = { rating:0, country:'', type:'', sort:'date' };
+  updateLogFilterUI();
+  renderLogPage();
+}
 function filterByCountry(country){
-  aCountry=country; aRating=0;
+  logFilter.country = country;
   showPage('log');
-  renderGrid();
-  renderActiveFilterBanner();
+  updateLogFilterUI();
+  renderLogPage();
 }
 function filterByRating(rating){
-  aRating=rating; aCountry='';
+  logFilter.rating = rating;
   showPage('log');
-  renderGrid();
-  renderActiveFilterBanner();
+  updateLogFilterUI();
+  renderLogPage();
 }
-function clearProfileFilter(){
-  aCountry=''; aRating=0;
-  renderGrid();
-  renderActiveFilterBanner();
-}
-function renderActiveFilterBanner(){
-  const el = document.getElementById('active-filter-banner');
-  if(!el) return;
-  if(aCountry){
-    el.style.display='flex';
-    el.innerHTML=`<span>Filtering by country: <strong>${aCountry}</strong></span><button class="bs" style="font-size:10px;padding:3px 10px;" onclick="clearProfileFilter()">✕ Clear</button>`;
-  } else if(aRating){
-    el.style.display='flex';
-    el.innerHTML=`<span>Filtering by rating: <strong>★ ${aRating}</strong></span><button class="bs" style="font-size:10px;padding:3px 10px;" onclick="clearProfileFilter()">✕ Clear</button>`;
-  } else {
-    el.style.display='none';
-    el.innerHTML='';
+function updateLogFilterUI(){
+  const rEl=document.getElementById('lfd-rating-val');
+  const cEl=document.getElementById('lfd-country-val');
+  const tEl=document.getElementById('lfd-type-val');
+  const sEl=document.getElementById('lfd-sort-val');
+  if(rEl) rEl.textContent = logFilter.rating ? `★${logFilter.rating}` : '';
+  if(cEl) cEl.textContent = logFilter.country ? logFilter.country.replace(/^\S+\s*/,'') : ''; // strip flag
+  if(tEl) tEl.textContent = logFilter.type || '';
+  const sortLabels={date:'Date',rating:'Rating',name:'Name',year:'Year'};
+  if(sEl) sEl.textContent = sortLabels[logFilter.sort]||'Date';
+  const hasFilter = logFilter.rating || logFilter.country || logFilter.type;
+  const cl=document.getElementById('log-clear-filters');
+  if(cl) cl.style.display = hasFilter ? 'block' : 'none';
+  // Populate country dropdown from logged races
+  const panel=document.getElementById('lfd-country-panel');
+  if(panel){
+    const all=allEntries();
+    const countries={};
+    all.forEach(([id])=>{ const r=RACES.find(x=>x.id===id); if(r){ const k=`${r.flag||''} ${r.country}`.trim(); countries[k]=(countries[k]||0)+1; } });
+    const sorted=Object.entries(countries).sort((a,b)=>b[1]-a[1]);
+    panel.innerHTML=`<div class="log-dd-opt${!logFilter.country?' active':''}" onclick="setLogFilter('country','')">Any Country</div>`+
+      sorted.map(([c,n])=>`<div class="log-dd-opt${logFilter.country===c?' active':''}" data-c="${encodeURIComponent(c)}" onclick="setLogFilter('country',decodeURIComponent(this.dataset.c))">${c} <span style="color:var(--muted);font-size:10px;margin-left:4px;">${n}</span></div>`).join('');
   }
 }
 
@@ -2051,16 +2121,6 @@ function filteredRaces(){
     if(aFil==='unlogged'&&l) return false;
     if(aFil==='watchlist'&&!watchlist.includes(r.id)) return false;
     if(aSearch&&!r.name.toLowerCase().includes(aSearch)&&!r.country.toLowerCase().includes(aSearch)) return false;
-    if(aCountry){
-      const key = `${r.flag||''} ${r.country}`.trim();
-      if(key!==aCountry && r.country!==aCountry) return false;
-      if(!l) return false; // country filter only shows logged
-    }
-    if(aRating){
-      const rl=userLog[r.id];
-      const hasRating=(rl?.watches||[]).some(w=>(Math.round((w.rating||0)*2)/2)===aRating);
-      if(!hasRating) return false;
-    }
     return true;
   });
 }
@@ -2568,9 +2628,34 @@ function renderLogPage(){
   document.getElementById('log-races').textContent=new Set(all.map(([id])=>id)).size;
   const rts=all.filter(([,w])=>w.rating).map(([,w])=>w.rating);
   document.getElementById('log-avg').textContent=rts.length?(rts.reduce((a,b)=>a+b,0)/rts.length).toFixed(1):'—';
+
+  // Apply log filters
+  let entries = all.filter(([id,w])=>{
+    const r=RACES.find(x=>x.id===id); if(!r) return false;
+    if(logFilter.rating){
+      const rounded=(Math.round((w.rating||0)*2)/2);
+      if(rounded!==logFilter.rating) return false;
+    }
+    if(logFilter.country){
+      const key=`${r.flag||''} ${r.country}`.trim();
+      if(key!==logFilter.country) return false;
+    }
+    if(logFilter.type && r.type!==logFilter.type) return false;
+    return true;
+  });
+
+  // Sort
+  if(logFilter.sort==='rating') entries=entries.sort((a,b)=>(b[1].rating||0)-(a[1].rating||0));
+  else if(logFilter.sort==='name') entries=entries.sort((a,b)=>{const ra=RACES.find(x=>x.id===a[0]),rb=RACES.find(x=>x.id===b[0]);return (ra?.name||'').localeCompare(rb?.name||'');});
+  else if(logFilter.sort==='year') entries=entries.sort((a,b)=>(b[1].year||0)-(a[1].year||0));
+  else entries=entries.sort((a,b)=>(b[1].ts||0)-(a[1].ts||0)); // date (default)
+
+  updateLogFilterUI();
+
   const list=document.getElementById('log-list');
   if(!all.length){list.innerHTML='<div class="empty">No editions logged yet.</div>';return;}
-  list.innerHTML=all.map(([id,w],idx)=>{
+  if(!entries.length){list.innerHTML='<div class="empty" style="padding:40px;">No entries match these filters.</div>';return;}
+  list.innerHTML=entries.map(([id,w])=>{
     const r=RACES.find(x=>x.id===id); if(!r) return '';
     const yrLabel=w.from?`${w.from}–${w.to}`:w.year;
     const stCnt=Object.keys(w.stages||{}).length;
