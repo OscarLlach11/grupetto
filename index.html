@@ -662,20 +662,18 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
     <div style="padding:22px 40px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:20px;">
       <div style="flex:1;">
         <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:3px;margin-bottom:4px;">Rider Database</div>
-        <div style="font-size:12px;color:var(--muted);">Riders you've seen across your logged races — click any name to see their history with you.</div>
+        <div style="font-size:12px;color:var(--muted);">Search from thousands of professional cyclists.</div>
       </div>
-      <input id="rider-search" type="text" placeholder="Search riders…" oninput="renderRiders()"
-        style="background:var(--card);border:1px solid var(--border);color:var(--text);padding:8px 14px;font-size:13px;border-radius:2px;width:200px;">
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input id="rider-search" type="text" placeholder="Search riders…"
+          onkeydown="if(event.key==='Enter') executeRiderSearch()"
+          style="background:var(--card);border:1px solid var(--border);color:var(--text);padding:8px 14px;font-size:13px;border-radius:2px;width:220px;">
+        <button onclick="executeRiderSearch()" style="background:var(--gold);color:var(--black);border:none;padding:8px 16px;font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:1px;cursor:pointer;">Search</button>
+      </div>
     </div>
-    <div id="riders-list"><div class="empty" style="padding:40px;">Log some races to see riders.</div></div>
-    <div id="rider-detail" style="display:none;position:fixed;top:0;right:0;width:360px;height:100vh;background:var(--bg);border-left:2px solid var(--accent);z-index:200;overflow-y:auto;padding:28px 22px;box-shadow:-4px 0 24px rgba(0,0,0,.5);">
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
-        <button onclick="document.getElementById('rider-detail').style.display='none'" style="background:none;border:1px solid var(--border);color:var(--muted);padding:4px 10px;cursor:pointer;font-size:18px;line-height:1;">✕</button>
-        <div id="rider-detail-name" style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;flex:1;"></div>
-      </div>
-      <div id="rider-detail-stats" style="display:flex;gap:16px;margin-bottom:22px;"></div>
-      <div style="font-size:11px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:10px;">Race History With You</div>
-      <div id="rider-detail-races"></div>
+    <div id="riders-list" style="padding:28px 40px;">
+      <div style="font-size:11px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:18px;">Featured Riders</div>
+      <div id="riders-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:16px;"></div>
     </div>
   </div>
 </div>
@@ -2541,35 +2539,71 @@ function showRiderDetail(name){
   document.getElementById('rider-detail').style.display='block';
 }
 
-function renderRiders(){
-  const {counts, gcWins, stageWins}=getRiderData();
-  const query=(document.getElementById('rider-search')||{}).value?.toLowerCase()||'';
-  let sorted=Object.entries(counts).sort((a,b)=>b[1]-a[1]);
-  if(query) sorted=sorted.filter(([name])=>name.toLowerCase().includes(query));
+const FEATURED_RIDERS = [
+  'Pogacar Tadej', 'Del Toro Isaac', 'Evenepoel Remco', 'Almeida Joao',
+  'Vingegaard Jonas', 'Pedersen Mads', 'Van der Poel Mathieu',
+  'Pidcock Thomas', 'De Lie Arnaud', 'Vine Jay'
+];
 
-  const el=document.getElementById('riders-list');
-  if(!sorted.length){
-    el.innerHTML=`<div class="empty" style="padding:40px;">${Object.keys(counts).length?'No riders match your search.':'Log some races to see riders.'}</div>`;
+function renderRiderCard(rider){
+  const name = formatRiderName(rider.rider_name || rider.name);
+  const imgSrc = rider.image_url && rider.image_url !== 'none' ? rider.image_url : null;
+  const col = riderColor(rider.rider_name || rider.name);
+  const ini = riderInitials(rider.rider_name || rider.name);
+  const thumb = imgSrc
+    ? `<img src="${imgSrc}" style="width:100%;height:100%;object-fit:cover;object-position:center top;"
+         onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+       <div style="display:none;width:100%;height:100%;background:${col};align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;font-size:22px;color:#fff;">${ini}</div>`
+    : `<div style="width:100%;height:100%;background:${col};display:flex;align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;font-size:22px;color:#fff;">${ini}</div>`;
+  return `<div style="cursor:pointer;border:1px solid var(--border);overflow:hidden;transition:border-color .15s;" onmouseover="this.style.borderColor='var(--gold)'" onmouseout="this.style.borderColor='var(--border)'">
+    <div style="width:100%;aspect-ratio:2/3;overflow:hidden;position:relative;">${thumb}</div>
+    <div style="padding:6px 8px;background:var(--card-bg);">
+      <div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;line-height:1.3;">${name}</div>
+      ${rider.team_name ? `<div style="font-size:9px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${rider.team_name}</div>` : ''}
+    </div>
+  </div>`;
+}
+
+async function renderRiders(){
+  const grid = document.getElementById('riders-grid');
+  const label = document.querySelector('#riders-list > div:first-child');
+  if(!grid) return;
+  grid.innerHTML = '<div style="color:var(--muted);font-size:12px;grid-column:1/-1;">Loading…</div>';
+
+  // Fetch featured riders by name
+  const promises = FEATURED_RIDERS.map(name =>
+    sb.from('startlists').select('rider_name,team_name,nationality,image_url')
+      .ilike('rider_name', name).limit(1).maybeSingle()
+  );
+  const results = await Promise.all(promises);
+  const riders = results.map((r,i) => r.data || {rider_name: FEATURED_RIDERS[i], image_url: null});
+
+  if(label) label.textContent = 'Featured Riders';
+  grid.innerHTML = riders.map(renderRiderCard).join('');
+}
+
+async function executeRiderSearch(){
+  const q = (document.getElementById('rider-search')?.value || '').trim();
+  const grid = document.getElementById('riders-grid');
+  const label = document.querySelector('#riders-list > div:first-child');
+  if(!grid) return;
+  if(!q){ renderRiders(); return; }
+
+  grid.innerHTML = '<div style="color:var(--muted);font-size:12px;grid-column:1/-1;">Searching…</div>';
+  const { data, error } = await sb.from('startlists')
+    .select('rider_name,team_name,nationality,image_url')
+    .ilike('rider_name', `%${q}%`)
+    .order('rider_name').limit(40);
+
+  if(error || !data?.length){
+    grid.innerHTML = '<div style="color:var(--muted);font-size:12px;grid-column:1/-1;">No riders found.</div>';
     return;
   }
-  el.innerHTML=sorted.map(([name,cnt],i)=>{
-    const gw=gcWins[name]||0;
-    const sw=stageWins[name]||0;
-    return `<div class="rider-card" onclick="showRiderDetail('${name.replace(/'/g,"\\'")}')">
-      <div class="rider-num ${i<3?'top':''}">${i+1}</div>
-      <div style="flex:1;min-width:0;">
-        <div class="rider-name">${name}</div>
-        <div class="rider-meta" style="display:flex;gap:12px;margin-top:3px;">
-          ${gw?`<span style="color:var(--accent);">🏆 ${gw} win${gw!==1?'s':''}</span>`:''}
-          ${sw?`<span style="color:#58a6ff;">⚡ ${sw} stage${sw!==1?'s':''}</span>`:''}
-        </div>
-      </div>
-      <div style="text-align:right;">
-        <div class="rider-wins">${cnt}</div>
-        <div class="rider-wins-label">edition${cnt!==1?'s':''}</div>
-      </div>
-    </div>`;
-  }).join('');
+  // Deduplicate by rider_name
+  const seen = new Set();
+  const unique = data.filter(r => { if(seen.has(r.rider_name)) return false; seen.add(r.rider_name); return true; });
+  if(label) label.textContent = `${unique.length} result${unique.length!==1?'s':''}`;
+  grid.innerHTML = unique.map(renderRiderCard).join('');
 }
 
 // ════════════════════════════════════════════════════════
