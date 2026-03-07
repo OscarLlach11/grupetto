@@ -174,10 +174,12 @@
     let logId = watchEntry.id;
 
     if (logId) {
-      await sb.from('race_logs').update(row).eq('id', logId);
+      const { error } = await sb.from('race_logs').update(row).eq('id', logId);
+      if (error) { console.error('race_logs update error:', error); toast('Save failed: ' + error.message); return null; }
     } else {
-      const { data } = await sb
+      const { data, error } = await sb
         .from('race_logs').insert(row).select().single();
+      if (error) { console.error('race_logs insert error:', error); toast('Save failed: ' + error.message); return null; }
       logId = data?.id;
     }
 
@@ -194,7 +196,8 @@
         date_watched: s.date || null,
       }));
       if (stageRows.length) {
-        await sb.from('stage_logs').insert(stageRows);
+        const { error } = await sb.from('stage_logs').insert(stageRows);
+        if (error) console.error('stage_logs insert error:', error);
       }
     }
 
@@ -1701,7 +1704,7 @@ function getAllRiders(){
 // ════════════════════════════════════════════════════════
 //  RACE DATABASE
 // ════════════════════════════════════════════════════════
-const RACES = [
+let RACES = [
   // GRAND TOURS
   {id:'tdf',name:'Tour de France',country:'France',flag:'🇫🇷',type:'Grand Tour',firstYear:1903,tvYear:1980,distance:'~3,400 km',gradient:'linear-gradient(135deg,#0c1a5e,#1a3a8c,#c0392b)',swatch:'#1a3a8c',description:'La Grande Boucle. Three weeks across France through the Pyrenees and Alps. The most prestigious race in world cycling, ending on the Champs-Élysées every July.'},
   {id:'giro',name:"Giro d'Italia",country:'Italy',flag:'🇮🇹',type:'Grand Tour',firstYear:1909,tvYear:1980,distance:'~3,300 km',gradient:'linear-gradient(135deg,#003d29,#00594a,#e63946)',swatch:'#00594a',description:"La Corsa Rosa. Italy's grand tour through the Dolomites and Apennines. Famous for unpredictable racing, savage climbs, and the most passionate tifosi in sport."},
@@ -1821,10 +1824,35 @@ let wholeLive=false;
 // ════════════════════════════════════════════════════════
 //  INIT
 // ════════════════════════════════════════════════════════
-document.addEventListener('DOMContentLoaded',()=>{
+document.addEventListener('DOMContentLoaded', async () => {
   buildTabs();
+
+  // Load races from Supabase, fall back to hardcoded array
+  try {
+    const { data: dbRaces, error } = await sb.from('races').select('*').order('name');
+    if (!error && dbRaces && dbRaces.length) {
+      RACES = dbRaces.map(r => ({
+        id:          r.slug,
+        name:        r.name,
+        country:     r.country,
+        flag:        r.flag        || '',
+        type:        r.race_type   || r.type || 'Classic',
+        firstYear:   r.first_year  || r.firstYear || 1900,
+        tvYear:      r.tv_year     || r.tvYear    || 1980,
+        distance:    r.distance    || '',
+        gradient:    r.gradient    || 'linear-gradient(135deg,#1a1a1a,#333)',
+        swatch:      r.swatch      || '#333',
+        description: r.description || '',
+      }));
+      // Reset race picker cache since RACES changed
+      _racePickerOpts = null;
+    }
+  } catch(e) {
+    console.warn('Could not load races from Supabase, using fallback', e);
+  }
+
   renderAll();
-  document.getElementById('stat-races').textContent=RACES.length;
+  document.getElementById('stat-races').textContent = RACES.length;
 });
 
 // ════════════════════════════════════════════════════════
@@ -2540,7 +2568,7 @@ function showRiderDetail(name){
 }
 
 const FEATURED_RIDERS = [
-  'Pogacar Tadej', 'Del Toro Isaac', 'Evenepoel Remco', 'Almeida Joao',
+  'Pogačar Tadej', 'Del Toro Isaac', 'Evenepoel Remco', 'Almeida João',
   'Vingegaard Jonas', 'Pedersen Mads', 'Van der Poel Mathieu',
   'Pidcock Thomas', 'De Lie Arnaud', 'Vine Jay'
 ];
@@ -2914,13 +2942,13 @@ function renderProfile(){
     for(let v=0.5;v<=5.0;v+=0.5) buckets[v.toFixed(1)]=0;
     allRatings.forEach(r=>{ const k=(Math.round(r*2)/2).toFixed(1); if(buckets[k]!==undefined) buckets[k]++; });
     const maxCnt=Math.max(...Object.values(buckets),1);
-    distEl.innerHTML=`<div style="display:flex;align-items:flex-end;gap:2px;height:60px;">`+
+    distEl.innerHTML=`<div style="display:flex;align-items:flex-end;gap:2px;">`+
       Object.entries(buckets).map(([v,cnt])=>`
-        <div style="display:flex;flex-direction:column;align-items:center;flex:1;">
-          <div style="width:100%;height:52px;display:flex;align-items:flex-end;">
-            <div style="width:100%;background:${cnt>0?'var(--gold)':'var(--border)'};border-radius:2px 2px 0 0;height:${maxCnt>0?Math.round(cnt/maxCnt*100):0}%;min-height:${cnt>0?'2px':'0'};transition:height .4s;"></div>
+        <div style="display:flex;flex-direction:column;align-items:center;flex:1;gap:2px;">
+          <div style="width:100%;height:52px;display:flex;align-items:flex-end;overflow:hidden;">
+            <div style="width:100%;background:${cnt>0?'var(--gold)':'var(--border)'};border-radius:2px 2px 0 0;height:${maxCnt>0?Math.round(cnt/maxCnt*100):0}%;min-height:${cnt>0?'2px':'1px'};transition:height .4s;"></div>
           </div>
-          <div style="font-size:8px;color:var(--muted);margin-top:2px;">${parseFloat(v)%1===0?parseFloat(v):''}</div>
+          <div style="font-size:8px;color:var(--muted);">${parseFloat(v)%1===0?parseFloat(v):''}</div>
         </div>`).join('')+`</div>`;
   } else {
     distEl.innerHTML='<div style="color:var(--muted);font-size:11px;">Rate some races to see your distribution.</div>';
