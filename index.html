@@ -602,6 +602,17 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 .review-card{padding:12px 0;border-bottom:1px solid var(--border);}
 .review-race{font-size:12px;font-weight:600;color:var(--accent);margin-bottom:4px;}
 .review-text{font-size:12px;color:var(--text);line-height:1.6;font-style:italic;}
+.rider-page-header{display:flex;gap:24px;padding:28px 28px 20px;border-bottom:1px solid var(--border);align-items:flex-end;}
+.rider-page-photo{width:100px;aspect-ratio:2/3;object-fit:cover;object-position:center top;flex-shrink:0;}
+.rider-page-photo-placeholder{width:100px;aspect-ratio:2/3;display:flex;align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;font-size:32px;color:#fff;flex-shrink:0;}
+.rider-page-name{font-family:'Bebas Neue',sans-serif;font-size:32px;letter-spacing:3px;color:var(--accent);line-height:1;}
+.rider-page-meta{font-size:11px;color:var(--muted);letter-spacing:1px;margin-top:6px;}
+.rider-race-row{display:flex;align-items:center;gap:14px;padding:12px 0;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s;}
+.rider-race-row:hover{background:rgba(255,255,255,0.03);}
+.rider-race-swatch{width:32px;height:32px;flex-shrink:0;}
+.rider-race-name{font-size:12px;letter-spacing:1px;color:var(--text);font-family:'Bebas Neue',sans-serif;}
+.rider-race-year{font-size:11px;color:var(--muted);}
+.rider-race-rating{font-size:11px;color:var(--gold);margin-left:auto;flex-shrink:0;}
 .review-meta{font-size:10px;color:var(--muted);margin-top:4px;}
 </style>
 </head>
@@ -789,12 +800,12 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 </div>
 
 <!-- EDIT PROFILE MODAL -->
-<div class="mo" id="edit-profile-mo" onclick="handleMOClick(event,'edit-profile-mo')">
+<div class="mo" id="edit-profile-mo" onclick="if(event.target===this){profileEditMode=false;renderProfile();handleMOClick(event,'edit-profile-mo')}">
   <div class="modal" style="max-width:460px;">
     <div class="mbody" style="padding:24px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
         <span style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:3px;color:var(--gold);">Edit Profile</span>
-        <button class="mcls" onclick="closeMO('edit-profile-mo')" style="position:static;">✕</button>
+        <button class="mcls" onclick="profileEditMode=false;renderProfile();closeMO('edit-profile-mo')" style="position:static;">✕</button>
       </div>
       <label class="flbl">Display Name</label>
       <input type="text" class="dinp" id="ep-name" style="width:100%;margin-bottom:14px;" maxlength="30" placeholder="Your name">
@@ -1833,7 +1844,9 @@ let wholeLive=false;
 // ════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', async () => {
   buildTabs();
-  renderAll();
+  const savedPage = localStorage.getItem('g3-activePage') || 'discover';
+  const validPages = ['discover','log','top','stats','profile'];
+  showPage(validPages.includes(savedPage) ? savedPage : 'discover');
   document.getElementById('stat-races').textContent = RACES.length;
 });
 
@@ -1847,12 +1860,13 @@ function showPage(p){
   document.querySelectorAll('.nav-a').forEach(x=>x.classList.remove('active'));
   const nb=document.getElementById('nav-'+p); if(nb) nb.classList.add('active');
   aPg=p;
+  localStorage.setItem('g3-activePage', p);
   if(p!=='discover') curRacePageId=null;
   if(p==='log') renderLogPage();
   else if(p==='top') renderLeaderboard();
   else if(p==='stats') renderStats();
   else if(p==='profile') renderProfile();
-  else if(p==='discover') { /* section already rendered, just ensure active section is visible */ }
+  else if(p==='discover') { if(aDiscSection==='riders') renderRiders(); }
 }
 
 // ════════════════════════════════════════════════════════
@@ -2558,16 +2572,20 @@ const FEATURED_RIDERS = [
 ];
 
 function renderRiderCard(rider){
-  const name = formatRiderName(rider.rider_name || rider.name);
+  const rawName = rider.rider_name || rider.name || '';
+  if(!rawName) return '';
+  const name = formatRiderName(rawName);
   const imgSrc = rider.image_url && rider.image_url !== 'none' ? rider.image_url : null;
-  const col = riderColor(rider.rider_name || rider.name);
-  const ini = riderInitials(rider.rider_name || rider.name);
+  const col = riderColor(rawName);
+  const ini = riderInitials(rawName);
+  // Use data attribute to avoid quote issues in onclick
+  const encodedName = encodeURIComponent(rawName);
   const thumb = imgSrc
     ? `<img src="${imgSrc}" style="width:100%;height:100%;object-fit:cover;object-position:center top;"
          onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
        <div style="display:none;width:100%;height:100%;background:${col};align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;font-size:22px;color:#fff;">${ini}</div>`
     : `<div style="width:100%;height:100%;background:${col};display:flex;align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;font-size:22px;color:#fff;">${ini}</div>`;
-  return `<div style="cursor:pointer;border:1px solid var(--border);overflow:hidden;transition:border-color .15s;" onmouseover="this.style.borderColor='var(--gold)'" onmouseout="this.style.borderColor='var(--border)'">
+  return `<div style="cursor:pointer;border:1px solid var(--border);overflow:hidden;transition:border-color .15s;" data-rider="${encodedName}" onclick="openRiderPage(this.dataset.rider)" onmouseover="this.style.borderColor='var(--gold)'" onmouseout="this.style.borderColor='var(--border)'">
     <div style="width:100%;aspect-ratio:2/3;overflow:hidden;position:relative;">${thumb}</div>
     <div style="padding:6px 8px;background:var(--card-bg);">
       <div style="font-size:10px;letter-spacing:1px;text-transform:uppercase;line-height:1.3;">${name}</div>
@@ -2839,7 +2857,7 @@ function confirmClearAll(){
 function openMO(id){document.getElementById(id).classList.add('open');}
 function closeMO(id){document.getElementById(id).classList.remove('open');if(id==='log-mo') curId=null;}
 function handleMOClick(e,id){if(e.target===document.getElementById(id)) closeMO(id);}
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeMO('log-mo');closeMO('search-mo');closeMO('auth-mo');closeMO('rider-picker-mo');closeMO('race-picker-mo');closeMO('edit-profile-mo');closeConfirm();}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeMO('log-mo');closeMO('search-mo');closeMO('auth-mo');closeMO('rider-picker-mo');closeMO('race-picker-mo');closeMO('edit-profile-mo');closeMO('rider-page-mo');closeConfirm();}});
 
 // ════════════════════════════════════════════════════════
 //  HELPERS
@@ -2997,14 +3015,24 @@ function renderProfile(){
         : `<div class="fav-rider-photo-placeholder">
              <div class="fav-rider-icon" style="background:${col};color:#fff;">${ini}</div>
            </div>`;
-      return `<div class="fav-rider-slot filled" onclick="openRiderPicker(${i})" title="Change rider">
+      const editOverlay = profileEditMode ? `<div style="position:absolute;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;font-size:20px;opacity:0;transition:opacity .15s;" class="edit-overlay">✏️</div>` : '';
+      const clickAction = profileEditMode ? `openRiderPicker(${i})` : `openRiderPage(this.dataset.rider)`;
+      const title = profileEditMode ? 'Change rider' : formatRiderName(name);
+      return `<div class="fav-rider-slot filled" data-rider="${encodeURIComponent(name)}" onclick="${clickAction}" title="${title}" style="position:relative;"
+        ${profileEditMode ? 'onmouseover="this.querySelector(\'.edit-overlay\').style.opacity=1" onmouseout="this.querySelector(\'.edit-overlay\').style.opacity=0"' : ''}>
         ${photoHtml}
-        <div class="fav-rider-name-overlay">${formatRiderName(name)}</div>
+        ${editOverlay}
+        <div class="fav-rider-name-overlay">${profileEditMode ? '✏ ' : ''}${formatRiderName(name)}</div>
       </div>`;
     }
-    return `<div class="fav-rider-slot" onclick="openRiderPicker(${i})">
-      <div style="font-size:22px;color:var(--border-light);">+</div>
-      <div class="fav-rider-name" style="color:var(--muted);">Rider ${i+1}</div>
+    if(profileEditMode){
+      return `<div class="fav-rider-slot" onclick="openRiderPicker(${i})">
+        <div style="font-size:22px;color:var(--border-light);">+</div>
+        <div class="fav-rider-name" style="color:var(--muted);">Rider ${i+1}</div>
+      </div>`;
+    }
+    return `<div class="fav-rider-slot" style="cursor:default;border-color:var(--border);">
+      <div style="font-size:22px;color:var(--border);">—</div>
     </div>`;
   }).join('');
 
@@ -3103,9 +3131,13 @@ function toggleYearDetail(uid){
 
 
 // ── Edit profile (name / handle) ──
+let profileEditMode = false;
+
 function openEditProfile(){
   document.getElementById('ep-name').value = profile.name||'';
   document.getElementById('ep-handle').value = profile.handle||'';
+  profileEditMode = true;
+  renderProfile();
   openMO('edit-profile-mo');
 }
 function saveProfile(){
@@ -3116,6 +3148,7 @@ function saveProfile(){
   persistProfile();
   if(currentUser) saveProfileToSupabase();
   closeMO('edit-profile-mo');
+  profileEditMode = false;
   renderProfile();
   toast('Profile saved');
 }
@@ -3289,10 +3322,95 @@ async function handleAvatarUpload(event){
 
 function editUsername(){ openEditProfile(); }
 
+// ════════════════════════════════════════════════════════
+//  RIDER PAGE
+// ════════════════════════════════════════════════════════
+async function openRiderPage(encodedName){
+  const rawName = decodeURIComponent(encodedName);
+  const el = document.getElementById('rider-page-content');
+  el.innerHTML = `<div style="padding:40px;text-align:center;color:var(--muted);">Loading…</div>`;
+  openMO('rider-page-mo');
+
+  // Fetch rider info + all their startlist entries
+  const { data: rows } = await sb.from('startlists')
+    .select('rider_name, team_name, nationality, image_url, race_slug, year')
+    .ilike('rider_name', rawName)
+    .order('year', { ascending: false });
+
+  if(!rows || !rows.length){
+    el.innerHTML = `<div style="padding:40px;text-align:center;color:var(--muted);">No data found for this rider.</div>`;
+    return;
+  }
+
+  const info = rows[0];
+  const displayName = formatRiderName(rawName);
+  const imgSrc = info.image_url && info.image_url !== 'none' ? info.image_url : null;
+  const col = riderColor(rawName);
+  const ini = riderInitials(rawName);
+
+  const photoHtml = imgSrc
+    ? `<img class="rider-page-photo" src="${imgSrc}" alt="${displayName}"
+         onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+       <div class="rider-page-photo-placeholder" style="display:none;background:${col};">${ini}</div>`
+    : `<div class="rider-page-photo-placeholder" style="background:${col};">${ini}</div>`;
+
+  // Group by year and pick unique races
+  const seen = new Set();
+  const entries = rows.filter(r => {
+    const key = r.race_slug + '_' + r.year;
+    if(seen.has(key)) return false;
+    seen.add(key); return true;
+  });
+
+  const rowsHtml = entries.map(r => {
+    const race = RACES.find(x => x.id === r.race_slug) || { name: r.race_slug, gradient: 'var(--border)', swatch: '#333' };
+    // Check if user has a log for this race+year
+    const log = userLog[r.race_slug];
+    const watch = log ? (log.watches || []).find(w => w.year === r.year) : null;
+    const ratingHtml = watch && watch.rating
+      ? `<span class="rider-race-rating">★ ${watch.rating}</span>`
+      : (watch ? `<span class="rider-race-rating" style="color:var(--muted);">Watched</span>` : '');
+    return `<div class="rider-race-row" onclick="closeMO('rider-page-mo');openRacePage('${r.race_slug}')">
+      <div class="rider-race-swatch" style="background:${race.gradient}"></div>
+      <div style="flex:1;min-width:0;">
+        <div class="rider-race-name">${race.name}</div>
+        <div class="rider-race-year">${r.year}${r.team_name ? ' · ' + r.team_name : ''}</div>
+      </div>
+      ${ratingHtml}
+    </div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px 0;">
+      <button onclick="closeMO('rider-page-mo')" style="background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;">✕</button>
+    </div>
+    <div class="rider-page-header">
+      ${photoHtml}
+      <div>
+        <div class="rider-page-name">${displayName}</div>
+        <div class="rider-page-meta">${info.nationality||''}${info.nationality && info.team_name ? ' · ' : ''}${info.team_name||''}</div>
+        <div class="rider-page-meta" style="margin-top:4px;">${entries.length} race${entries.length!==1?'s':''} in database</div>
+      </div>
+    </div>
+    <div style="padding:0 28px 28px;">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:2px;color:var(--gold);margin:20px 0 8px;">Race History</div>
+      ${rowsHtml || '<div style="color:var(--muted);font-size:12px;">No race entries found.</div>'}
+    </div>`;
+}
+
 function sgBadgesHTML(id){
   const sgs=SUBGENRES[id]||[];
   return sgs.map(sg=>`<span class="sg-badge ${SG_CLASS[sg]||''}">${SG_LABELS[sg]||sg}</span>`).join('');
 }
 </script>
+<!-- RIDER PAGE MODAL -->
+<div class="mo" id="rider-page-mo" onclick="handleMOClick(event,'rider-page-mo')">
+  <div class="modal" style="max-width:680px;max-height:85vh;display:flex;flex-direction:column;">
+    <div class="mbody" style="padding:0;display:flex;flex-direction:column;flex:1;overflow:hidden;">
+      <div id="rider-page-content" style="flex:1;overflow-y:auto;"></div>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
