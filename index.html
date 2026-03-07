@@ -866,6 +866,9 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 
 <!-- RACE SUBPAGE -->
 <div id="page-race" class="page">
+  <div style="position:sticky;top:0;z-index:10;background:var(--bg);padding:12px 24px;border-bottom:1px solid var(--border);">
+    <button class="bs" style="font-size:10px;" onclick="history.back()">← Back</button>
+  </div>
   <div class="race-sub-layout">
     <div class="rsp-main" id="rsp-main"></div>
     <div class="rsp-sidebar" id="rsp-sidebar"></div>
@@ -874,8 +877,10 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 
 <!-- RIDER PAGE -->
 <div id="page-rider" class="page">
+  <div style="position:sticky;top:0;z-index:10;background:var(--bg);padding:16px 24px;border-bottom:1px solid var(--border);">
+    <button class="bs" id="rider-back-btn" style="font-size:10px;" onclick="history.back()">← Back</button>
+  </div>
   <div style="max-width:900px;margin:0 auto;padding:32px 24px;">
-    <button class="bs" id="rider-back-btn" style="margin-bottom:24px;font-size:10px;" onclick="history.back()">← Back</button>
     <div id="rider-page-inner"></div>
   </div>
 </div>
@@ -1824,6 +1829,56 @@ let RACES = [
   {id:'romandie-extra',name:'Tour de Wallonie',country:'Belgium',flag:'🇧🇪',type:'Stage Race',firstYear:1975,tvYear:2020,distance:'~750 km',gradient:'linear-gradient(135deg,#1a0030,#2e0052,#ffd700)',swatch:'#2e0052',description:'The Walloon stage race through the Belgian Ardennes in July.'},
 ];
 
+// Maps PCS/DB slug → local RACES id
+const PCS_SLUG_MAP = {
+  'tour-de-france':'tdf','giro-d-italia':'giro','vuelta-a-espana':'vuelta',
+  'paris-roubaix':'roubaix','ronde-van-vlaanderen':'flanders','tour-of-flanders':'flanders',
+  'milano-sanremo':'msanremo','milan-san-remo':'msanremo',
+  'liege-bastogne-liege':'lbl','il-lombardia':'lombardia','il-lombardia-uomo':'lombardia',
+  'omloop-het-nieuwsblad':'nieuwsblad','kuurne-brussel-kuurne':'kuurne',
+  'e3-saxo-classic':'echelon','e3-harelbeke':'echelon',
+  'gent-wevelgem':'gent','dwars-door-vlaanderen':'dwars',
+  'classic-brugge-de-panne':'harelbeke','brugge-de-panne':'harelbeke',
+  'amstel-gold-race':'amstel','la-fleche-wallonne':'fleche','fleche-wallonne':'fleche',
+  'strade-bianche':'strade','eschborn-frankfurt':'eschborn',
+  'euroeyes-cyclassics':'cyclassiqs','hamburg-cyclassics':'cyclassiqs','cyclassics-hamburg':'cyclassiqs',
+  'clasica-san-sebastian':'san-sebastian','clasica-ciclista-san-sebastian':'san-sebastian',
+  'gran-piemonte':'sanmarino','paris-tours':'paris-tours',
+  'bretagne-classic':'bretagne','gp-zurich':'zurich','zurich-metzgete':'zurich',
+  'gp-de-quebec':'quebec','gp-de-montreal':'montreal',
+  'cadel-evans-great-ocean-road-race':'ocean-road',
+  'uci-road-world-championships':'worlds','road-world-championships':'worlds',
+  'tirreno-adriatico':'tirreno','paris-nice':'paris-nice',
+  'criterium-du-dauphine':'dauphiné','tour-de-romandie':'romandie',
+  'itzulia-basque-country':'basque','volta-a-catalunya':'catalan',
+  'tour-de-suisse':'suisse','tour-de-pologne':'pologne',
+  'vuelta-a-burgos':'burgos','renewi-tour':'benelux','bene-tour':'benelux',
+  'uae-tour':'uae','volta-ao-algarve':'algarve','tour-of-oman':'omanbike',
+  'tour-down-under':'downunder','ruta-del-sol':'ruta',
+  'volta-a-la-comunitat-valenciana':'challenge','volta-comunitat-valenciana':'challenge',
+  'tour-of-california':'california','tour-of-guangxi':'guangxi',
+  'presidential-cycling-tour-of-turkey':'turkey','tour-colombia':'colombia',
+  'tour-de-hongrie':'hungary','tour-of-norway':'norway',
+  'la-classique-de-larrivee':'champs-elysees',
+  'memorial-rik-van-steenbergen':'memorial',
+  'gp-de-wallonie':'wallon','coppa-agostoni':'coppa-agostoni','coppa-sabatini':'coppa-sabatini',
+  'veneto-classic':'veneto','tour-of-beijing':'beijing',
+};
+
+function resolveRaceSlug(dbSlug){
+  if(!dbSlug) return null;
+  // Direct match first
+  const direct = RACES.find(x => x.id === dbSlug);
+  if(direct) return dbSlug;
+  // Map lookup
+  const mapped = PCS_SLUG_MAP[dbSlug];
+  if(mapped) return mapped;
+  // Fuzzy: try replacing hyphens and matching name
+  const clean = dbSlug.replace(/-/g,' ').toLowerCase();
+  const fuzzy = RACES.find(r => r.name.toLowerCase().includes(clean) || clean.includes(r.name.toLowerCase().slice(0,6)));
+  return fuzzy ? fuzzy.id : null;
+}
+
 // ════════════════════════════════════════════════════════
 //  STATE
 // ════════════════════════════════════════════════════════
@@ -2004,7 +2059,6 @@ function openRacePage(id, preferYear){
 
   // Main column
   let mainHTML=`
-    <button class="bs" style="margin-bottom:20px;font-size:10px;" onclick="history.back()">← Back</button>
     <div class="rsp-banner" style="background:${r.gradient}">
       <div style="position:relative;z-index:1;">
         <div class="rsp-ttl">${r.name}</div>
@@ -3535,7 +3589,7 @@ async function renderRiderPage(inputName){
   });
 
   const sortedYears = Object.keys(byYear).map(Number).sort((a,b)=>b-a);
-  const totalRaces = rows.reduce((acc, r) => { acc.add(r.year+'_'+r.slug); return acc; }, new Set()).size;
+  const totalRaces = rows.reduce((acc, r) => { acc.add(r.year+'_'+(resolveRaceSlug(r.slug)||r.slug)); return acc; }, new Set()).size;
 
   let racesHTML = '';
   sortedYears.forEach(year => {
@@ -3543,17 +3597,22 @@ async function renderRiderPage(inputName){
     racesHTML += `<div style="margin-bottom:32px;">
       <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:3px;color:var(--gold);border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:12px;">${year}</div>`;
     racesInYear.forEach(entry => {
-      const race = RACES.find(x => x.id === entry.slug) || { name: entry.slug, gradient: 'var(--border)', flag: '', country: '' };
+      const raceId = resolveRaceSlug(entry.slug);
+      const race = raceId ? RACES.find(x => x.id === raceId) : null;
+      const raceName = race ? race.name : entry.slug.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+      const raceGradient = race ? race.gradient : 'linear-gradient(135deg,#222,#333)';
       // Check user log for this race+year
-      const log = userLog[entry.slug];
+      const log = raceId ? userLog[raceId] : null;
       const watch = log ? (log.watches||[]).find(w => w.year === year) : null;
       const myRating = watch?.rating ? `<span style="color:var(--gold);font-size:12px;">★ ${watch.rating}</span>` : '';
       const watchedBadge = watch ? `<span style="font-size:9px;color:var(--muted);border:1px solid var(--border);padding:1px 6px;letter-spacing:1px;">WATCHED</span>` : '';
+      const clickable = raceId ? `onclick="navToRace('${raceId}', ${year})"` : '';
+      const cursor = raceId ? 'cursor:pointer;' : 'cursor:default;opacity:0.6;';
 
-      racesHTML += `<div class="rider-race-row" onclick="navToRace('${entry.slug}', ${year})" style="padding:14px 0;display:flex;align-items:center;gap:16px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s;" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background='none'">
-        <div style="width:40px;height:40px;flex-shrink:0;background:${race.gradient};"></div>
+      racesHTML += `<div ${clickable} style="padding:14px 0;display:flex;align-items:center;gap:16px;border-bottom:1px solid var(--border);${cursor}transition:background .12s;" ${raceId ? `onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background='none'"` : ''}>
+        <div style="width:40px;height:40px;flex-shrink:0;background:${raceGradient};"></div>
         <div style="flex:1;min-width:0;">
-          <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:2px;color:var(--text);">${race.name}</div>
+          <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:2px;color:var(--text);">${raceName}</div>
           <div style="font-size:10px;color:var(--muted);margin-top:2px;">${entry.team_name || ''}</div>
         </div>
         <div style="display:flex;align-items:center;gap:10px;">${myRating}${watchedBadge}</div>
