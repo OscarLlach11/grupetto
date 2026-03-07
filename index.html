@@ -38,6 +38,7 @@
     renderNavUser();
     await loadUserData();
     renderAll();
+    if(window._pendingRoute){ handleRoute(window._pendingRoute); window._pendingRoute=null; }
   }
 
   function onSignedOut() {
@@ -46,11 +47,12 @@
     profile    = {
       name: 'Cyclist',
       handle: 'velocipedist',
-      favRiders: [null,null,null,null], // each entry: {name, url} or null
+      favRiders: [null,null,null,null],
       favRace: null
     };
     renderNavGuest();
     renderAll();
+    if(window._pendingRoute){ handleRoute(window._pendingRoute); window._pendingRoute=null; }
   }
 
   // ── Sign up ───────────────────────────────────────────────────────────────
@@ -2031,7 +2033,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Check for hash route first, otherwise restore last page
   if(location.hash && location.hash.length > 2) {
     renderAll();
-    handleRoute(location.hash);
+    // For review pages, wait for auth to load profile/userLog before routing
+    if(location.hash.startsWith('#/review/')){
+      window._pendingRoute = location.hash;
+    } else {
+      handleRoute(location.hash);
+    }
   } else {
     const savedPage = localStorage.getItem('g3-activePage') || 'discover';
     const validPages = ['discover','log','top','stats','profile'];
@@ -3769,32 +3776,51 @@ async function openReviewPage(handle, raceId, year, n){
   el.innerHTML = `<div style="color:var(--muted);padding:40px 0;">Loading review…</div>`;
 
   const r = RACES.find(x=>x.id===raceId);
+  let reviewEntry = null;
+  let isMyReview = false;
 
-  // Find the watch entry: watches with a review, sorted by ts, pick nth
-  let reviewEntry = null, reviewUserHandle = handle, isOwnReview = false;
+  const myHandle = profile.handle || (currentUser ? currentUser.email.split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g,'') : '');
 
-  if(handle === (profile.handle || '') || !handle){
-    // Own review from localStorage
-    isOwnReview = true;
+  if(handle === myHandle || handle === (currentUser?.id)){
+    // Own review — use localStorage
+    isMyReview = true;
     const rl = userLog[raceId] || {};
     const reviewWatches = (rl.watches||[]).filter(w=>w.review&&w.review.trim()).sort((a,b)=>(a.ts||0)-(b.ts||0));
     reviewEntry = reviewWatches[n-1] || null;
-  } else {
-    // Another user's review — fetch from Supabase
-    const { data: pData } = await sb.from('profiles').select('user_id,display_name,handle').eq('handle', handle).maybeSingle();
-    if(pData){
-      const { data: logData } = await sb.from('race_logs').select('log_data').eq('user_id', pData.user_id).eq('race_id', raceId).maybeSingle();
-      if(logData?.log_data){
-        const rl = logData.log_data;
-        const reviewWatches = (rl.watches||[]).filter(w=>w.review&&w.review.trim()).sort((a,b)=>(a.ts||0)-(b.ts||0));
-        reviewEntry = reviewWatches[n-1] || null;
-        reviewUserHandle = handle;
+
+    // Fallback: also check Supabase race_logs directly
+    if(!reviewEntry && currentUser){
+      const { data: logs } = await sb.from('race_logs')
+        .select('*')
+        .eq('user_id', currentUser.id)
+        .eq('slug', raceId)
+        .not('review', 'is', null)
+        .order('created_at', { ascending: true });
+      if(logs && logs[n-1]){
+        const lg = logs[n-1];
+        reviewEntry = { review: lg.review, rating: lg.rating, live: lg.watched_live, year: lg.year, ts: new Date(lg.created_at).getTime() };
       }
     }
+  } else {
+    // Another user — look up their user_id from handle, then get their race_logs
+    const { data: pData } = await sb.from('profiles').select('user_id,display_name,handle').eq('handle', handle).maybeSingle();
+    if(pData){
+      const { data: logs } = await sb.from('race_logs')
+        .select('*')
+        .eq('user_id', pData.user_id)
+        .eq('slug', raceId)
+        .not('review', 'is', null)
+        .order('created_at', { ascending: true });
+      if(logs && logs[n-1]){
+        const lg = logs[n-1];
+        reviewEntry = { review: lg.review, rating: lg.rating, live: lg.watched_live, year: lg.year, ts: new Date(lg.created_at).getTime() };
+      }
+    }
+    isMyReview = myHandle && handle === myHandle;
   }
 
   if(!reviewEntry){
-    el.innerHTML = `<div style="color:var(--muted);padding:40px 0;text-align:center;">Review not found.</div>`;
+    el.innerHTML = `<div style="color:var(--muted);padding:40px 0;text-align:center;">Review not found.<br><span style="font-size:11px;margin-top:8px;display:block;">Make sure this review exists and is saved.</span></div>`;
     return;
   }
 
@@ -3804,7 +3830,6 @@ async function openReviewPage(handle, raceId, year, n){
   const likeCount = likesData?.length || 0;
   const myUserId = currentUser?.id;
   const iLiked = myUserId && likesData?.some(l=>l.user_id===myUserId);
-  const isMyReview = isOwnReview || (myUserId && handle===(profile.handle||''));
 
   // Get comments
   const { data: commentsData } = await sb.from('review_comments')
@@ -3831,7 +3856,7 @@ async function openReviewPage(handle, raceId, year, n){
     </div>
 
     <div style="display:flex;align-items:center;gap:16px;padding:16px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin-bottom:32px;">
-      <button id="rv-like-btn" class="rv-like-btn ${iLiked?'liked':''}" onclick="toggleReviewLike('${reviewKey}',this)" ${isMyReview?'disabled title="You cannot like your own review"':''}>
+      <button id="rv-like-btn" class="rv-like-btn ${iLiked?'liked':''}" onclick="toggleReviewLike('${reviewKey}',this)" ${isMyReview||!currentUser?'disabled title="'+(isMyReview?'You cannot like your own review':'Sign in to like')+'""':''}>
         ${iLiked?'♥':'♡'} <span id="rv-like-count">${likeCount}</span> ${likeCount===1?'like':'likes'}
       </button>
     </div>
