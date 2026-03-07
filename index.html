@@ -2923,14 +2923,19 @@ function renderProfile(){
     allRatings.forEach(r=>{ const k=(Math.round(r*2)/2).toFixed(1); if(buckets[k]!==undefined) buckets[k]++; });
     const maxCnt=Math.max(...Object.values(buckets),1);
     const BAR_MAX_H = 52;
-    distEl.innerHTML=`<div style="display:flex;align-items:flex-end;gap:2px;height:${BAR_MAX_H+16}px;">`+
-      Object.entries(buckets).map(([v,cnt])=>{
-        const barH = maxCnt>0 ? Math.max(Math.round(cnt/maxCnt*BAR_MAX_H), cnt>0?2:0) : 0;
-        return `<div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end;flex:1;height:100%;">
-          <div style="width:100%;height:${barH}px;background:${cnt>0?'var(--gold)':'var(--border)'};border-radius:2px 2px 0 0;flex-shrink:0;"></div>
-          <div style="font-size:8px;color:var(--muted);margin-top:3px;line-height:1;">${parseFloat(v)%1===0?parseFloat(v):''}</div>
-        </div>`;
-      }).join('')+`</div>`;
+    const entries = Object.entries(buckets);
+    const barsRow = entries.map(([v,cnt])=>{
+      const barH = maxCnt>0 ? Math.max(Math.round(cnt/maxCnt*BAR_MAX_H), cnt>0?2:0) : 0;
+      return `<div style="flex:1;height:${BAR_MAX_H}px;display:flex;align-items:flex-end;">
+        <div style="width:100%;height:${barH}px;background:${cnt>0?'var(--gold)':'var(--border)'};border-radius:2px 2px 0 0;"></div>
+      </div>`;
+    }).join('');
+    const labelsRow = entries.map(([v])=>
+      `<div style="flex:1;text-align:center;font-size:8px;color:var(--muted);line-height:1;">${parseFloat(v)%1===0?parseFloat(v):''}</div>`
+    ).join('');
+    distEl.innerHTML=`
+      <div style="display:flex;align-items:flex-end;gap:2px;">${barsRow}</div>
+      <div style="display:flex;gap:2px;margin-top:3px;">${labelsRow}</div>`;
   } else {
     distEl.innerHTML='<div style="color:var(--muted);font-size:11px;">Rate some races to see your distribution.</div>';
   }
@@ -3253,6 +3258,7 @@ function renderRacePickerList(q){
 function selectFavRace(id, year, stageNum){
   profile.favRace = {id, year, stageNum: stageNum===null||stageNum==='null'?null:parseInt(stageNum)};
   persistProfile();
+  if(currentUser) saveProfileToSupabase();
   closeMO('race-picker-mo');
   renderProfile();
   const r = RACES.find(x=>x.id===id);
