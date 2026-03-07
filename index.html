@@ -3482,7 +3482,7 @@ async function renderRiderPage(inputName){
   let rows = null;
   for(const name of namesToTry){
     const { data, error } = await sb.from('startlists')
-      .select('rider_name, team_name, nationality, image_url, race_slug, year, stage_num')
+      .select('*')
       .ilike('rider_name', name)
       .order('year', { ascending: false })
       .limit(200);
@@ -3527,17 +3527,15 @@ async function renderRiderPage(inputName){
        <div class="rider-page-photo-placeholder" style="display:none;background:${col};">${ini}</div>`
     : `<div class="rider-page-photo-placeholder" style="background:${col};">${ini}</div>`;
 
-  // Group entries by year, then by race within year
-  // Deduplicate: if stage_num exists, group all stages under one race entry
+  // Group entries by year, then by race slug within year
   const byYear = {};
   rows.forEach(r => {
     if(!byYear[r.year]) byYear[r.year] = {};
-    if(!byYear[r.year][r.race_slug]) byYear[r.year][r.race_slug] = { ...r, stages: [] };
-    if(r.stage_num) byYear[r.year][r.race_slug].stages.push(r.stage_num);
+    if(!byYear[r.year][r.slug]) byYear[r.year][r.slug] = { ...r, stages: [] };
   });
 
   const sortedYears = Object.keys(byYear).map(Number).sort((a,b)=>b-a);
-  const totalRaces = rows.reduce((acc, r) => { acc.add(r.year+'_'+r.race_slug); return acc; }, new Set()).size;
+  const totalRaces = rows.reduce((acc, r) => { acc.add(r.year+'_'+r.slug); return acc; }, new Set()).size;
 
   let racesHTML = '';
   sortedYears.forEach(year => {
@@ -3545,18 +3543,18 @@ async function renderRiderPage(inputName){
     racesHTML += `<div style="margin-bottom:32px;">
       <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:3px;color:var(--gold);border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:12px;">${year}</div>`;
     racesInYear.forEach(entry => {
-      const race = RACES.find(x => x.id === entry.race_slug) || { name: entry.race_slug, gradient: 'var(--border)', flag: '', country: '' };
+      const race = RACES.find(x => x.id === entry.slug) || { name: entry.slug, gradient: 'var(--border)', flag: '', country: '' };
       // Check user log for this race+year
-      const log = userLog[entry.race_slug];
+      const log = userLog[entry.slug];
       const watch = log ? (log.watches||[]).find(w => w.year === year) : null;
       const myRating = watch?.rating ? `<span style="color:var(--gold);font-size:12px;">★ ${watch.rating}</span>` : '';
       const watchedBadge = watch ? `<span style="font-size:9px;color:var(--muted);border:1px solid var(--border);padding:1px 6px;letter-spacing:1px;">WATCHED</span>` : '';
 
-      racesHTML += `<div class="rider-race-row" onclick="navToRace('${entry.race_slug}', ${year})" style="padding:14px 0;display:flex;align-items:center;gap:16px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s;" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background='none'">
+      racesHTML += `<div class="rider-race-row" onclick="navToRace('${entry.slug}', ${year})" style="padding:14px 0;display:flex;align-items:center;gap:16px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s;" onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background='none'">
         <div style="width:40px;height:40px;flex-shrink:0;background:${race.gradient};"></div>
         <div style="flex:1;min-width:0;">
           <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:2px;color:var(--text);">${race.name}</div>
-          <div style="font-size:10px;color:var(--muted);margin-top:2px;">${entry.team_name || ''}${entry.stages.length ? ` · ${entry.stages.length} stages` : ''}</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px;">${entry.team_name || ''}</div>
         </div>
         <div style="display:flex;align-items:center;gap:10px;">${myRating}${watchedBadge}</div>
       </div>`;
