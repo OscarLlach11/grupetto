@@ -2052,6 +2052,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 // ════════════════════════════════════════════════════════
 let aPg='discover';
 function showPage(p){
+  // Clear log filters when leaving the log page
+  if(aPg==='log' && p!=='log'){
+    logFilter = { rating:0, country:'', type:'', sort:'date', live:'' };
+  }
   document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));
   document.getElementById('page-'+p).classList.add('active');
   document.querySelectorAll('.nav-a').forEach(x=>x.classList.remove('active'));
@@ -3174,22 +3178,37 @@ function confirmDeleteEntryFromLog(id,ts){
   const rl=userLog[id]; if(!rl) return;
   const wi=(rl.watches||[]).findIndex(w=>w.ts===ts);
   if(wi===-1) return;
-  showConfirm('Delete Log',`Delete this <strong>${r.name}</strong> log entry?`,()=>{
+  showConfirm('Delete Log',`Delete this <strong>${r.name}</strong> log entry?`,async ()=>{
+    const dbId = rl.watches[wi].id;
     rl.watches.splice(wi,1);
     if(!rl.watches?.length) delete userLog[id];
-    persist();renderLogPage();renderAll();toast('Deleted');
+    persist(); renderLogPage(); renderAll(); toast('Deleted');
+    if(dbId && currentUser){
+      const { error } = await sb.from('race_logs').delete().eq('id', dbId).eq('user_id', currentUser.id);
+      if(error) console.error('Delete from DB failed:', error);
+    }
   });
 }
 function confirmDeleteRaceLogs(){
   const r=RACES.find(x=>x.id===curId); if(!r) return;
-  showConfirm('Delete All Logs',`Delete all logs for <strong>${r.name}</strong>?`,()=>{
-    delete userLog[curId];persist();closeMO('log-mo');renderAll();toast('All logs deleted');
+  showConfirm('Delete All Logs',`Delete all logs for <strong>${r.name}</strong>?`,async ()=>{
+    const dbIds = (userLog[curId]?.watches||[]).map(w=>w.id).filter(Boolean);
+    delete userLog[curId]; persist(); closeMO('log-mo'); renderAll(); toast('All logs deleted');
+    if(dbIds.length && currentUser){
+      const { error } = await sb.from('race_logs').delete().in('id', dbIds).eq('user_id', currentUser.id);
+      if(error) console.error('Delete from DB failed:', error);
+    }
   });
 }
 function confirmClearAll(){
   const n=allEntries().length; if(!n){toast('Nothing to clear');return;}
-  showConfirm('Clear All Logs',`Delete all <strong>${n}</strong> log entries? This cannot be undone.`,()=>{
-    userLog={};persist();renderLogPage();renderAll();toast('All logs cleared');
+  showConfirm('Clear All Logs',`Delete all <strong>${n}</strong> log entries? This cannot be undone.`,async ()=>{
+    const dbIds = Object.values(userLog).flatMap(rl=>(rl.watches||[]).map(w=>w.id).filter(Boolean));
+    userLog={}; persist(); renderLogPage(); renderAll(); toast('All logs cleared');
+    if(dbIds.length && currentUser){
+      const { error } = await sb.from('race_logs').delete().in('id', dbIds).eq('user_id', currentUser.id);
+      if(error) console.error('Delete from DB failed:', error);
+    }
   });
 }
 
