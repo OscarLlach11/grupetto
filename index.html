@@ -682,7 +682,7 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
     <h1>Every<br><em>édition.</em><br>Logged.</h1>
     <p class="hero-sub">Rate stage by stage. Track every breakaway since 1980.</p>
     <div class="hstats">
-      <div><div class="hstat-n" id="stat-watched">0</div><div class="hstat-l">Editions Logged</div></div>
+      <div><div class="hstat-n" id="stat-watched">0</div><div class="hstat-l">Races Logged</div></div>
       <div><div class="hstat-n" id="stat-ratings">0</div><div class="hstat-l">Ratings Given</div></div>
       <div><div class="hstat-n" id="stat-races">0</div><div class="hstat-l">Races in DB</div></div>
     </div>
@@ -713,7 +713,7 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
       </div>
       <div class="sidebar">
         <div class="sb-title">Recent Activity</div>
-        <div id="sidebar-log"><div class="empty-log">Your logged editions will appear here.</div></div>
+        <div id="sidebar-log"><div class="empty-log">Your logged races will appear here.</div></div>
       </div>
     </div>
   </div>
@@ -746,7 +746,7 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
     <div class="eyebrow">— Your Cycling Diary</div>
     <h1>My<br><em>Journal</em></h1>
     <div class="hstats" style="margin-top:16px;">
-      <div><div class="hstat-n" id="log-cnt">0</div><div class="hstat-l">Editions</div></div>
+      <div><div class="hstat-n" id="log-cnt">0</div><div class="hstat-l">Races</div></div>
       <div><div class="hstat-n" id="log-avg">—</div><div class="hstat-l">Avg Rating</div></div>
       <div><div class="hstat-n" id="log-live">0</div><div class="hstat-l">Watched Live</div></div>
       <div><div class="hstat-n" id="log-races">0</div><div class="hstat-l">Distinct Races</div></div>
@@ -818,7 +818,7 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
       <button onclick="clearLogFilters()" style="font-size:10px;letter-spacing:1px;color:var(--gold);background:none;border:1px solid var(--gold-dim);padding:5px 12px;cursor:pointer;transition:border-color .15s;" onmouseover="this.style.borderColor='var(--gold)'" onmouseout="this.style.borderColor='var(--gold-dim)'">✕ Clear Filters</button>
     </div>
   </div>
-  <div id="log-list"><div class="empty">No editions logged yet.</div></div>
+  <div id="log-list"><div class="empty">No races logged yet.</div></div>
 </div>
 
 <!-- TOP RACES -->
@@ -850,8 +850,12 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
     <div id="stats-race-list"></div>
   </div>
   <div id="stats-gcwins-panel" style="display:none;padding:0 40px 32px;">
-    <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:3px;margin-bottom:16px;padding-top:8px;border-top:1px solid var(--border);">Top 10 — GC Wins Seen</div>
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:3px;margin-bottom:16px;padding-top:8px;border-top:1px solid var(--border);">Top 10 — Overall Wins Seen</div>
     <div id="stats-gcwins-list"></div>
+  </div>
+  <div id="stats-gcwins2-panel" style="display:none;padding:0 40px 32px;">
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:3px;margin-bottom:16px;padding-top:8px;border-top:1px solid var(--border);">Top 10 — GC Wins Seen</div>
+    <div id="stats-gcwins2-list"></div>
   </div>
   <div id="stats-stagewins-panel" style="display:none;padding:0 40px 32px;">
     <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:3px;margin-bottom:16px;padding-top:8px;border-top:1px solid var(--border);">Top 10 — Stage Wins Seen</div>
@@ -2753,7 +2757,7 @@ function renderLogPage(){
   updateLogFilterUI();
 
   const list=document.getElementById('log-list');
-  if(!all.length){list.innerHTML='<div class="empty">No editions logged yet.</div>';return;}
+  if(!all.length){list.innerHTML='<div class="empty">No races logged yet.</div>';return;}
   if(!entries.length){list.innerHTML='<div class="empty" style="padding:40px;">No entries match these filters.</div>';return;}
   list.innerHTML=entries.map(([id,w])=>{
     const r=RACES.find(x=>x.id===id); if(!r) return '';
@@ -2823,10 +2827,12 @@ function renderLeaderboard(){
 // stageWins[name]  = number of stage wins seen
 // raceHistory[name]= [{id, year, pos (0-based), stageWins}]
 function getRiderData(){
-  const counts={}, gcWins={}, stageWins={}, raceHistory={};
+  const counts={}, overallWins={}, gcWins={}, stageWins={}, raceHistory={};
+  const stageRaceTypes = new Set(['Grand Tour','Stage Race']);
 
   Object.entries(userLog).forEach(([id,rl])=>{
     const watchList = Array.isArray(rl) ? rl : (rl.watches||[]);
+    const raceObj = RACES.find(r=>r.id===id);
     watchList.forEach(w=>{
       const yr = parseInt(w.year);
       if(!yr) return;
@@ -2835,15 +2841,18 @@ function getRiderData(){
       const res = raceResults[yr] || raceResults[String(yr)];
       if(!res) return;
 
-      const raceName = (RACES.find(r=>r.id===id)||{}).name || id;
+      const raceName = raceObj?.name || id;
+      const isStageRace = stageRaceTypes.has(raceObj?.type);
 
-      // Count GC top-10 appearances
+      // Count top-10 appearances + overall wins (winner of ANY race)
       (res.top10||[]).forEach((name, pos)=>{
         if(!name || typeof name!=='string') return;
         counts[name]=(counts[name]||0)+1;
-        if(pos===0) gcWins[name]=(gcWins[name]||0)+1;
+        if(pos===0){
+          overallWins[name]=(overallWins[name]||0)+1;         // all races
+          if(isStageRace) gcWins[name]=(gcWins[name]||0)+1;  // stage races only
+        }
         if(!raceHistory[name]) raceHistory[name]=[];
-        // only push once per edition (check for dup)
         if(!raceHistory[name].find(x=>x.id===id&&x.year===yr)){
           raceHistory[name].push({id, year:yr, raceName, gcPos:pos, stages:0});
         }
@@ -2853,12 +2862,10 @@ function getRiderData(){
       (res.stageWins||[]).forEach(name=>{
         if(!name || typeof name!=='string') return;
         stageWins[name]=(stageWins[name]||0)+1;
-        // attach stage win to this edition's history entry
         if(!raceHistory[name]) raceHistory[name]=[];
         let entry = raceHistory[name].find(x=>x.id===id&&x.year===yr);
         if(!entry){
-          // rider won a stage but wasn't in GC top10 — still count them
-          counts[name]=(counts[name]||0); // don't double-count GC
+          counts[name]=(counts[name]||0);
           raceHistory[name].push({id, year:yr, raceName, gcPos:-1, stages:0});
           entry = raceHistory[name][raceHistory[name].length-1];
         }
@@ -2867,28 +2874,33 @@ function getRiderData(){
     });
   });
 
-  return {counts, gcWins, stageWins, raceHistory};
+  return {counts, overallWins, gcWins, stageWins, raceHistory};
 }
 
 function showRiderDetail(name){
-  const {counts, gcWins, stageWins, raceHistory}=getRiderData();
+  const {counts, overallWins, gcWins, stageWins, raceHistory}=getRiderData();
   const history=(raceHistory[name]||[]).sort((a,b)=>b.year-a.year||a.id.localeCompare(b.id));
-  const totalEditions=counts[name]||0;
-  const totalStageWins=stageWins[name]||0;
+  const totalRaces=counts[name]||0;
+  const totalOverallWins=overallWins[name]||0;
   const totalGCWins=gcWins[name]||0;
+  const totalStageWins=stageWins[name]||0;
 
   document.getElementById('rider-detail-name').textContent=name;
   document.getElementById('rider-detail-stats').innerHTML=`
     <div style="flex:1;background:var(--card);border:1px solid var(--border);padding:12px;text-align:center;">
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:26px;color:var(--accent);">${totalEditions}</div>
-      <div style="font-size:10px;color:var(--muted);letter-spacing:1px;">EDITIONS</div>
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:26px;color:var(--accent);">${totalRaces}</div>
+      <div style="font-size:10px;color:var(--muted);letter-spacing:1px;">RACES</div>
     </div>
     <div style="flex:1;background:var(--card);border:1px solid var(--border);padding:12px;text-align:center;">
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:26px;color:var(--accent);">${totalGCWins}</div>
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:26px;color:var(--accent);">${totalOverallWins}</div>
+      <div style="font-size:10px;color:var(--muted);letter-spacing:1px;">OVERALL WINS</div>
+    </div>
+    <div style="flex:1;background:var(--card);border:1px solid var(--border);padding:12px;text-align:center;">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:26px;color:var(--gold);">${totalGCWins}</div>
       <div style="font-size:10px;color:var(--muted);letter-spacing:1px;">GC WINS</div>
     </div>
     <div style="flex:1;background:var(--card);border:1px solid var(--border);padding:12px;text-align:center;">
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:26px;color:var(--accent);">${totalStageWins}</div>
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:26px;color:#58a6ff;">${totalStageWins}</div>
       <div style="font-size:10px;color:var(--muted);letter-spacing:1px;">STAGE WINS</div>
     </div>`;
 
@@ -2987,19 +2999,19 @@ async function executeRiderSearch(){
 //  STATS
 // ════════════════════════════════════════════════════════
 function showStatsRidersPanel(){
-  const {counts, gcWins, stageWins}=getRiderData();
+  const {counts, overallWins, gcWins, stageWins}=getRiderData();
   const top10=Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,10);
   const panel=document.getElementById('stats-riders-panel');
   const list=document.getElementById('stats-riders-list');
   if(!top10.length){list.innerHTML='<div style="color:var(--muted);font-size:13px;">Log some races first.</div>';panel.style.display='block';return;}
   list.innerHTML=top10.map(([name,cnt],i)=>{
-    const gw=gcWins[name]||0, sw=stageWins[name]||0;
+    const ow=overallWins[name]||0, gw=gcWins[name]||0, sw=stageWins[name]||0;
     return `<div style="display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid var(--border);cursor:pointer;" onclick="showRiderDetail('${name.replace(/'/g,"\\'")}');showDiscover('riders');">
       <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:${i<3?'var(--accent)':'var(--muted)'};width:24px;text-align:center;">${i+1}</div>
       <div style="flex:1;">
         <div style="font-size:13px;font-weight:600;">${name}</div>
         <div style="font-size:11px;color:var(--muted);margin-top:2px;">
-          ${gw?`🏆 ${gw} GC win${gw!==1?'s':''}`:''} ${sw?`⚡ ${sw} stage${sw!==1?'s':''}`:''}</div>
+          ${ow?`🏆 ${ow} overall win${ow!==1?'s':''}`:''} ${gw?`🟡 ${gw} GC win${gw!==1?'s':''}`:''} ${sw?`⚡ ${sw} stage${sw!==1?'s':''}`:''}</div>
       </div>
       <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;color:var(--text);">${cnt}</div>
       <div style="font-size:10px;color:var(--muted);width:48px;">edition${cnt!==1?'s':''}</div>
@@ -3011,7 +3023,7 @@ function showStatsRidersPanel(){
 function renderStats(){
   document.getElementById('stats-riders-panel').style.display='none';
   // Hide any open stat panels
-  ['stats-race-panel','stats-gcwins-panel','stats-stagewins-panel'].forEach(id=>{
+  ['stats-race-panel','stats-gcwins-panel','stats-gcwins2-panel','stats-stagewins-panel'].forEach(id=>{
     const el=document.getElementById(id); if(el) el.style.display='none';
   });
   const all=allEntries();
@@ -3036,8 +3048,9 @@ function renderStats(){
   const topRaceObj=topRace?RACES.find(x=>x.id===topRace[0]):null;
 
   // Rider stats
-  const{counts,gcWins,stageWins}=getRiderData();
+  const{counts,overallWins,gcWins,stageWins}=getRiderData();
   const topRider=Object.entries(counts).sort((a,b)=>b[1]-a[1])[0];
+  const topOverallWinner=Object.entries(overallWins).sort((a,b)=>b[1]-a[1])[0];
   const topGCWinner=Object.entries(gcWins).sort((a,b)=>b[1]-a[1])[0];
   const topStageWinner=Object.entries(stageWins).sort((a,b)=>b[1]-a[1])[0];
 
@@ -3049,7 +3062,7 @@ function renderStats(){
     <div class="stat-card">
       <div class="stat-card-title">Overview</div>
       <div class="stat-big">${total}</div>
-      <div class="stat-big-sub">Editions Logged</div>
+      <div class="stat-big-sub">Races Logged</div>
       <div style="margin-top:16px;" class="stat-row"><span class="stat-row-label">Watched Live</span><span class="stat-row-val">${liveCount} <span style="font-size:12px;color:var(--muted);">(${total?Math.round(liveCount/total*100):0}%)</span></span></div>
       <div class="stat-row"><span class="stat-row-label">Avg Rating</span><span class="stat-row-val">${avgRating||'—'}</span></div>
       <div class="stat-row"><span class="stat-row-label">Stages Logged</span><span class="stat-row-val">${totalStages}</span></div>
@@ -3065,17 +3078,18 @@ function renderStats(){
     </div>
     <div class="stat-card">
       <div class="stat-card-title">Most Watched</div>
-      ${topRaceObj?`<div class="stat-row stat-clickrow" onclick="showStatsPanel('race')"><span class="stat-row-label">Race ↓</span><span class="stat-row-val" style="font-size:13px;text-align:right;max-width:60%;">${topRaceObj.name}<br><span style="font-size:11px;color:var(--muted);">${topRace[1]} editions</span></span></div>`:'<div style="color:var(--muted);font-size:12px;">No data yet</div>'}
-      ${topRider?`<div class="stat-row stat-clickrow" onclick="showStatsPanel('rider')"><span class="stat-row-label">Rider ↓</span><span class="stat-row-val" style="font-size:13px;text-align:right;">${topRider[0]}<br><span style="font-size:11px;color:var(--muted);">${topRider[1]} editions seen</span></span></div>`:''}
-      ${topGCWinner?`<div class="stat-row stat-clickrow" onclick="showStatsPanel('gcwins')"><span class="stat-row-label">GC Wins seen ↓</span><span class="stat-row-val" style="font-size:13px;text-align:right;">${topGCWinner[0]}<br><span style="font-size:11px;color:var(--muted);">${topGCWinner[1]} overall wins</span></span></div>`:''}
-      ${topStageWinner?`<div class="stat-row stat-clickrow" onclick="showStatsPanel('stagewins')"><span class="stat-row-label">Stage Wins seen ↓</span><span class="stat-row-val" style="font-size:13px;text-align:right;">${topStageWinner[0]}<br><span style="font-size:11px;color:var(--muted);">${topStageWinner[1]} stage wins</span></span></div>`:''}
+      ${topRaceObj?`<div class="stat-row stat-clickrow" onclick="showStatsPanel('race')"><span class="stat-row-label">Race ↓</span><span class="stat-row-val" style="font-size:13px;text-align:right;max-width:60%;">${topRaceObj.name}<br><span style="font-size:11px;color:var(--muted);">${topRace[1]} races</span></span></div>`:'<div style="color:var(--muted);font-size:12px;">No data yet</div>'}
+      ${topRider?`<div class="stat-row stat-clickrow" onclick="showStatsPanel('rider')"><span class="stat-row-label">Rider ↓</span><span class="stat-row-val" style="font-size:13px;text-align:right;">${topRider[0]}<br><span style="font-size:11px;color:var(--muted);">${topRider[1]} races seen</span></span></div>`:''}
+      ${topOverallWinner?`<div class="stat-row stat-clickrow" onclick="showStatsPanel('gcwins')"><span class="stat-row-label">Overall Wins ↓</span><span class="stat-row-val" style="font-size:13px;text-align:right;">${topOverallWinner[0]}<br><span style="font-size:11px;color:var(--muted);">${topOverallWinner[1]} overall wins</span></span></div>`:''}
+      ${topGCWinner?`<div class="stat-row stat-clickrow" onclick="showStatsPanel('gcwins2')"><span class="stat-row-label">GC Wins ↓</span><span class="stat-row-val" style="font-size:13px;text-align:right;">${topGCWinner[0]}<br><span style="font-size:11px;color:var(--muted);">${topGCWinner[1]} GC wins</span></span></div>`:''}
+      ${topStageWinner?`<div class="stat-row stat-clickrow" onclick="showStatsPanel('stagewins')"><span class="stat-row-label">Stage Wins ↓</span><span class="stat-row-val" style="font-size:13px;text-align:right;">${topStageWinner[0]}<br><span style="font-size:11px;color:var(--muted);">${topStageWinner[1]} stage wins</span></span></div>`:''}
     </div>
   </div>`;
 }
 
 function showStatsPanel(type){
   // Hide all panels first
-  ['stats-riders-panel','stats-race-panel','stats-gcwins-panel','stats-stagewins-panel'].forEach(id=>{
+  ['stats-riders-panel','stats-race-panel','stats-gcwins-panel','stats-gcwins2-panel','stats-stagewins-panel'].forEach(id=>{
     const el=document.getElementById(id); if(el) el.style.display='none';
   });
   if(type==='rider'){
@@ -3093,19 +3107,34 @@ function showStatsPanel(type){
         <div style="width:6px;height:36px;background:${r.gradient};flex-shrink:0;"></div>
         <div style="flex:1;"><div style="font-size:13px;font-weight:600;">${r.name}</div><div style="font-size:11px;color:var(--muted);">${r.flag} ${r.country}</div></div>
         <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;">${cnt}</div>
-        <div style="font-size:10px;color:var(--muted);width:48px;">edition${cnt!==1?'s':''}</div>
+        <div style="font-size:10px;color:var(--muted);width:48px;">race${cnt!==1?'s':''}</div>
       </div>`;
     }).join('');
     panel.style.display='block';
     return;
   }
   if(type==='gcwins'){
-    const {gcWins}=getRiderData();
-    const top10=Object.entries(gcWins).sort((a,b)=>b[1]-a[1]).slice(0,10);
+    const {overallWins}=getRiderData();
+    const top10=Object.entries(overallWins).sort((a,b)=>b[1]-a[1]).slice(0,10);
     const panel=document.getElementById('stats-gcwins-panel');
     document.getElementById('stats-gcwins-list').innerHTML=top10.map(([name,cnt],i)=>
       `<div style="display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid var(--border);">
         <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:${i<3?'var(--accent)':'var(--muted)'};width:24px;text-align:center;">${i+1}</div>
+        <div style="flex:1;font-size:13px;font-weight:600;">${name}</div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;">${cnt}</div>
+        <div style="font-size:10px;color:var(--muted);width:56px;">overall win${cnt!==1?'s':''}</div>
+      </div>`
+    ).join('');
+    panel.style.display='block';
+    return;
+  }
+  if(type==='gcwins2'){
+    const {gcWins}=getRiderData();
+    const top10=Object.entries(gcWins).sort((a,b)=>b[1]-a[1]).slice(0,10);
+    const panel=document.getElementById('stats-gcwins2-panel');
+    document.getElementById('stats-gcwins2-list').innerHTML=top10.map(([name,cnt],i)=>
+      `<div style="display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid var(--border);">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:${i<3?'var(--gold)':'var(--muted)'};width:24px;text-align:center;">${i+1}</div>
         <div style="flex:1;font-size:13px;font-weight:600;">${name}</div>
         <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;">${cnt}</div>
         <div style="font-size:10px;color:var(--muted);width:48px;">GC win${cnt!==1?'s':''}</div>
@@ -3279,7 +3308,7 @@ function renderProfile(){
   const avg = rts.length ? (rts.reduce((a,b)=>a+b,0)/rts.length).toFixed(1) : '—';
   const stTotal = Object.values(userLog).flatMap(rl=>(rl.watches||[]).flatMap(w=>Object.keys(w.stages||{}))).length;
   document.getElementById('profile-stat-grid').innerHTML = [
-    [all.length,'Editions'],
+    [all.length,'Races'],
     [liveCount,'Live'],
     [avg,'Avg ★'],
     [stTotal,'Stages'],
@@ -3353,14 +3382,14 @@ function renderProfile(){
         <div style="font-size:12px;color:var(--muted);">▸</div>
       </div>
       <div class="yr-detail" id="${uid}">
-        <div>Editions watched: <strong>${d.cnt}</strong></div>
+        <div>Races watched: <strong>${d.cnt}</strong></div>
         <div>Watched live: <strong>${d.live}</strong></div>
         <div>Distinct races: <strong>${d.races.size}</strong></div>
         <div>Avg rating: <strong>${yrAvg}</strong></div>
       </div>`;
     }).join('');
   } else {
-    yrEl.innerHTML='<div style="color:var(--muted);font-size:11px;">No editions logged yet.</div>';
+    yrEl.innerHTML='<div style="color:var(--muted);font-size:11px;">No races logged yet.</div>';
   }
 
   // ── Favourite riders grid ─────────────────────────────────────────────
