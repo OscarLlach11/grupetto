@@ -1162,21 +1162,21 @@ const SG_CLASS  = {cobbled:'sg-cobbled',gravel:'sg-gravel',mountain:'sg-mountain
 // ── Bootstrap: load all static data from Supabase before rendering ────────
 async function loadAppData(){
   try {
-    // Parallel fetch: races, race_dates (current + last 2 years), app_config
+    // Parallel fetch: races, all race_dates, app_config
     const [racesRes, datesRes, configRes] = await Promise.all([
-      sb.from('races').select('*').order('tier').order('type').order('name'),
-      sb.from('race_dates').select('race_id,year,race_date').gte('year', new Date().getFullYear() - 1),
+      sb.from('races').select('*').order('tier', {nullsFirst:false}).order('race_type').order('race_name'),
+      sb.from('race_dates').select('race_id,year,race_date'),
       sb.from('app_config').select('key,value'),
     ]);
 
     if(racesRes.data?.length){
       RACES = racesRes.data.map(r => ({
-        id:          r.slug,           // app uses 'id', DB uses 'slug'
-        name:        r.race_name || r.name || '',
+        id:          r.slug,
+        name:        r.race_name || '',
         tier:        r.tier || 'Pro',
         country:     r.country || '',
         flag:        r.flag || '',
-        type:        r.race_type || r.type || '',
+        type:        r.race_type || '',
         firstYear:   r.first_year,
         tvYear:      r.tv_year,
         distance:    r.distance || '',
@@ -1314,14 +1314,14 @@ async function loadRaceResultsForLog(){
   }
 
   const { data } = await sbFetchWithTimeout(
-    sb.from('race_results').select('slug,year,top10,stage_wins').in('slug', slugsToFetch),
+    sb.from('race_results').select('slug,year,top10').in('slug', slugsToFetch),
     8000
   );
   if(!data) return;
   data.forEach(row => {
     let top10 = row.top10;
     if(typeof top10 === 'string'){ try{ top10 = JSON.parse(top10); }catch(e){ top10 = []; } }
-    let stageWins = row.stage_wins;
+    let stageWins = [];
     if(typeof stageWins === 'string'){ try{ stageWins = JSON.parse(stageWins); }catch(e){ stageWins = []; } }
     _resultsCache[row.slug] = _resultsCache[row.slug] || {};
     _resultsCache[row.slug][row.year] = { top10: top10||[], stageWins: stageWins||[] };
@@ -1723,7 +1723,7 @@ async function fetchAvailYears(id){
   }
 
   const { data, error } = await sbFetchWithTimeout(
-    sb.from('race_results').select('year,top10,stage_wins').eq('slug', id).order('year', { ascending: false }).limit(200)
+    sb.from('race_results').select('year,top10').eq('slug', id).order('year', { ascending: false }).limit(200)
   );
 
   console.log('fetchAvailYears', id, '→', data?.length ?? 'null', 'rows', error?.message||'ok');
@@ -1733,7 +1733,7 @@ async function fetchAvailYears(id){
     data.forEach(row => {
       let top10 = row.top10;
       if(typeof top10 === 'string'){ try{ top10 = JSON.parse(top10); }catch(e){ top10 = []; } }
-      let stageWins = row.stage_wins;
+      let stageWins = [];
       if(typeof stageWins === 'string'){ try{ stageWins = JSON.parse(stageWins); }catch(e){ stageWins = []; } }
       _resultsCache[id][row.year] = { top10: top10||[], stageWins: stageWins||[] };
     });
@@ -1756,15 +1756,15 @@ async function fetchAvailYears(id){
   return ys;
 }
 
-// Ensure RACE_DATES has all years for a given race (lazy load from race_dates table)
+// All race dates are loaded upfront in loadAppData — this is a no-op safety net
 async function ensureRaceDates(id){
-  if(RACE_DATES[id] && Object.keys(RACE_DATES[id]).length > 2) return; // already loaded
+  if(RACE_DATES[id]) return; // already loaded
   const { data } = await sbFetchWithTimeout(
     sb.from('race_dates').select('year,race_date').eq('race_id', id).order('year', {ascending: false}),
     5000
   );
   if(data?.length){
-    RACE_DATES[id] = RACE_DATES[id] || {};
+    RACE_DATES[id] = {};
     data.forEach(row => { RACE_DATES[id][row.year] = row.race_date; });
   }
 }
@@ -1774,14 +1774,14 @@ async function fetchRaceResults(slug, year){
   if(_resultsCache[slug]?.[year]) return _resultsCache[slug][year];
 
   const { data, error } = await sbFetchWithTimeout(
-    sb.from('race_results').select('top10,stage_wins').eq('slug', slug).eq('year', year).limit(1)
+    sb.from('race_results').select('top10').eq('slug', slug).eq('year', year).limit(1)
   );
   if(error?.message === 'timeout' || !data?.length) return null;
 
   const row = data[0];
   let top10 = row.top10;
   if(typeof top10 === 'string'){ try{ top10 = JSON.parse(top10); }catch(e){ top10 = []; } }
-  let stageWins = row.stage_wins;
+  let stageWins = [];
   if(typeof stageWins === 'string'){ try{ stageWins = JSON.parse(stageWins); }catch(e){ stageWins = []; } }
   const result = { top10: top10||[], stageWins: stageWins||[] };
   _resultsCache[slug] = _resultsCache[slug] || {};
