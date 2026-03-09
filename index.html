@@ -1641,7 +1641,7 @@ let wholeLive=false;
 // ════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', async () => {
   renderTabs();
-  // Check for hash route first, otherwise restore last page
+  // Always use handleRoute so all hashes (race, rider, review, discover/riders, log, stats, etc.) work on reload
   if(location.hash && location.hash.length > 2) {
     renderAll();
     // For review pages, wait for auth to load profile/userLog before routing
@@ -1656,6 +1656,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     showPage(validPages.includes(savedPage) ? savedPage : 'discover');
   }
   document.getElementById('stat-races').textContent = RACES.length;
+  // Preload featured riders in background so they're instant when user navigates to Discover → Riders
+  renderRiders();
 });
 
 // ════════════════════════════════════════════════════════
@@ -1667,6 +1669,8 @@ function showPage(p){
   if(aPg==='log' && p!=='log'){
     logFilter = { rating:0, country:'', type:'', sort:'date', live:'' };
   }
+  // Reset rider search when leaving discover page
+  if(aPg==='discover' && p!=='discover' && aDiscSection==='riders') resetRiderSearch();
   document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));
   document.getElementById('page-'+p).classList.add('active');
   document.querySelectorAll('.nav-a').forEach(x=>x.classList.remove('active'));
@@ -1674,7 +1678,9 @@ function showPage(p){
   aPg=p;
   if(['discover','log','top','stats','profile'].includes(p)){
     localStorage.setItem('g3-activePage', p);
-    history.replaceState(null, '', location.pathname);
+    // Push hash so page reload restores position (except discover/races which is the default)
+    if(p === 'discover' && aDiscSection !== 'riders') history.replaceState(null, '', location.pathname);
+    else if(p !== 'discover') history.replaceState(null, '', `#/${p}`);
   }
   if(p!=='discover') curRacePageId=null;
   if(p==='log') renderLogPage();
@@ -1804,12 +1810,17 @@ function updateLogFilterUI(){
 
 let aDiscSection='races';
 function setDiscoverSection(section){
+  // Reset rider search when leaving the riders section
+  if(aDiscSection === 'riders' && section !== 'riders') resetRiderSearch();
   aDiscSection=section;
   document.querySelectorAll('.disc-subtab').forEach(x=>x.classList.remove('active'));
   const btn=document.getElementById('dsubt-'+section);
   if(btn) btn.classList.add('active');
   document.getElementById('disc-section-races').style.display=section==='races'?'block':'none';
   document.getElementById('disc-section-riders').style.display=section==='riders'?'block':'none';
+  // Update hash so reload stays on this sub-section
+  if(section === 'riders') history.replaceState(null, '', '#/discover/riders');
+  else history.replaceState(null, '', location.pathname);
   if(section==='riders') renderRiders();
 }
 
@@ -1956,14 +1967,16 @@ async function renderRSPResults(id, year){
 
   const pcsSlug = getPcsSlug(id);
 
-  const { data, error } = await sb.from('race_results')
-    .select('top10, race_type')
+  // Use .limit(1) instead of .maybeSingle() to avoid 406 PGRST116 errors
+  const { data: rows, error } = await sb.from('race_results')
+    .select('top10, race_type, stage_wins')
     .eq('slug', pcsSlug)
     .eq('year', year)
-    .maybeSingle();
+    .limit(1);
 
   if(error) console.warn('race_results error:', error.message, 'slug:', pcsSlug, 'year:', year);
 
+  const data = rows && rows.length ? rows[0] : null;
   const top10 = data?.top10;
   let html = '';
 
@@ -1985,10 +1998,12 @@ async function renderRSPResults(id, year){
 // Fetch available years for a race from Supabase race_results table
 async function fetchAvailYears(id){
   const pcsSlug = getPcsSlug(id);
-  const { data } = await sb.from('race_results')
+  const { data, error } = await sb.from('race_results')
     .select('year')
     .eq('slug', pcsSlug)
-    .order('year', { ascending: false });
+    .order('year', { ascending: false })
+    .limit(100);
+  if(error) console.warn('fetchAvailYears error:', error.message, 'slug:', pcsSlug);
   if(data && data.length) return data.map(r => r.year);
   // Fallback: generate from race tvYear
   const r = RACES.find(x => x.id === id);
@@ -2584,19 +2599,42 @@ function renderRiderCard(rider){
   </div>`;
 }
 
-async function renderRiders(){
+// Cache for featured riders so they don't reload every time
+let _featuredRidersCache = null;
+
+async function renderRiders(forceRefresh){
   const grid = document.getElementById('riders-grid');
   const label = document.querySelector('#riders-list > div:first-child');
   if(!grid) return;
+
+  // If we already have cached data and aren't doing a search, use it immediately
+  if(_featuredRidersCache && !forceRefresh){
+    if(label) label.textContent = 'Featured Riders';
+    grid.innerHTML = _featuredRidersCache.map(r => renderRiderCard({...r, last_year: r.year})).join('');
+    return;
+  }
+
   grid.innerHTML = '<div style="color:var(--muted);font-size:12px;grid-column:1/-1;">Loading…</div>';
 
-  // Fetch each featured rider - get their most recent startlist entry
-  const promises = FEATURED_RIDERS.map(name =>
-    sb.from('startlists').select('rider_name,team_name,nationality,image_url,year')
-      .ilike('rider_name', name).order('year', {ascending:false}).limit(1).maybeSingle()
-  );
-  const results = await Promise.all(promises);
-  const riders = results.map((r,i) => r.data || {rider_name: FEATURED_RIDERS[i], image_url: null, year: null});
+  // Single batched query for all featured riders instead of 10 parallel queries
+  const { data, error } = await sb.from('startlists')
+    .select('rider_name,team_name,nationality,image_url,year')
+    .in('rider_name', FEATURED_RIDERS)
+    .order('year', {ascending: false});
+
+  if(error || !data){
+    grid.innerHTML = '<div style="color:var(--muted);font-size:12px;grid-column:1/-1;">Could not load riders.</div>';
+    return;
+  }
+
+  // Deduplicate: keep most recent entry per rider, preserving FEATURED_RIDERS order
+  const seen = new Map();
+  data.forEach(r => {
+    if(!seen.has(r.rider_name) || r.year > seen.get(r.rider_name).year) seen.set(r.rider_name, r);
+  });
+  // Maintain the original FEATURED_RIDERS order, falling back to placeholder if missing
+  const riders = FEATURED_RIDERS.map(name => seen.get(name) || {rider_name: name, image_url: null, year: null});
+  _featuredRidersCache = riders;
 
   if(label) label.textContent = 'Featured Riders';
   grid.innerHTML = riders.map(r => renderRiderCard({...r, last_year: r.year})).join('');
@@ -2625,6 +2663,15 @@ async function executeRiderSearch(){
   const unique = Array.from(seen.values());
   if(label) label.textContent = `${unique.length} result${unique.length!==1?'s':''}`;
   grid.innerHTML = unique.map(r => renderRiderCard({...r, last_year: r.year})).join('');
+}
+
+// Reset rider search input and restore featured riders when leaving the section
+function resetRiderSearch(){
+  const input = document.getElementById('rider-search');
+  if(input && input.value){
+    input.value = '';
+    renderRiders(); // restore featured riders (uses cache, instant)
+  }
 }
 
 // ════════════════════════════════════════════════════════
@@ -3432,6 +3479,16 @@ function handleRoute(hash){
   } else if(parts[0] === 'review' && parts[1] && parts[2] && parts[3]) {
     // #/review/{handle}/{raceId}/{year}[/{n}]
     openReviewPage(parts[1], parts[2], parseInt(parts[3]), parts[4] ? parseInt(parts[4]) : 1);
+  } else if(parts[0] === 'discover') {
+    showPage('discover');
+    if(parts[1] === 'riders') {
+      setDiscoverSection('riders');
+    }
+  } else {
+    // Try treating as a main page name (log, top, stats, profile)
+    const validPages = ['discover','log','top','stats','profile'];
+    if(validPages.includes(parts[0])) showPage(parts[0]);
+    else { const saved = localStorage.getItem('g3-activePage') || 'discover'; showPage(saved); }
   }
 }
 
