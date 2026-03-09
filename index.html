@@ -1162,12 +1162,18 @@ const SG_CLASS  = {cobbled:'sg-cobbled',gravel:'sg-gravel',mountain:'sg-mountain
 // ── Bootstrap: load all static data from Supabase before rendering ────────
 async function loadAppData(){
   try {
-    // Parallel fetch: races, all race_dates, app_config
+    // Explicit column list — avoids fetching unused cols, future-proof against schema changes
+    const RACE_COLS = 'slug,race_name,race_type,first_year,last_year,tv_year,tier,country,flag,distance,gradient,swatch,description,subgenres,stage_count';
+
     const [racesRes, datesRes, configRes] = await Promise.all([
-      sb.from('races').select('*').order('tier', {nullsFirst:false}).order('race_type').order('race_name'),
-      sb.from('race_dates').select('race_id,year,race_date'),
+      sb.from('races').select(RACE_COLS).order('tier').order('race_type').order('race_name').limit(500),
+      sb.from('race_dates').select('race_id,year,race_date').limit(5000),
       sb.from('app_config').select('key,value'),
     ]);
+
+    if(racesRes.error) console.warn('races error:', racesRes.error.message);
+    if(datesRes.error) console.warn('race_dates error:', datesRes.error.message);
+    if(configRes.error) console.warn('app_config error:', configRes.error.message);
 
     if(racesRes.data?.length){
       RACES = racesRes.data.map(r => ({
@@ -1196,13 +1202,14 @@ async function loadAppData(){
         if(!RACE_DATES[row.race_id]) RACE_DATES[row.race_id] = {};
         RACE_DATES[row.race_id][row.year] = row.race_date;
       });
-      console.log(`Loaded race dates for ${Object.keys(RACE_DATES).length} races`);
+      console.log(`Loaded ${datesRes.data.length} race dates for ${Object.keys(RACE_DATES).length} races`);
     }
 
     if(configRes.data?.length){
       configRes.data.forEach(row => {
         if(row.key === 'featured_riders') FEATURED_RIDERS = row.value;
       });
+      console.log(`Featured riders: ${FEATURED_RIDERS.length}`);
     }
   } catch(e) {
     console.error('loadAppData failed:', e);
@@ -1301,14 +1308,11 @@ let watchlist = JSON.parse(localStorage.getItem('g3-wl')    || '[]');
 let raceResultsCache = JSON.parse(localStorage.getItem('g3-results-cache') || '{}');
 
 async function loadRaceResultsForLog(){
-  // Load results for all races the user has logged, to power stats
   const slugsNeeded = Object.keys(userLog);
   if(!slugsNeeded.length) return;
 
-  // Skip slugs already fully cached
   const slugsToFetch = slugsNeeded.filter(slug => !_resultsCache[slug]);
   if(!slugsToFetch.length) {
-    // Sync raceResultsCache from _resultsCache
     Object.assign(raceResultsCache, _resultsCache);
     return;
   }
@@ -1321,13 +1325,10 @@ async function loadRaceResultsForLog(){
   data.forEach(row => {
     let top10 = row.top10;
     if(typeof top10 === 'string'){ try{ top10 = JSON.parse(top10); }catch(e){ top10 = []; } }
-    let stageWins = [];
-    if(typeof stageWins === 'string'){ try{ stageWins = JSON.parse(stageWins); }catch(e){ stageWins = []; } }
     _resultsCache[row.slug] = _resultsCache[row.slug] || {};
-    _resultsCache[row.slug][row.year] = { top10: top10||[], stageWins: stageWins||[] };
-    // Keep raceResultsCache in sync (used by getRiderData/stats)
+    _resultsCache[row.slug][row.year] = { top10: top10||[] };
     raceResultsCache[row.slug] = raceResultsCache[row.slug] || {};
-    raceResultsCache[row.slug][row.year] = { top10: top10||[], stageWins: stageWins||[] };
+    raceResultsCache[row.slug][row.year] = { top10: top10||[] };
   });
   localStorage.setItem('g3-results-cache', JSON.stringify(_resultsCache));
 }
@@ -1733,9 +1734,7 @@ async function fetchAvailYears(id){
     data.forEach(row => {
       let top10 = row.top10;
       if(typeof top10 === 'string'){ try{ top10 = JSON.parse(top10); }catch(e){ top10 = []; } }
-      let stageWins = [];
-      if(typeof stageWins === 'string'){ try{ stageWins = JSON.parse(stageWins); }catch(e){ stageWins = []; } }
-      _resultsCache[id][row.year] = { top10: top10||[], stageWins: stageWins||[] };
+      _resultsCache[id][row.year] = { top10: top10||[] };
     });
     localStorage.setItem('g3-results-cache', JSON.stringify(_resultsCache));
     await ensureRaceDates(id);
@@ -1781,9 +1780,7 @@ async function fetchRaceResults(slug, year){
   const row = data[0];
   let top10 = row.top10;
   if(typeof top10 === 'string'){ try{ top10 = JSON.parse(top10); }catch(e){ top10 = []; } }
-  let stageWins = [];
-  if(typeof stageWins === 'string'){ try{ stageWins = JSON.parse(stageWins); }catch(e){ stageWins = []; } }
-  const result = { top10: top10||[], stageWins: stageWins||[] };
+  const result = { top10: top10||[] };
   _resultsCache[slug] = _resultsCache[slug] || {};
   _resultsCache[slug][year] = result;
   localStorage.setItem('g3-results-cache', JSON.stringify(_resultsCache));
