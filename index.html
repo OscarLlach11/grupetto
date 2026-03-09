@@ -37,6 +37,7 @@
   async function onSignedIn() {
     renderNavUser();
     await loadUserData();
+    await loadRaceResultsForLog();
     renderAll();
     if(window._pendingRoute){ handleRoute(window._pendingRoute); window._pendingRoute=null; }
   }
@@ -1262,548 +1263,6 @@ function buildStages(id,year){
 
 // ════════════════════════════════════════════════════════
 //  RIDERS DATABASE (key riders by race for results display)
-// ════════════════════════════════════════════════════════
-// Format: raceId -> year -> { top10: [...], jerseys: [...] }
-// We store a curated set of historical results
-const RACE_RESULTS = {
-  // ── GRAND TOURS ──
-  tdf:{
-    2025:{top10:['Tadej Pogačar','Jonas Vingegaard','Florian Lipowitz','Oscar Onley','Felix Gall','Tobias Halland Johannessen','Kévin Vauquelin','Primož Roglič','Ben Healy','Jordan Jegat'],jerseys:[['🟡','GC','Tadej Pogačar'],['🟢','Points','Jonathan Milan'],['🔴','KOM','Tadej Pogačar'],['⚪','Young','Florian Lipowitz']],stageWins:['Jasper Philipsen','Mathieu van der Poel','Tim Merlier','Tadej Pogačar','Remco Evenepoel','Ben Healy','Tadej Pogačar','Jonathan Milan','Tim Merlier','Simon Yates','Jonas Abrahamsen','Tadej Pogačar','Tadej Pogačar','Thymen Arensman','Tim Wellens','Alexis Vuillermoz','Jonathan Milan','Thymen Arensman','Ben Healy','Kaden Groves','Wout van Aert']},
-    2024:{top10:['Tadej Pogačar','Jonas Vingegaard','Remco Evenepoel','Carlos Rodríguez','Ben O\'Connor','Mikel Landa','Enric Mas','Simon Yates','Mattias Skjelmose','Richard Carapaz'],jerseys:[['🟡','GC','Tadej Pogačar'],['🟢','Points','Jasper Philipsen'],['🔴','KOM','Richard Carapaz'],['⚪','Young','Tadej Pogačar']],stageWins:['Remco Evenepoel','Jasper Philipsen','Biniam Girmay','Tadej Pogačar','Kevin Vauquelin','Tim Merlier','Jasper Philipsen','Tadej Pogačar','Romain Bardet','Tadej Pogačar','Marc Hirschi','Jasper Philipsen','Jasper Philipsen','Tadej Pogačar','Jasper Philipsen','Jasper Philipsen','Tadej Pogačar','Jonas Abrahamsen','Søren Kragh Andersen','Tadej Pogačar','Tadej Pogačar']},
-    2023:{top10:['Jonas Vingegaard','Tadej Pogačar','Carlos Rodríguez','Simon Yates','Jai Hindley','Pello Bilbao','Adam Yates','David Gaudu','Aleksandr Vlasov','Giulio Ciccone'],jerseys:[['🟡','GC','Jonas Vingegaard'],['🟢','Points','Jasper Philipsen'],['🔴','KOM','Giulio Ciccone'],['⚪','Young','Tadej Pogačar']],stageWins:['Victor Lafay','Jasper Philipsen','Tadej Pogačar','Jasper Philipsen','Jasper Philipsen','Jonas Vingegaard','Tadej Pogačar','Felix Gall','Pello Bilbao','Jasper Philipsen','Simon Warren','Tadej Pogačar','Carlos Rodríguez','Jonas Vingegaard','Jasper Philipsen','Giulio Ciccone','Tadej Pogačar','Tadej Pogačar','Matej Mohorič','Jasper Philipsen','Jordi Meeus']},
-    2022:{top10:['Jonas Vingegaard','Tadej Pogačar','Geraint Thomas','David Gaudu','Aleksandr Vlasov','Adam Yates','Romain Bardet','Mikel Landa','Enric Mas','Nairo Quintana'],jerseys:[['🟡','GC','Jonas Vingegaard'],['🟢','Points','Wout van Aert'],['🔴','KOM','Jonas Vingegaard'],['⚪','Young','Tadej Pogačar']],stageWins:['Yves Lampaert','Fabio Jakobsen','Wout van Aert','Mads Pedersen','Simon Clarke','Tadej Pogačar','Nils Politt','Christophe Laporte','Thibaut Pinot','Magnus Cort','Tadej Pogačar','Christophe Laporte','Jonas Vingegaard','Mads Pedersen','Hugo Houle','Magnus Cort','Tadej Pogačar','Magnus Cort','Wout van Aert','Tadej Pogačar','Jasper Philipsen']},
-    2021:{top10:['Tadej Pogačar','Jonas Vingegaard','Richard Carapaz','Ben O\'Connor','Wilco Kelderman','Alexey Lutsenko','Guillaume Martin','Rigoberto Urán','Enric Mas','Alexis Vuillermoz'],jerseys:[['🟡','GC','Tadej Pogačar'],['🟢','Points','Mark Cavendish'],['🔴','KOM','Tadej Pogačar'],['⚪','Young','Tadej Pogačar']],stageWins:['Julian Alaphilippe','Mathieu van der Poel','Tim Merlier','Mark Cavendish','Tadej Pogačar','Mark Cavendish','Matej Mohorič','Tadej Pogačar','Ben O\'Connor','Mark Cavendish','Tadej Pogačar','Tadej Pogačar','Nils Politt','Mark Cavendish','Wout van Aert','Mark Cavendish','Tadej Pogačar','Tadej Pogačar','Sonny Colbrelli','Mathieu van der Poel','Mark Cavendish']},
-    2020:{top10:['Tadej Pogačar','Primož Roglič','Richie Porte','Miguel Ángel López','Mikel Landa','Enric Mas','Rigoberto Urán','Tom Dumoulin','Adam Yates','Jack Haig'],jerseys:[['🟡','GC','Tadej Pogačar'],['🟢','Points','Sam Bennett'],['🔴','KOM','Tadej Pogačar'],['⚪','Young','Tadej Pogačar']]},
-    2019:{top10:['Egan Bernal','Geraint Thomas','Steven Kruijswijk','Emanuel Buchmann','Julian Alaphilippe','Thibaut Pinot','Rigoberto Urán','Nairo Quintana','Mikel Landa','Warren Barguil'],jerseys:[['🟡','GC','Egan Bernal'],['🟢','Points','Peter Sagan'],['🔴','KOM','Romain Bardet'],['⚪','Young','Egan Bernal']]},
-    2018:{top10:['Geraint Thomas','Tom Dumoulin','Chris Froome','Primož Roglič','Steven Kruijswijk','Mikel Landa','Pierre Latour','Daniel Martin','Ilnur Zakarin','Tejay van Garderen'],jerseys:[['🟡','GC','Geraint Thomas'],['🟢','Points','Peter Sagan'],['🔴','KOM','Julian Alaphilippe'],['⚪','Young','Pierre Latour']]},
-    2017:{top10:['Chris Froome','Rigoberto Urán','Romain Bardet','Mikel Landa','Fabio Aru','Simon Yates','Alberto Contador','Daniel Martin','Warren Barguil','Nairo Quintana'],jerseys:[['🟡','GC','Chris Froome'],['🟢','Points','Marcel Kittel'],['🔴','KOM','Warren Barguil'],['⚪','Young','Simon Yates']]},
-    2016:{top10:['Chris Froome','Romain Bardet','Nairo Quintana','Adam Yates','Alejandro Valverde','Tejay van Garderen','Richie Porte','Louis Meintjes','Jon Izagirre','Daniel Martin'],jerseys:[['🟡','GC','Chris Froome'],['🟢','Points','Peter Sagan'],['🔴','KOM','Rafael Majka'],['⚪','Young','Adam Yates']]},
-    2015:{top10:['Chris Froome','Nairo Quintana','Alejandro Valverde','Alberto Contador','Thibaut Pinot','Bauke Mollema','Robert Gesink','Peter Sagan','Mikel Landa','Romain Bardet'],jerseys:[['🟡','GC','Chris Froome'],['🟢','Points','Peter Sagan'],['🔴','KOM','Chris Froome'],['⚪','Young','Nairo Quintana']]},
-  },
-  giro:{
-    2025:{top10:['Simon Yates','Isaac del Toro','Richard Carapaz','Derek Gee','Damiano Caruso','Giulio Pellizzari','Egan Bernal','Einer Augusto Rubio','Brandon McNulty','Michael Storer'],jerseys:[['🩷','GC','Simon Yates'],['🟣','Points','Olav Kooij'],['🔵','KOM','Thibau Nys'],['⚪','Young','Isaac del Toro']]},
-    2024:{top10:['Tadej Pogačar','Daniel Martínez','Geraint Thomas','Ben O\'Connor','Romain Bardet','Lennard Kämna','Thymen Arensman','Einer Augusto Rubio','Damiano Caruso','Antonio Tiberi'],jerseys:[['🩷','GC','Tadej Pogačar'],['🟣','Points','Jonathan Milan'],['🔵','KOM','Ben O\'Connor'],['⚪','Young','Antonio Tiberi']]},
-    2023:{top10:['Primož Roglič','Geraint Thomas','Aleksandr Vlasov','João Almeida','Eddie Dunbar','Tao Geoghegan Hart','Derek Gee','Lorenzo Fortunato','Thymen Arensman','Cian Uijtdebroeks'],jerseys:[['🩷','GC','Primož Roglič'],['🟣','Points','Jonathan Milan'],['🔵','KOM','Thibaut Pinot'],['⚪','Young','Cian Uijtdebroeks']]},
-    2022:{top10:['Jai Hindley','Richard Carapaz','Mikel Landa','Pello Bilbao','João Almeida','Tom Dumoulin','Hugh Carthy','Emanuel Buchmann','Domenico Pozzovivo','Giulio Ciccone'],jerseys:[['🩷','GC','Jai Hindley'],['🟣','Points','Mark Cavendish'],['🔵','KOM','Koen Bouwman'],['⚪','Young','Juan Pedro López']]},
-    2021:{top10:['Egan Bernal','Damiano Caruso','Simon Yates','Hugh Carthy','Aleksandr Vlasov','Giulio Ciccone','Tobias Foss','Romain Bardet','Davide Formolo','Daniel Martínez'],jerseys:[['🩷','GC','Egan Bernal'],['🟣','Points','Peter Sagan'],['🔵','KOM','Giulio Ciccone'],['⚪','Young','Egan Bernal']]},
-    2020:{top10:['Tao Geoghegan Hart','Jai Hindley','Wilco Kelderman','Pello Bilbao','João Almeida','Aleksandr Vlasov','Rafal Majka','Mikkel Bjerg','Patrick Konrad','Davide Villella'],jerseys:[['🩷','GC','Tao Geoghegan Hart'],['🟣','Points','Arnaud Démare'],['🔵','KOM','Ruben Guerreiro'],['⚪','Young','Tao Geoghegan Hart']]},
-    2019:{top10:['Richard Carapaz','Vincenzo Nibali','Primož Roglič','Mikel Landa','Bauke Mollema','Tom Dumoulin','Jan Polanc','Davide Formolo','Ilnur Zakarin','Giulio Ciccone'],jerseys:[['🩷','GC','Richard Carapaz'],['🟣','Points','Pascal Ackermann'],['🔵','KOM','Giulio Ciccone'],['⚪','Young','Giulio Ciccone']]},
-  },
-  vuelta:{
-    2025:{top10:['Jonas Vingegaard','João Almeida','Tom Pidcock','Jai Hindley','Matthew Riccitello','Giulio Pellizzari','Sepp Kuss','Felix Gall','Torstein Træen','Matteo Jorgenson'],jerseys:[['🔴','GC','Jonas Vingegaard'],['🟢','Points','Mads Pedersen'],['🔵','KOM','Jay Vine'],['⚪','Young','Matthew Riccitello']]},
-    2024:{top10:['Primož Roglič','Ben O\'Connor','Enric Mas','João Almeida','Richard Carapaz','Mikel Landa','Carlos Rodríguez','David Gaudu','Cian Uijtdebroeks','Santiago Buitrago'],jerseys:[['🔴','GC','Primož Roglič'],['🟢','Points','Kaden Groves'],['🔵','KOM','Quentin Pacher'],['⚪','Young','Cian Uijtdebroeks']]},
-    2023:{top10:['Sepp Kuss','Jonas Vingegaard','Primož Roglič','Carlos Rodríguez','Mikel Landa','Juan Ayuso','Cian Uijtdebroeks','Lennard Kämna','Lenny Martinez','Marc Soler'],jerseys:[['🔴','GC','Sepp Kuss'],['🟢','Points','Kaden Groves'],['🔵','KOM','Geoffrey Bouchard'],['⚪','Young','Cian Uijtdebroeks']]},
-    2022:{top10:['Remco Evenepoel','Enric Mas','Juan Ayuso','Carlos Rodríguez','Miguel Ángel López','Richard Carapaz','Tao Geoghegan Hart','Pavel Sivakov','Thymen Arensman','Lorenzo Fortunato'],jerseys:[['🔴','GC','Remco Evenepoel'],['🟢','Points','Mads Pedersen'],['🔵','KOM','Richard Carapaz'],['⚪','Young','Juan Ayuso']]},
-    2021:{top10:['Primož Roglič','Jack Haig','Enric Mas','Miguel Ángel López','Egan Bernal','David de la Cruz','Felix Großschartner','Joe Dombrowski','Sepp Kuss','Adam Yates'],jerseys:[['🔴','GC','Primož Roglič'],['🟢','Points','Fabio Jakobsen'],['🔵','KOM','Damiano Caruso'],['⚪','Young','Ethan Hayter']]},
-    2020:{top10:['Primož Roglič','Richard Carapaz','Hugh Carthy','Aleksandr Vlasov','Dan Martin','Enric Mas','Felix Großschartner','Marc Soler','David de la Cruz','Tao Geoghegan Hart'],jerseys:[['🔴','GC','Primož Roglič'],['🟢','Points','Pascal Ackermann'],['🔵','KOM','Guillaume Martin'],['⚪','Young','Aleksandr Vlasov']]},
-    2019:{top10:['Primož Roglič','Alejandro Valverde','Tadej Pogačar','Nairo Quintana','Miguel Ángel López','Rafal Majka','Guillaume Martin','Wilco Kelderman','Cristian Rodríguez','Mikel Landa'],jerseys:[['🔴','GC','Primož Roglič'],['🟢','Points','Primož Roglič'],['🔵','KOM','Geoffrey Bouchard'],['⚪','Young','Tadej Pogačar']]},
-  },
-  // ── MONUMENTS ──
-  roubaix:{
-    2025:{top10:['Mathieu van der Poel','Tadej Pogačar','Mads Pedersen','Wout van Aert','Florian Vermeersch','Tim Merlier','Jonathan Milan','Jasper Philipsen','Matthew Brennan','Filippo Ganna']},
-    2024:{top10:['Mathieu van der Poel','Nils Politt','Luca Mozzato','Søren Kragh Andersen','Kasper Asgreen','Florian Vermeersch','Tiesj Benoot','Stefan Küng','Yves Lampaert','Christophe Laporte']},
-    2023:{top10:['Mathieu van der Poel','Søren Kragh Andersen','Jasper Philipsen','Stefan Küng','Nils Politt','Wout van Aert','Christophe Laporte','Florian Vermeersch','Adrien Petit','Dylan van Baarle']},
-    2022:{top10:['Dylan van Baarle','Wout van Aert','Stefan Küng','Florian Vermeersch','Nils Politt','Kasper Asgreen','Christophe Laporte','Mathieu van der Poel','Simon Clarke','Tom Boonen']},
-    2021:{top10:['Sonny Colbrelli','Florian Vermeersch','Mathieu van der Poel','Wout van Aert','Gianni Moscon','Sep Vanmarcke','Stefan Küng','Nils Politt','Fred Wright','Jasper Stuyven']},
-    2019:{top10:['Philippe Gilbert','Nils Politt','Wout van Aert','Yves Lampaert','Søren Kragh Andersen','Gianni Moscon','Zdeněk Štybar','Sep Vanmarcke','Silvan Dillier','Fabio Jakobsen']},
-  },
-  flanders:{
-    2025:{top10:['Tadej Pogačar','Mads Pedersen','Mathieu van der Poel','Wout van Aert','Jasper Stuyven','Tiesj Benoot','Stefan Küng','Filippo Ganna','Iván García','Davide Ballerini']},
-    2024:{top10:['Mathieu van der Poel','Luca Mozzato','Nils Politt','Valentin Madouas','Søren Kragh Andersen','Christophe Laporte','Tadej Pogačar','Tim Wellens','Kasper Asgreen','Florian Vermeersch']},
-    2023:{top10:['Tadej Pogačar','Mathieu van der Poel','Mads Pedersen','Wout van Aert','Søren Kragh Andersen','Kasper Asgreen','Stefan Küng','Valentin Madouas','Christophe Laporte','Tim Wellens']},
-    2022:{top10:['Mathieu van der Poel','Dylan van Baarle','Valentin Madouas','Tadej Pogačar','Stefan Bissegger','Nils Politt','Wout van Aert','Tiesj Benoot','Florian Vermeersch','Tom Pidcock']},
-    2021:{top10:['Kasper Asgreen','Mathieu van der Poel','Greg van Avermaet','Stefan Küng','Davide Ballerini','Søren Kragh Andersen','Florian Sénéchal','Nils Politt','Yves Lampaert','Tiesj Benoot']},
-    2020:{top10:['Mathieu van der Poel','Wout van Aert','Alexander Kristoff','Oliver Naesen','Tom Devriendt','Zdeněk Štybar','Alberto Bettiol','Greg van Avermaet','Sep Vanmarcke','Imanol Erviti']},
-    2019:{top10:['Alberto Bettiol','Wout van Aert','Greg van Avermaet','Sep Vanmarcke','Zdeněk Štybar','Oliver Naesen','Søren Kragh Andersen','Jasper Stuyven','Tim Wellens','Ian Stannard']},
-  },
-  msanremo:{
-    2025:{top10:['Mathieu van der Poel','Filippo Ganna','Tadej Pogačar','Michael Matthews','Kaden Groves','Romain Grégoire','Stefan Küng','Søren Kragh Andersen','Jasper Philipsen','Christophe Laporte']},
-    2024:{top10:['Jasper Philipsen','Michael Matthews','Tadej Pogačar','Mathieu van der Poel','Filippo Ganna','Bryan Coquard','Alexander Kristoff','Matteo Trentin','Christophe Laporte','Jonathan Milan']},
-    2023:{top10:['Mathieu van der Poel','Wout van Aert','Tadej Pogačar','Mads Pedersen','Søren Kragh Andersen','Filippo Ganna','Olav Kooij','Kasper Asgreen','Stefan Küng','Tim Wellens']},
-    2022:{top10:['Matej Mohorič','Anthony Turgis','Davide Ballerini','Peter Sagan','Søren Kragh Andersen','Wout van Aert','Mathieu van der Poel','Tadej Pogačar','Alejandro Valverde','Magnus Cort Nielsen']},
-    2021:{top10:['Jasper Stuyven','Caleb Ewan','Søren Kragh Andersen','Wout van Aert','Oliver Naesen','Mathieu van der Poel','Michal Kwiatkowski','Christophe Laporte','Giacomo Nizzolo','Greg van Avermaet']},
-    2020:{top10:['Wout van Aert','Julian Alaphilippe','Michal Kwiatkowski','Oliver Naesen','Matteo Trentin','Thomas De Gendt','Peter Sagan','Greg van Avermaet','Jasper Stuyven','Michael Matthews']},
-    2019:{top10:['Julian Alaphilippe','Michal Kwiatkowski','Søren Kragh Andersen','Oliver Naesen','Alejandro Valverde','Greg van Avermaet','Matteo Trentin','Michael Matthews','Nacer Bouhanni','Jasper Stuyven']},
-  },
-  lbl:{
-    2025:{top10:['Tadej Pogačar','Giulio Ciccone','Ben Healy','Simone Velasco','Thibau Nys','Andrea Bagioli','Daniel Martínez','Axel Laurance','Tom Pidcock','Neilson Powless']},
-    2024:{top10:['Tadej Pogačar','Romain Bardet','Mathieu van der Poel','Tom Pidcock','Julian Alaphilippe','Maxim van Gils','Remco Evenepoel','Mikel Landa','Neilson Powless','Simon Yates']},
-    2023:{top10:['Remco Evenepoel','Tom Pidcock','Santiago Buitrago','Søren Kragh Andersen','Quinten Hermans','Wout van Aert','Neilson Powless','Victor Lafay','Magnus Sheffield','Jan Tratnik']},
-    2022:{top10:['Remco Evenepoel','Quinten Hermans','Wout van Aert','Aleksandr Vlasov','Tom Pidcock','Mauri Vansevenant','Marc Hirschi','David Gaudu','Julian Alaphilippe','Mattias Skjelmose']},
-    2021:{top10:['Tadej Pogačar','David Gaudu','Wout van Aert','Enric Mas','Alejandro Valverde','Marc Hirschi','Primož Roglič','Sergio Higuita','Maxim van Gils','Benoît Cosnefroy']},
-    2020:{top10:['Primož Roglič','Alejandro Valverde','Marc Hirschi','Michael Woods','Julian Alaphilippe','Maximilian Schachmann','Dani Moreno','Benoît Cosnefroy','Davide Formolo','Carlos Verona']},
-    2019:{top10:['Jakob Fuglsang','Enric Mas','Alejandro Valverde','Thibaut Pinot','Wout van Aert','Michal Kwiatkowski','Maximilian Schachmann','Tim Wellens','Carlos Verona','Jesus Herrada']},
-  },
-  lombardia:{
-    2025:{top10:['Tadej Pogačar','Remco Evenepoel','Michael Storer','Isaac del Toro','Tom Pidcock','Jay Vine','Adam Yates','Aleksey Lutsenko','Quinn Simmons','Andrea Bagioli']},
-    2024:{top10:['Tadej Pogačar','Remco Evenepoel','Giulio Ciccone','Enric Mas','Mikel Landa','Andrea Bagioli','Jonas Vingegaard','Aleksandr Vlasov','Carlos Rodríguez','David Gaudu']},
-    2023:{top10:['Tadej Pogačar','Andrea Bagioli','Primož Roglič','Enric Mas','Mikel Landa','Tao Geoghegan Hart','Giulio Ciccone','Romain Bardet','Aleksandr Vlasov','Carlos Rodríguez']},
-    2022:{top10:['Tadej Pogačar','Enric Mas','Mikel Landa','Remco Evenepoel','Santiago Buitrago','Damiano Caruso','David Gaudu','Alessandro Covi','Tao Geoghegan Hart','Romain Bardet']},
-    2021:{top10:['Tadej Pogačar','Fausto Masnada','Adam Yates','Alejandro Valverde','Mikel Landa','Marc Hirschi','Giulio Ciccone','Sergio Higuita','Simon Yates','Damiano Caruso']},
-    2020:{top10:['Jakob Fuglsang','George Bennett','Aleksandr Vlasov','Davide Formolo','Tiesj Benoot','Louis Vervaeke','Ilnur Zakarin','Ben Hermans','Patrick Konrad','Sergio Higuita']},
-    2019:{top10:['Bauke Mollema','Alejandro Valverde','Egan Bernal','Primož Roglič','Vincenzo Nibali','Damiano Caruso','Rafal Majka','Pello Bilbao','Mikel Landa','Michael Woods']},
-  },
-  // ── COBBLED CLASSICS ──
-  strade:{
-    2025:{top10:['Tadej Pogačar','Mathieu van der Poel','Wout van Aert','Tom Pidcock','Valentin Madouas','Romain Bardet','Julian Alaphilippe','Marc Hirschi','Søren Kragh Andersen','Tiesj Benoot']},
-    2024:{top10:['Tadej Pogačar','Toms Skujiņš','Maxim van Gils','Tom Pidcock','Valentin Madouas','Matej Mohorič','Romain Bardet','Tim Wellens','Giulio Ciccone','Neilson Powless']},
-    2023:{top10:['Tom Pidcock','Valentin Madouas','Tiesj Benoot','Mathieu van der Poel','Søren Kragh Andersen','Matej Mohorič','Romain Bardet','Magnus Cort Nielsen','Kasper Asgreen','Attila Valter']},
-    2022:{top10:['Tadej Pogačar','Alejandro Valverde','Kasper Asgreen','Attila Valter','Tom Pidcock','Søren Kragh Andersen','Wout van Aert','Gianni Moscon','Stefan Küng','Quinn Simmons']},
-    2021:{top10:['Mathieu van der Poel','Julian Alaphilippe','Egan Bernal','Florian Sénéchal','Wout van Aert','Kasper Asgreen','Zdeněk Štybar','Søren Kragh Andersen','Tiesj Benoot','Michal Kwiatkowski']},
-    2020:{top10:['Wout van Aert','Davide Formolo','Max Schachmann','Thomas De Gendt','Kasper Asgreen','Peter Sagan','Greg van Avermaet','Benoît Cosnefroy','Søren Kragh Andersen','Michal Kwiatkowski']},
-    2019:{top10:['Julian Alaphilippe','Jakob Fuglsang','Wout van Aert','Egan Bernal','Alberto Bettiol','Michael Valgren','Matteo Trentin','Tiesj Benoot','Maximilian Schachmann','Davide Formolo']},
-  },
-  // ── SPRING COBBLED BLOCK ──
-  nieuwsblad:{
-    2025:{top10:['Wout van Aert','Mads Pedersen','Mathieu van der Poel','Tiesj Benoot','Tim Wellens','Søren Kragh Andersen','Florian Sénéchal','Rasmus Pedersen','Stefan Küng','Christophe Laporte']},
-    2024:{top10:['Christophe Laporte','Dylan van Baarle','Mads Pedersen','Tim Wellens','Gianni Moscon','Tiesj Benoot','Florian Sénéchal','Rasmus Pedersen','Edward Theuns','Sander Armee']},
-    2023:{top10:['Wout van Aert','Dylan van Baarle','Christophe Laporte','Søren Kragh Andersen','Florian Sénéchal','Mads Pedersen','Alex Kirsch','Jasper Stuyven','Timo Roosen','Kenny De Ketele']},
-    2022:{top10:['Wout van Aert','Jasper Stuyven','Mads Pedersen','Søren Kragh Andersen','Christophe Laporte','Florian Sénéchal','Nils Politt','Tiesj Benoot','Jul Vermote','Samuele Battistella']},
-    2021:{top10:['Davide Ballerini','Florian Sénéchal','Tiesj Benoot','Oliver Naesen','Søren Kragh Andersen','Mads Pedersen','Pascal Ackermann','Yves Lampaert','Edward Theuns','Luca Mozzato']},
-    2020:{top10:['Jasper Stuyven','Florian Sénéchal','Søren Kragh Andersen','Sep Vanmarcke','Greg van Avermaet','Edward Theuns','Davide Ballerini','Tiesj Benoot','Luke Rowe','Alexis Renard']},
-    2019:{top10:['Zdeněk Štybar','Tim Wellens','Florian Sénéchal','Alberto Bettiol','Søren Kragh Andersen','Sep Vanmarcke','Oliver Naesen','Alex Kirsch','Tiesj Benoot','Jesper Asselman']},
-  },
-  kuurne:{
-    2025:{top10:['Mathieu van der Poel','Wout van Aert','Mads Pedersen','Tim Wellens','Jasper Stuyven','Søren Kragh Andersen','Nils Politt','Christophe Laporte','Stefan Küng','Florian Vermeersch']},
-    2024:{top10:['Mathieu van der Poel','Jasper Stuyven','Mads Pedersen','Dylan van Baarle','Tim Wellens','Søren Kragh Andersen','Christophe Laporte','Nils Politt','Oliver Naesen','Tiesj Benoot']},
-    2023:{top10:['Mathieu van der Poel','Mads Pedersen','Jasper Stuyven','Wout van Aert','Christophe Laporte','Tim Wellens','Søren Kragh Andersen','Oliver Naesen','Nils Politt','Dylan van Baarle']},
-    2022:{top10:['Mathieu van der Poel','Jasper Philipsen','Mads Pedersen','Wout van Aert','Nils Politt','Tim Wellens','Christophe Laporte','Oliver Naesen','Søren Kragh Andersen','Tiesj Benoot']},
-    2021:{top10:['Nils Politt','Christophe Laporte','Tim Wellens','Søren Kragh Andersen','Oliver Naesen','Florian Sénéchal','Jasper Stuyven','Fabio Jakobsen','Alex Kirsch','Edvald Boasson Hagen']},
-    2020:{top10:['Jasper Stuyven','Søren Kragh Andersen','Oliver Naesen','Greg van Avermaet','Tiesj Benoot','Sep Vanmarcke','Florian Sénéchal','Mathieu van der Poel','Edvald Boasson Hagen','Florian Vermeersch']},
-    2019:{top10:['Jens Debusschere','Tim Wellens','Søren Kragh Andersen','Wout van Aert','Oliver Naesen','Jasper Stuyven','Sep Vanmarcke','Greg van Avermaet','Florian Sénéchal','Michael Matthews']},
-  },
-  echelon:{
-    2025:{top10:['Mathieu van der Poel','Wout van Aert','Tadej Pogačar','Søren Kragh Andersen','Mads Pedersen','Tim Wellens','Kasper Asgreen','Stefan Küng','Nils Politt','Christophe Laporte']},
-    2024:{top10:['Mathieu van der Poel','Wout van Aert','Valentin Madouas','Mads Pedersen','Søren Kragh Andersen','Christophe Laporte','Stefan Küng','Kasper Asgreen','Tim Wellens','Nils Politt']},
-    2023:{top10:['Wout van Aert','Mathieu van der Poel','Stefan Küng','Søren Kragh Andersen','Mads Pedersen','Kasper Asgreen','Christophe Laporte','Tim Wellens','Nils Politt','Florian Sénéchal']},
-    2022:{top10:['Tadej Pogačar','Nils Politt','Stefan Küng','Mathieu van der Poel','Wout van Aert','Tim Wellens','Søren Kragh Andersen','Florian Sénéchal','Yves Lampaert','Jasper Stuyven']},
-    2021:{top10:['Kasper Asgreen','Wout van Aert','Søren Kragh Andersen','Oliver Naesen','Nils Politt','Mathieu van der Poel','Florian Sénéchal','Tim Wellens','Stefan Küng','Michael Matthews']},
-    2020:{top10:['Mathieu van der Poel','Søren Kragh Andersen','Tiesj Benoot','Wout van Aert','Christophe Laporte','Kasper Asgreen','Oliver Naesen','Sep Vanmarcke','Greg van Avermaet','Alberto Bettiol']},
-    2019:{top10:['Zdeněk Štybar','Mathieu van der Poel','Kasper Asgreen','Søren Kragh Andersen','Sep Vanmarcke','Alberto Bettiol','Florian Sénéchal','Oliver Naesen','Jasper Stuyven','Kevin Van Melsen']},
-  },
-  gent:{
-    2025:{top10:['Jasper Philipsen','Wout van Aert','Mads Pedersen','Mathieu van der Poel','Bryan Coquard','Christophe Laporte','Tim Merlier','Jonathan Milan','Søren Kragh Andersen','Arnaud De Lie']},
-    2024:{top10:['Jasper Philipsen','Mads Pedersen','Bryan Coquard','Christophe Laporte','Arnaud De Lie','Søren Kragh Andersen','Mathieu van der Poel','Wout van Aert','Kasper Asgreen','Tim Wellens']},
-    2023:{top10:['Christophe Laporte','Wout van Aert','Søren Kragh Andersen','Mads Pedersen','Jasper Stuyven','Alberto Bettiol','Xandro Meurisse','Tom Van Asbroeck','Oliver Naesen','Nils Politt']},
-    2022:{top10:['Christophe Laporte','Wout van Aert','Mads Pedersen','Søren Kragh Andersen','Jasper Stuyven','Stefan Küng','Nils Politt','Tom Van Asbroeck','Michael Matthews','Kasper Asgreen']},
-    2021:{top10:['Wout van Aert','Søren Kragh Andersen','Christophe Laporte','Mads Pedersen','Stefan Küng','Jasper Stuyven','Oliver Naesen','Kasper Asgreen','Tiesj Benoot','Nils Politt']},
-    2020:{top10:['Søren Kragh Andersen','Alexander Kristoff','Mads Pedersen','Jasper Stuyven','Oliver Naesen','Tiesj Benoot','Greg van Avermaet','Christophe Laporte','Dylan Teuns','Luke Rowe']},
-    2019:{top10:['Mads Pedersen','Wout van Aert','Alexander Kristoff','Michael Matthews','Oliver Naesen','Søren Kragh Andersen','Greg van Avermaet','Peter Sagan','Jasper Stuyven','Jasha Sütterlin']},
-  },
-  dwars:{
-    2025:{top10:['Mathieu van der Poel','Wout van Aert','Tadej Pogačar','Tim Wellens','Søren Kragh Andersen','Mads Pedersen','Kasper Asgreen','Nils Politt','Stefan Küng','Florian Vermeersch']},
-    2024:{top10:['Mathieu van der Poel','Wout van Aert','Mads Pedersen','Tim Wellens','Stefan Küng','Nils Politt','Kasper Asgreen','Søren Kragh Andersen','Florian Vermeersch','Christophe Laporte']},
-    2023:{top10:['Mathieu van der Poel','Wout van Aert','Tim Wellens','Søren Kragh Andersen','Stefan Küng','Kasper Asgreen','Nils Politt','Florian Sénéchal','Christophe Laporte','Mads Pedersen']},
-    2022:{top10:['Christophe Laporte','Mathieu van der Poel','Wout van Aert','Florian Sénéchal','Tim Wellens','Stefan Küng','Tiesj Benoot','Søren Kragh Andersen','Nils Politt','Kasper Asgreen']},
-    2021:{top10:['Mathieu van der Poel','Davide Ballerini','Oliver Naesen','Søren Kragh Andersen','Wout van Aert','Kasper Asgreen','Stefan Küng','Tim Wellens','Nils Politt','Yves Lampaert']},
-    2020:{top10:['Mathieu van der Poel','Wout van Aert','Oliver Naesen','Jasper Stuyven','Greg van Avermaet','Søren Kragh Andersen','Tim Wellens','Yves Lampaert','Sep Vanmarcke','Zdeněk Štybar']},
-    2019:{top10:['Oliver Naesen','Wout van Aert','Søren Kragh Andersen','Jasper Stuyven','Tim Wellens','Sep Vanmarcke','Zdeněk Štybar','Florian Sénéchal','Greg van Avermaet','Kasper Asgreen']},
-  },
-  harelbeke:{
-    2025:{top10:['Mathieu van der Poel','Wout van Aert','Mads Pedersen','Søren Kragh Andersen','Tim Wellens','Kasper Asgreen','Stefan Küng','Nils Politt','Florian Vermeersch','Christophe Laporte']},
-    2024:{top10:['Mathieu van der Poel','Wout van Aert','Søren Kragh Andersen','Mads Pedersen','Kasper Asgreen','Nils Politt','Tim Wellens','Stefan Küng','Florian Vermeersch','Christophe Laporte']},
-    2023:{top10:['Mathieu van der Poel','Kasper Asgreen','Wout van Aert','Tim Wellens','Søren Kragh Andersen','Mads Pedersen','Nils Politt','Christophe Laporte','Stefan Küng','Tiesj Benoot']},
-    2022:{top10:['Wout van Aert','Mathieu van der Poel','Søren Kragh Andersen','Tim Wellens','Stefan Küng','Kasper Asgreen','Christophe Laporte','Florian Sénéchal','Nils Politt','Oliver Naesen']},
-    2021:{top10:['Kasper Asgreen','Wout van Aert','Oliver Naesen','Tim Wellens','Mathieu van der Poel','Søren Kragh Andersen','Stefan Küng','Nils Politt','Yves Lampaert','Florian Sénéchal']},
-    2020:{top10:['Mathieu van der Poel','Wout van Aert','Oliver Naesen','Tim Wellens','Søren Kragh Andersen','Sep Vanmarcke','Greg van Avermaet','Tiesj Benoot','Stefan Küng','Kasper Asgreen']},
-    2019:{top10:['Zdeněk Štybar','Wout van Aert','Oliver Naesen','Jasper Stuyven','Sep Vanmarcke','Søren Kragh Andersen','Greg van Avermaet','Tim Wellens','Michael Matthews','Nils Politt']},
-  },
-  'ghent-wevelgem-w':{
-    2025:{top10:['Tadej Pogačar','Mads Pedersen','Søren Kragh Andersen','Christophe Laporte','Tim Merlier','Wout van Aert','Jonathan Milan','Mathieu van der Poel','Stefan Küng','Jasper Philipsen']},
-    2024:{top10:['Jasper Philipsen','Mads Pedersen','Tim Merlier','Bryan Coquard','Biniam Girmay','Alexander Kristoff','Christophe Laporte','Jonathan Milan','Olav Kooij','Michael Matthews']},
-    2023:{top10:['Mads Pedersen','Jasper Philipsen','Tim Merlier','Christophe Laporte','Bryan Coquard','Biniam Girmay','Søren Kragh Andersen','Jonathan Milan','Alexander Kristoff','Michael Matthews']},
-    2022:{top10:['Christophe Laporte','Wout van Aert','Jasper Philipsen','Michael Matthews','Tim Merlier','Mads Pedersen','Søren Kragh Andersen','Nils Politt','Alexander Kristoff','Kasper Asgreen']},
-    2021:{top10:['Mathieu van der Poel','Wout van Aert','Søren Kragh Andersen','Tim Merlier','Jasper Stuyven','Michael Matthews','Florian Sénéchal','Peter Sagan','Stefan Küng','Oliver Naesen']},
-    2020:{top10:['Mads Pedersen','Mathieu van der Poel','Wout van Aert','Oliver Naesen','Peter Sagan','Michael Matthews','Greg van Avermaet','Søren Kragh Andersen','Alexander Kristoff','Tim Wellens']},
-    2019:{top10:['Alexander Kristoff','Michael Matthews','Jasper Stuyven','Søren Kragh Andersen','Greg van Avermaet','Peter Sagan','Oliver Naesen','Mads Pedersen','Elia Viviani','Tiesj Benoot']},
-  },
-  // ── ARDENNES ──
-  amstel:{
-    2025:{top10:['Mattias Skjelmose','Tadej Pogačar','Remco Evenepoel','Tom Pidcock','Julian Alaphilippe','Wout van Aert','Ben Healy','Maxim van Gils','Tim Wellens','Neilson Powless']},
-    2024:{top10:['Tadej Pogačar','Mathieu van der Poel','Søren Kragh Andersen','Wout van Aert','Tom Pidcock','Remco Evenepoel','Tim Wellens','Neilson Powless','Jasper Stuyven','Julian Alaphilippe']},
-    2023:{top10:['Tadej Pogačar','Wout van Aert','Tom Pidcock','Maxim van Gils','Mathieu van der Poel','Alejandro Valverde','Benoît Cosnefroy','David Gaudu','Dani Moreno','Tim Wellens']},
-    2022:{top10:['Mathieu van der Poel','Tom Pidcock','Christophe Laporte','Wout van Aert','Benoît Cosnefroy','Victor Campenaerts','Stefan Küng','Søren Kragh Andersen','Alejandro Valverde','Tiesj Benoot']},
-    2021:{top10:['Wout van Aert','Tom Dumoulin','David Gaudu','Michael Woods','Alejandro Valverde','Benoît Cosnefroy','Jasper Stuyven','Tiesj Benoot','Søren Kragh Andersen','Matej Mohorič']},
-    2020:{top10:['Maximilian Schachmann','Wout van Aert','Tom Dumoulin','Michael Woods','Benoît Cosnefroy','Alejandro Valverde','Dani Moreno','Alberto Bettiol','Michal Kwiatkowski','Julian Alaphilippe']},
-    2019:{top10:['Mathieu van der Poel','Julian Alaphilippe','Wout van Aert','Michael Woods','Tim Wellens','Alejandro Valverde','Oliver Naesen','David Gaudu','Søren Kragh Andersen','Michal Kwiatkowski']},
-  },
-  fleche:{
-    2025:{top10:['Tadej Pogačar','Kévin Vauquelin','Tom Pidcock','Remco Evenepoel','Maxim van Gils','Ben Healy','Julian Alaphilippe','Marc Hirschi','Tiesj Benoot','Wout van Aert']},
-    2024:{top10:['Tadej Pogačar','Remco Evenepoel','Tiesj Benoot','Tom Pidcock','Wout van Aert','Julian Alaphilippe','Carlos Rodríguez','Ion Izagirre','Marc Hirschi','Tim Wellens']},
-    2023:{top10:['Tadej Pogačar','Remco Evenepoel','Benoît Cosnefroy','David Gaudu','Tiesj Benoot','Wout van Aert','Tom Pidcock','Aleksandr Vlasov','Alexey Lutsenko','Ion Izagirre']},
-    2022:{top10:['Marc Hirschi','David Gaudu','Wout van Aert','Primož Roglič','Alejandro Valverde','Søren Kragh Andersen','Tom Pidcock','Gino Mäder','Carlos Rodríguez','Mattias Skjelmose']},
-    2021:{top10:['Alejandro Valverde','Marc Hirschi','David Gaudu','Wout van Aert','Michal Kwiatkowski','Benoît Cosnefroy','Primož Roglič','Thibaut Pinot','Dani Moreno','Jesús Herrada']},
-    2020:{top10:['Marc Hirschi','Alejandro Valverde','Benoît Cosnefroy','Julian Alaphilippe','Rigoberto Urán','Davide Formolo','Carlos Verona','Maximilian Schachmann','Wout van Aert','Michael Woods']},
-    2019:{top10:['Julian Alaphilippe','Sergio Higuita','Alejandro Valverde','Benoît Cosnefroy','Maximilian Schachmann','Jesús Herrada','Michal Kwiatkowski','Tim Wellens','Thibaut Pinot','Thomas De Gendt']},
-  },
-  wallon:{
-    2025:{top10:['Tadej Pogačar','Remco Evenepoel','Tom Pidcock','Marc Hirschi','David Gaudu','Maxim van Gils','Wout van Aert','Julian Alaphilippe','Ben O\'Connor','Tiesj Benoot']},
-    2024:{top10:['Tadej Pogačar','Remco Evenepoel','Wout van Aert','Tom Pidcock','Marc Hirschi','David Gaudu','Benoît Cosnefroy','Tim Wellens','Maxim van Gils','Ion Izagirre']},
-    2023:{top10:['Remco Evenepoel','Tadej Pogačar','Tom Pidcock','Wout van Aert','Benoît Cosnefroy','David Gaudu','Marc Hirschi','Tim Wellens','Maxim van Gils','Julian Alaphilippe']},
-    2022:{top10:['Remco Evenepoel','Marc Hirschi','David Gaudu','Wout van Aert','Alejandro Valverde','Tom Pidcock','Julian Alaphilippe','Søren Kragh Andersen','Benoît Cosnefroy','Mattias Skjelmose']},
-    2021:{top10:['Alejandro Valverde','Benoît Cosnefroy','Michal Kwiatkowski','Wout van Aert','David Gaudu','Marc Hirschi','Michael Woods','Tom Pidcock','Primož Roglič','Jesús Herrada']},
-    2020:{top10:['Marc Hirschi','Alejandro Valverde','Michael Woods','Julian Alaphilippe','Benoît Cosnefroy','Wout van Aert','Maximilian Schachmann','David Gaudu','Thomas De Gendt','Davide Formolo']},
-    2019:{top10:['Alejandro Valverde','Alberto Bettiol','Tim Wellens','Wout van Aert','Søren Kragh Andersen','Oliver Naesen','Benoît Cosnefroy','Maximilian Schachmann','Michael Matthews','Jesús Herrada']},
-  },
-  // ── ITALIAN CLASSICS ──
-  sanmarino:{
-    2025:{top10:['Maxim van Gils','Einer Augusto Rubio','Diego Ulissi','Vinicius Rangel','Mattia Bais','Lorenzo Rota','Andrea Bagioli','Dario Cataldo','Simone Petilli','Luca Covili']},
-    2024:{top10:['Alexey Lutsenko','Davide De Piccoli','Marco Frigo','Simone Petilli','Einer Augusto Rubio','Andrea Piccolo','Dario Cataldo','Tobias Bayer','Kévin Vauquelin','Alessandro Tonelli']},
-    2023:{top10:['Gianni Moscon','Rui Costa','Davide Formolo','Alexey Lutsenko','Antonio Nibali','Magnus Sheffield','Mattia Cattaneo','George Bennett','Mirco Maestri','Juan Pedro López']},
-    2022:{top10:['Davide Formolo','Rui Costa','Alexey Lutsenko','Giovanni Aleotti','Lorenzo Rota','George Bennett','Santiago Buitrago','Davide De Piccoli','Simon Guglielmi','Antonio Nibali']},
-    2021:{top10:['Mattia Cattaneo','Davide Formolo','Rui Costa','Alexey Lutsenko','Carlos Verona','Marco Frigo','Leonardo Basso','Juan Pedro López','Samuele Battistella','Antonio Tiberi']},
-    2020:{top10:['Rui Costa','Davide Formolo','Carlos Verona','Alexey Lutsenko','Antonio Nibali','Gianni Moscon','George Bennett','Davide De Piccoli','Simone Petilli','Johann Thrane Nielsen']},
-    2019:{top10:['Rui Costa','Davide Formolo','Alexey Lutsenko','Carlos Verona','Antonio Nibali','Dario Cataldo','Gianni Moscon','George Bennett','Sacha Modolo','Simone Petilli']},
-  },
-  veneto:{
-    2025:{top10:['Maxim van Gils','Marc Hirschi','Romain Bardet','Tadej Pogačar','Simon Yates','Julian Alaphilippe','Giulio Ciccone','Ben O\'Connor','Ion Izagirre','Neilson Powless']},
-    2024:{top10:['Marc Hirschi','Julian Alaphilippe','Romain Bardet','Simon Yates','Maxim van Gils','Tadej Pogačar','Neilson Powless','Ben O\'Connor','Ion Izagirre','Mattias Skjelmose']},
-    2023:{top10:['Marc Hirschi','Simon Yates','Romain Bardet','Maxim van Gils','Julian Alaphilippe','Benoît Cosnefroy','Neilson Powless','Andrea Bagioli','Ben O\'Connor','Giulio Ciccone']},
-    2022:{top10:['Marc Hirschi','Filippo Ganna','Fausto Masnada','Romain Bardet','Davide Formolo','Simon Yates','Mattia Cattaneo','Rui Costa','Alexey Lutsenko','Luca Mozzato']},
-    2021:{top10:['Davide Formolo','Romain Bardet','Simon Yates','Marc Hirschi','Fausto Masnada','Mattia Cattaneo','Rui Costa','Alexey Lutsenko','Ben O\'Connor','Andrea Vendrame']},
-    2020:{top10:['Attilio Viviani','Fausto Masnada','Romain Bardet','Davide Formolo','Simon Yates','Marc Hirschi','Rui Costa','Julien Simon','Mattia Cattaneo','Alexey Lutsenko']},
-    2019:{top10:['Romain Bardet','Davide Formolo','Fausto Masnada','Rui Costa','Simon Yates','Davide Villella','Nicolas Edet','Mattia Cattaneo','Diego Ulissi','Ben O\'Connor']},
-  },
-  // ── GERMAN CLASSICS ──
-  eschborn:{
-    2025:{top10:['Mathieu van der Poel','Stefan Küng','Nils Politt','Søren Kragh Andersen','Tim Wellens','Georg Zimmermann','Maximilian Schachmann','Christophe Laporte','Tom Pidcock','Kasper Asgreen']},
-    2024:{top10:['Mathieu van der Poel','Jonas Vingegaard','Aleksandr Vlasov','Tom Pidcock','Søren Kragh Andersen','Nils Politt','Maximilian Schachmann','Stefan Küng','Georg Zimmermann','Matteo Jorgenson']},
-    2023:{top10:['Maximilian Schachmann','Mathieu van der Poel','Stefan Küng','Nils Politt','Georg Zimmermann','Søren Kragh Andersen','Tom Pidcock','Kasper Asgreen','Tobias Bayer','Ion Izagirre']},
-    2022:{top10:['Christophe Laporte','Nils Politt','Stefan Küng','Søren Kragh Andersen','Tim Wellens','Maximilian Schachmann','Kasper Asgreen','Tim Merlier','Jasper Stuyven','Marco Haller']},
-    2021:{top10:['Maximilian Schachmann','Nils Politt','Stefan Küng','Tim Wellens','Kasper Asgreen','Søren Kragh Andersen','Christophe Laporte','Oliver Naesen','Michael Matthews','Florian Sénéchal']},
-    2020:{top10:['Julian Alaphilippe','Maximilian Schachmann','Nils Politt','Stefan Küng','Michael Matthews','Kasper Asgreen','Tim Wellens','Søren Kragh Andersen','Oliver Naesen','Lukas Pöstlberger']},
-    2019:{top10:['Maximilian Schachmann','Julian Alaphilippe','Nils Politt','Stefan Küng','Tim Wellens','Michael Matthews','Oliver Naesen','Kasper Asgreen','Søren Kragh Andersen','Florian Sénéchal']},
-  },
-  cyclassiqs:{
-    2025:{top10:['Jonathan Milan','Tim Merlier','Jasper Philipsen','Olav Kooij','Mads Pedersen','Bryan Coquard','Phil Bauhaus','Alexander Kristoff','Arnaud De Lie','Danny van Poppel']},
-    2024:{top10:['Tim Merlier','Olav Kooij','Jasper Philipsen','Jonathan Milan','Mads Pedersen','Bryan Coquard','Alexander Kristoff','Phil Bauhaus','Arnaud De Lie','Danny van Poppel']},
-    2023:{top10:['Phil Bauhaus','Tim Merlier','Jasper Philipsen','Jonathan Milan','Olav Kooij','Bryan Coquard','Mads Pedersen','Alexander Kristoff','Nikias Arndt','Danny van Poppel']},
-    2022:{top10:['Christophe Laporte','Jasper Philipsen','Tim Merlier','Olav Kooij','Mads Pedersen','Søren Kragh Andersen','Phil Bauhaus','Alexander Kristoff','Bryan Coquard','Danny van Poppel']},
-    2021:{top10:['Jasper Philipsen','Tim Merlier','Søren Kragh Andersen','Michael Matthews','Phil Bauhaus','Mads Pedersen','Edward Theuns','Jonas Rickaert','Alexander Kristoff','Danny van Poppel']},
-    2020:{top10:['Søren Kragh Andersen','Stefan Küng','Michael Matthews','Phil Bauhaus','Jasper Philipsen','Mads Pedersen','Alexander Kristoff','Tim Wellens','Nils Politt','Danny van Poppel']},
-    2019:{top10:['John Degenkolb','Stefan Küng','Michael Matthews','Søren Kragh Andersen','Phil Bauhaus','Jasper Philipsen','Alexander Kristoff','Mads Pedersen','Tim Wellens','Nikias Arndt']},
-  },
-  // ── SPANISH CLASSICS ──
-  'san-sebastian':{
-    2025:{top10:['Tadej Pogačar','Remco Evenepoel','Ben Healy','Tom Pidcock','Isaac del Toro','Marc Hirschi','Julian Alaphilippe','Maxim van Gils','Neilson Powless','Mikel Landa']},
-    2024:{top10:['Remco Evenepoel','Tadej Pogačar','Julian Alaphilippe','Romain Bardet','Marc Hirschi','Enric Mas','Ben O\'Connor','Maxim van Gils','Mikel Landa','Ion Izagirre']},
-    2023:{top10:['Tadej Pogačar','Remco Evenepoel','Julian Alaphilippe','Ion Izagirre','Romain Bardet','Alejandro Valverde','Marc Hirschi','Ben O\'Connor','Maxim van Gils','Mikel Landa']},
-    2022:{top10:['Remco Evenepoel','Carlos Rodríguez','Aleksandr Vlasov','Marc Hirschi','Mikel Landa','Ben O\'Connor','Ion Izagirre','Romain Bardet','Gino Mäder','Neilson Powless']},
-    2021:{top10:['David Gaudu','Alejandro Valverde','Marc Hirschi','Ion Izagirre','Gorka Izagirre','Benoît Cosnefroy','Romain Bardet','Ben O\'Connor','Enric Mas','Mikel Landa']},
-    2020:{top10:['Maximilian Schachmann','Julian Alaphilippe','Marc Hirschi','Enric Mas','Romain Bardet','David Gaudu','Alejandro Valverde','Pierre Latour','Ion Izagirre','Primož Roglič']},
-    2019:{top10:['Alejandro Valverde','Remco Evenepoel','Mikel Landa','Marc Hirschi','Enric Mas','Romain Bardet','Ion Izagirre','David Gaudu','Gorka Izagirre','Benoît Cosnefroy']},
-  },
-  // ── FRENCH CLASSICS ──
-  'paris-tours':{
-    2025:{top10:['Mads Pedersen','Tim Merlier','Bryan Coquard','Jonathan Milan','Phil Bauhaus','Jasper Philipsen','Alexander Kristoff','Søren Kragh Andersen','Danny van Poppel','Arnaud De Lie']},
-    2024:{top10:['Arvid De Kleijn','Tim Merlier','Phil Bauhaus','Olav Kooij','Bryan Coquard','Mads Pedersen','Jonathan Milan','Alexander Kristoff','Danny van Poppel','Jan Tratnik']},
-    2023:{top10:['Mads Pedersen','Phil Bauhaus','Bryan Coquard','Arnaud De Lie','Tim Merlier','Alexander Kristoff','Søren Kragh Andersen','Danny van Poppel','Nikias Arndt','Jan Tratnik']},
-    2022:{top10:['Jasper Philipsen','Tim Merlier','Mads Pedersen','Phil Bauhaus','Bryan Coquard','Alexander Kristoff','Søren Kragh Andersen','Danny van Poppel','Jon Aberasturi','Niccolo Bonifazio']},
-    2021:{top10:['Davide Pasqualon','Søren Kragh Andersen','Nacer Bouhanni','Jonas Rickaert','Jacopo Guarnieri','Jon Aberasturi','Bryan Coquard','Alexander Kristoff','Danny van Poppel','Lars Bak']},
-    2020:{top10:['Søren Kragh Andersen','Matteo Trentin','Bryan Coquard','Jasper Philipsen','Andrea Pasqualon','Jon Aberasturi','Fabio Jakobsen','Alexander Kristoff','Danny van Poppel','Niccolo Bonifazio']},
-    2019:{top10:['Matteo Trentin','Kasper Asgreen','Michael Matthews','Stefan Küng','Søren Kragh Andersen','Nils Politt','Alexander Kristoff','Bryan Coquard','Danny van Poppel','Oliver Naesen']},
-  },
-  bretagne:{
-    2025:{top10:['Christophe Laporte','Mads Pedersen','Tim Merlier','Jonathan Milan','Bryan Coquard','Wout van Aert','Phil Bauhaus','Alexander Kristoff','Søren Kragh Andersen','Michael Matthews']},
-    2024:{top10:['Christophe Laporte','Wout van Aert','Mads Pedersen','Tim Merlier','Jonathan Milan','Phil Bauhaus','Bryan Coquard','Olav Kooij','Søren Kragh Andersen','Jasper Stuyven']},
-    2023:{top10:['Wout van Aert','Christophe Laporte','Mads Pedersen','Tim Merlier','Phil Bauhaus','Jonathan Milan','Søren Kragh Andersen','Alexander Kristoff','Bryan Coquard','Michael Matthews']},
-    2022:{top10:['Christophe Laporte','Tim Merlier','Mads Pedersen','Jasper Philipsen','Phil Bauhaus','Søren Kragh Andersen','Bryan Coquard','Jonathan Milan','Michael Matthews','Alexander Kristoff']},
-    2021:{top10:['Nacer Bouhanni','Bryan Coquard','Søren Kragh Andersen','Tim Merlier','Phil Bauhaus','Michael Matthews','Christophe Laporte','Alexander Kristoff','Jonas Rickaert','Danny van Poppel']},
-    2020:{top10:['Bryan Coquard','Michael Matthews','Tim Wellens','Nacer Bouhanni','Søren Kragh Andersen','Alexander Kristoff','Matteo Trentin','Christophe Laporte','Phil Bauhaus','Jonas Rickaert']},
-    2019:{top10:['Bryan Coquard','Michael Matthews','Søren Kragh Andersen','Nacer Bouhanni','Alexander Kristoff','Matteo Trentin','Christophe Laporte','Phil Bauhaus','Edvald Boasson Hagen','Fabio Jakobsen']},
-  },
-  memorial:{
-    2025:{top10:['Mathieu van der Poel','Søren Kragh Andersen','Mads Pedersen','Tim Wellens','Oliver Naesen','Tiesj Benoot','Nils Politt','Stefan Küng','Christophe Laporte','Dylan van Baarle']},
-    2024:{top10:['Jasper Philipsen','Søren Kragh Andersen','Christophe Laporte','Tim Wellens','Mads Pedersen','Oliver Naesen','Tiesj Benoot','Nils Politt','Stefan Küng','Dylan van Baarle']},
-    2023:{top10:['Søren Kragh Andersen','Mads Pedersen','Christophe Laporte','Tim Wellens','Oliver Naesen','Tiesj Benoot','Nils Politt','Stefan Küng','Dylan van Baarle','Jasper Philipsen']},
-    2022:{top10:['Mathieu van der Poel','Søren Kragh Andersen','Christophe Laporte','Oliver Naesen','Tim Wellens','Mads Pedersen','Wout van Aert','Stefan Küng','Nils Politt','Dylan van Baarle']},
-    2021:{top10:['Davide Ballerini','Søren Kragh Andersen','Oliver Naesen','Tim Wellens','Mathieu van der Poel','Wout van Aert','Christophe Laporte','Stefan Küng','Nils Politt','Florian Sénéchal']},
-    2020:{top10:['Søren Kragh Andersen','Oliver Naesen','Tim Wellens','Greg van Avermaet','Jasper Stuyven','Sep Vanmarcke','Wout van Aert','Mathieu van der Poel','Stefan Küng','Kasper Asgreen']},
-    2019:{top10:['Florian Sénéchal','Tim Wellens','Oliver Naesen','Michael Matthews','Søren Kragh Andersen','Sep Vanmarcke','Greg van Avermaet','Jasper Stuyven','Kasper Asgreen','Stefan Küng']},
-  },
-  'champs-elysees':{
-    2025:{top10:['Jonathan Milan','Jasper Philipsen','Kaden Groves','Tim Merlier','Olav Kooij','Phil Bauhaus','Bryan Coquard','Mads Pedersen','Alexander Kristoff','Mark Cavendish']},
-    2024:{top10:['Biniam Girmay','Jasper Philipsen','Jonathan Milan','Tim Merlier','Olav Kooij','Phil Bauhaus','Bryan Coquard','Alexander Kristoff','Mark Cavendish','Michael Matthews']},
-    2023:{top10:['Jasper Philipsen','Phil Bauhaus','Jonathan Milan','Tim Merlier','Olav Kooij','Bryan Coquard','Mark Cavendish','Alexander Kristoff','Michael Matthews','Christophe Laporte']},
-    2022:{top10:['Tadej Pogačar','Wout van Aert','Christophe Laporte','Tom Pidcock','Mathieu van der Poel','Jasper Stuyven','Søren Kragh Andersen','Tiesj Benoot','Kasper Asgreen','Nils Politt']},
-    2021:{top10:['Dylan van Baarle','Christophe Laporte','Wout van Aert','Søren Kragh Andersen','Tom Pidcock','Mathieu van der Poel','Kasper Asgreen','Oliver Naesen','Nils Politt','Tim Wellens']},
-    2020:{top10:['Marc Hirschi','Wout van Aert','Julian Alaphilippe','Maximilian Schachmann','Christophe Laporte','Thomas De Gendt','Søren Kragh Andersen','Michael Matthews','Tiesj Benoot','Greg van Avermaet']},
-  },
-  // ── NORTH AMERICAN CLASSICS ──
-  quebec:{
-    2025:{top10:['Mathieu van der Poel','Remco Evenepoel','Tom Pidcock','Søren Kragh Andersen','Marc Hirschi','Ben O\'Connor','Neilson Powless','Georg Zimmermann','Maximilian Schachmann','Benoît Cosnefroy']},
-    2024:{top10:['Mathieu van der Poel','Remco Evenepoel','Tom Pidcock','Maximilian Schachmann','Benoît Cosnefroy','Marc Hirschi','Neilson Powless','Søren Kragh Andersen','Georg Zimmermann','Ben O\'Connor']},
-    2023:{top10:['Remco Evenepoel','Mathieu van der Poel','Wout van Aert','Tom Pidcock','Benoît Cosnefroy','Marc Hirschi','Ben O\'Connor','Georg Zimmermann','Søren Kragh Andersen','Stefan Küng']},
-    2022:{top10:['Remco Evenepoel','Tadej Pogačar','Maximilian Schachmann','Tom Pidcock','Marc Hirschi','Wout van Aert','Søren Kragh Andersen','Benoît Cosnefroy','Neilson Powless','Alejandro Valverde']},
-    2021:{top10:['Remco Evenepoel','Maximilian Schachmann','Marc Hirschi','Tom Pidcock','Søren Kragh Andersen','Benoît Cosnefroy','Davide Ballerini','Ben O\'Connor','Stefan Küng','Georg Zimmermann']},
-    2019:{top10:['Rémi Cavagna','Benoît Cosnefroy','Julian Alaphilippe','Maximilian Schachmann','Marc Hirschi','Neilson Powless','Tom Pidcock','Søren Kragh Andersen','Rigoberto Urán','Diego Ulissi']},
-  },
-  montreal:{
-    2025:{top10:['Tadej Pogačar','Mathieu van der Poel','Remco Evenepoel','Tom Pidcock','Marc Hirschi','Ben O\'Connor','Neilson Powless','Søren Kragh Andersen','Maximilian Schachmann','Benoît Cosnefroy']},
-    2024:{top10:['Remco Evenepoel','Mathieu van der Poel','Tom Pidcock','Wout van Aert','Maximilian Schachmann','Marc Hirschi','Ben O\'Connor','Benoît Cosnefroy','Søren Kragh Andersen','Neilson Powless']},
-    2023:{top10:['Tadej Pogačar','Wout van Aert','Tom Pidcock','Remco Evenepoel','Mathieu van der Poel','Marc Hirschi','Maximilian Schachmann','Benoît Cosnefroy','Ben O\'Connor','Neilson Powless']},
-    2022:{top10:['Tadej Pogačar','Remco Evenepoel','Maximilian Schachmann','Tom Pidcock','Wout van Aert','Marc Hirschi','Benoît Cosnefroy','Ben O\'Connor','Søren Kragh Andersen','Davide Ballerini']},
-    2021:{top10:['Michael Woods','Maximilian Schachmann','Marc Hirschi','Tom Pidcock','Remco Evenepoel','Ben O\'Connor','Davide Ballerini','Søren Kragh Andersen','Georg Zimmermann','Benoît Cosnefroy']},
-    2019:{top10:['Mathieu van der Poel','Rémi Cavagna','Alejandro Valverde','Benoît Cosnefroy','Julian Alaphilippe','Maximilian Schachmann','Neilson Powless','Søren Kragh Andersen','Davide Formolo','Lachlan Morton']},
-  },
-  // ── WORLDS ──
-  worlds:{
-    2025:{top10:['Tadej Pogačar','Remco Evenepoel','Ben Healy','Tom Pidcock','Isaac del Toro','Wout van Aert','Mattias Skjelmose','Søren Kragh Andersen','Mads Pedersen','Jonas Abrahamsen']},
-    2024:{top10:['Tadej Pogačar','Remco Evenepoel','Ben O\'Connor','Mathieu van der Poel','Mads Pedersen','Wout van Aert','Tom Pidcock','Jonas Vingegaard','Søren Kragh Andersen','Alexey Lutsenko']},
-    2023:{top10:['Mathieu van der Poel','Mads Pedersen','Wout van Aert','Tadej Pogačar','Tom Pidcock','Jasper Stuyven','Søren Kragh Andersen','Biniam Girmay','Stefan Küng','Tim Wellens']},
-    2022:{top10:['Remco Evenepoel','Christophe Laporte','Quinten Hermans','Mattias Skjelmose','Stefan Küng','Neilson Powless','Michael Matthews','Davide Ballerini','Ben O\'Connor','Rui Costa']},
-    2021:{top10:['Julian Alaphilippe','Dylan van Baarle','Michael Matthews','Christophe Laporte','David Gaudu','Aleksandr Vlasov','Stef Cras','Davide Formolo','Oliver Naesen','Ben Healy']},
-    2020:{top10:['Julian Alaphilippe','Marc Hirschi','Wout van Aert','Tadej Pogačar','Michal Kwiatkowski','Maximilian Schachmann','Brandon McNulty','Imanol Erviti','Neilson Powless','Peter Sagan']},
-    2019:{top10:['Mads Pedersen','Matteo Trentin','Søren Kragh Andersen','Stefan Küng','Kasper Asgreen','Michael Matthews','Sam Bennett','Philippe Gilbert','Sep Vanmarcke','Alexander Kristoff']},
-  },
-  // ── AUSTRALIAN CLASSICS ──
-  'ocean-road':{
-    2025:{top10:['Jay Vine','Simon Yates','Ben O\'Connor','Michael Matthews','Jai Hindley','Jack Haig','Richie Porte','Michael Storer','Tao Geoghegan Hart','Nick Schultz']},
-    2024:{top10:['Jay Vine','Simon Yates','Michael Matthews','Jai Hindley','Richie Porte','Tao Geoghegan Hart','Michael Storer','Ben O\'Connor','Nick Schultz','Lucas Hamilton']},
-    2023:{top10:['Michael Matthews','Ben O\'Connor','Jay Vine','Jai Hindley','Tao Geoghegan Hart','Michael Storer','Jack Haig','Richie Porte','Simon Yates','Nick Schultz']},
-    2022:{top10:['Ben O\'Connor','Jai Hindley','Michael Matthews','Jay Vine','Simon Yates','Jack Haig','Richie Porte','Michael Storer','Tao Geoghegan Hart','Nick Schultz']},
-    2021:{top10:['Michael Matthews','Simon Yates','Jai Hindley','Ben O\'Connor','Richie Porte','Michael Storer','Jack Haig','Tao Geoghegan Hart','Nick Schultz','Lucas Hamilton']},
-    2020:{top10:['Richie Porte','Simon Yates','Ben O\'Connor','Jai Hindley','Michael Matthews','Michael Storer','Jack Haig','Tao Geoghegan Hart','Nick Schultz','Lucas Hamilton']},
-    2019:{top10:['Caleb Ewan','Michael Matthews','Simon Yates','Richie Porte','Ben O\'Connor','Jai Hindley','Michael Storer','Jack Haig','Tao Geoghegan Hart','Nick Schultz']},
-  },
-  // ── STAGE RACES ──
-  tirreno:{
-    2025:{top10:['Tadej Pogačar','Isaac del Toro','Jonas Vingegaard','Ben O\'Connor','João Almeida','Juan Ayuso','Simon Yates','Carlos Rodríguez','Remco Evenepoel','Tom Pidcock'],jerseys:[['🔵','GC','Tadej Pogačar']]},
-    2024:{top10:['Jonas Vingegaard','Juan Ayuso','Jai Hindley','Ben O\'Connor','Thymen Arensman','Isaac del Toro','Cian Uijtdebroeks','Tao Geoghegan Hart','Simon Yates','Tom Pidcock'],jerseys:[['🔵','GC','Jonas Vingegaard']]},
-    2023:{top10:['Primož Roglič','Jonas Vingegaard','João Almeida','Tao Geoghegan Hart','Adam Yates','Ben O\'Connor','Jai Hindley','Simon Yates','Juan Ayuso','Carlos Rodríguez'],jerseys:[['🔵','GC','Primož Roglič']]},
-    2022:{top10:['Tadej Pogačar','João Almeida','Simon Yates','Ben O\'Connor','Jai Hindley','Adam Yates','Jonas Vingegaard','Tao Geoghegan Hart','Aleksandr Vlasov','Damiano Caruso'],jerseys:[['🔵','GC','Tadej Pogačar']]},
-    2021:{top10:['Tadej Pogačar','Remco Evenepoel','Simon Yates','Aleksandr Vlasov','Tom Pidcock','Ben O\'Connor','João Almeida','Jai Hindley','Adam Yates','Romain Bardet'],jerseys:[['🔵','GC','Tadej Pogačar']]},
-    2020:{top10:['Simon Yates','Tadej Pogačar','Wout van Aert','Tom Dumoulin','Adam Yates','Ben O\'Connor','Jai Hindley','João Almeida','Romain Bardet','Aleksandr Vlasov'],jerseys:[['🔵','GC','Simon Yates']]},
-    2019:{top10:['Primož Roglič','Simon Yates','Adam Yates','Tom Dumoulin','Aleksandr Vlasov','Geraint Thomas','Ben O\'Connor','Jai Hindley','Romain Bardet','João Almeida'],jerseys:[['🔵','GC','Primož Roglič']]},
-  },
-  'paris-nice':{
-    2025:{top10:['Tadej Pogačar','Carlos Rodríguez','João Almeida','Matteo Jorgenson','Ben O\'Connor','Felix Großschartner','Rudy Molard','Lenny Martinez','Aleksandr Vlasov','Tiesj Benoot'],jerseys:[['⚪','GC','Tadej Pogačar']]},
-    2024:{top10:['Remco Evenepoel','João Almeida','Maximilian Schachmann','Carlos Rodríguez','Matteo Jorgenson','Ben O\'Connor','Felix Großschartner','Rudy Molard','Lenny Martinez','Tiesj Benoot'],jerseys:[['⚪','GC','Remco Evenepoel']]},
-    2023:{top10:['Carlos Rodríguez','Maximilian Schachmann','Felix Großschartner','João Almeida','Matteo Jorgenson','Mattias Skjelmose','Lennard Kämna','Rudy Molard','Ben O\'Connor','Aleksandr Vlasov'],jerseys:[['⚪','GC','Carlos Rodríguez']]},
-    2022:{top10:['Maximilian Schachmann','Felix Großschartner','João Almeida','Aleksandr Vlasov','Matteo Jorgenson','Ben O\'Connor','Lennard Kämna','Mattias Skjelmose','Rudy Molard','Benoît Cosnefroy'],jerseys:[['⚪','GC','Maximilian Schachmann']]},
-    2021:{top10:['Maximilian Schachmann','Primož Roglič','Ion Izagirre','Thomas De Gendt','Aleksandr Vlasov','Jake Stewart','Ben O\'Connor','Felix Großschartner','Romain Bardet','Benoît Cosnefroy'],jerseys:[['⚪','GC','Maximilian Schachmann']]},
-    2020:{top10:['Maximilian Schachmann','Sam Bennett','Egan Bernal','Michal Kwiatkowski','Felix Großschartner','Robert Gesink','Jake Stewart','Sergio Higuita','Ion Izagirre','Romain Bardet'],jerseys:[['⚪','GC','Maximilian Schachmann']]},
-    2019:{top10:['Egan Bernal','David de la Cruz','Maximilian Schachmann','Ion Izagirre','Sergio Higuita','Guillaume Martin','Warren Barguil','Michal Kwiatkowski','Simon Yates','Thomas De Gendt'],jerseys:[['⚪','GC','Egan Bernal']]},
-  },
-  'dauphiné':{
-    2025:{top10:['Tadej Pogačar','Jonas Vingegaard','Isaac del Toro','Ben O\'Connor','Remco Evenepoel','João Almeida','Carlos Rodríguez','Matteo Jorgenson','Aleksandr Vlasov','Tom Pidcock'],jerseys:[['🟡','GC','Tadej Pogačar']]},
-    2024:{top10:['Primož Roglič','Matteo Jorgenson','Derek Gee','Ben O\'Connor','Tobias Foss','David Gaudu','Tao Geoghegan Hart','Aleksandr Vlasov','Giulio Ciccone','Carlos Rodríguez'],jerseys:[['🟡','GC','Primož Roglič']]},
-    2023:{top10:['Jonas Vingegaard','Adam Yates','Ben O\'Connor','Tao Geoghegan Hart','Matteo Jorgenson','David Gaudu','Carlos Rodríguez','Aleksandr Vlasov','Felix Großschartner','Giulio Ciccone'],jerseys:[['🟡','GC','Jonas Vingegaard']]},
-    2022:{top10:['Primož Roglič','Jonas Vingegaard','Ben O\'Connor','Tao Geoghegan Hart','Matteo Jorgenson','Adam Yates','Carlos Rodríguez','Aleksandr Vlasov','Guillaume Martin','Felix Großschartner'],jerseys:[['🟡','GC','Primož Roglič']]},
-    2021:{top10:['Richie Porte','Alexey Lutsenko','Geraint Thomas','Matteo Jorgenson','Ben O\'Connor','Wilco Kelderman','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Guillaume Martin'],jerseys:[['🟡','GC','Richie Porte']]},
-    2020:{top10:['Daniel Martínez','Thibaut Pinot','Guillaume Martin','Rigoberto Urán','Primož Roglič','Benoît Cosnefroy','Aleksandr Vlasov','Warren Barguil','Felix Großschartner','Nairo Quintana'],jerseys:[['🟡','GC','Daniel Martínez']]},
-    2019:{top10:['Jakob Fuglsang','Tejay van Garderen','Emanuel Buchmann','Geraint Thomas','Nairo Quintana','Rigoberto Urán','Thibaut Pinot','Mikel Landa','Romain Bardet','Warren Barguil'],jerseys:[['🟡','GC','Jakob Fuglsang']]},
-  },
-  romandie:{
-    2025:{top10:['Jonas Vingegaard','Remco Evenepoel','João Almeida','Carlos Rodríguez','Isaac del Toro','Ben O\'Connor','Aleksandr Vlasov','Geraint Thomas','Felix Großschartner','Simon Yates'],jerseys:[['🔵','GC','Jonas Vingegaard']]},
-    2024:{top10:['Primož Roglič','Cian Uijtdebroeks','Remco Evenepoel','Carlos Rodríguez','João Almeida','Ben O\'Connor','Aleksandr Vlasov','Geraint Thomas','Adam Yates','Felix Großschartner'],jerseys:[['🔵','GC','Primož Roglič']]},
-    2023:{top10:['Primož Roglič','Remco Evenepoel','Carlos Rodríguez','João Almeida','Ben O\'Connor','Cian Uijtdebroeks','Aleksandr Vlasov','Felix Großschartner','Geraint Thomas','Simon Yates'],jerseys:[['🔵','GC','Primož Roglič']]},
-    2022:{top10:['Primož Roglič','João Almeida','Carlos Rodríguez','Remco Evenepoel','Ben O\'Connor','Felix Großschartner','Aleksandr Vlasov','Geraint Thomas','Adam Yates','Simon Yates'],jerseys:[['🔵','GC','Primož Roglič']]},
-    2021:{top10:['Geraint Thomas','Richie Porte','João Almeida','Carlos Rodríguez','Felix Großschartner','Aleksey Lutsenko','Aleksandr Vlasov','Ben O\'Connor','Hugh Carthy','David Gaudu'],jerseys:[['🔵','GC','Geraint Thomas']]},
-    2020:{top10:['Richard Carapaz','Geraint Thomas','Tom Dumoulin','João Almeida','Richie Porte','Felix Großschartner','Aleksandr Vlasov','Carlos Rodríguez','Hugh Carthy','David Gaudu'],jerseys:[['🔵','GC','Richard Carapaz']]},
-    2019:{top10:['Richie Porte','Geraint Thomas','Tom Dumoulin','Richard Carapaz','Felix Großschartner','João Almeida','Aleksandr Vlasov','Carlos Rodríguez','Hugh Carthy','David Gaudu'],jerseys:[['🔵','GC','Richie Porte']]},
-  },
-  basque:{
-    2025:{top10:['Tadej Pogačar','Isaac del Toro','Jonas Vingegaard','Remco Evenepoel','João Almeida','Tom Pidcock','Carlos Rodríguez','Ben O\'Connor','Juan Ayuso','Enric Mas'],jerseys:[['🔵','GC','Tadej Pogačar']]},
-    2024:{top10:['Tadej Pogačar','Jonas Vingegaard','Carlos Rodríguez','Primož Roglič','Remco Evenepoel','Enric Mas','Mikel Landa','João Almeida','Ben O\'Connor','David Gaudu'],jerseys:[['🔵','GC','Tadej Pogačar']]},
-    2023:{top10:['Jonas Vingegaard','Tadej Pogačar','Carlos Rodríguez','Enric Mas','Primož Roglič','Mikel Landa','João Almeida','Ben O\'Connor','David Gaudu','Aleksandr Vlasov'],jerseys:[['🔵','GC','Jonas Vingegaard']]},
-    2022:{top10:['Primož Roglič','Tadej Pogačar','Carlos Rodríguez','Enric Mas','Mikel Landa','João Almeida','Aleksandr Vlasov','Ben O\'Connor','David Gaudu','Simon Yates'],jerseys:[['🔵','GC','Primož Roglič']]},
-    2021:{top10:['Primož Roglič','Jonas Vingegaard','Aleksandr Vlasov','Enric Mas','Miguel Ángel López','Carlos Rodríguez','Mikel Landa','David de la Cruz','David Gaudu','Ben O\'Connor'],jerseys:[['🔵','GC','Primož Roglič']]},
-    2020:{top10:['Primož Roglič','David de la Cruz','Enric Mas','Carlos Rodríguez','Aleksandr Vlasov','Mikel Landa','Miguel Ángel López','Damiano Caruso','David Gaudu','Pello Bilbao'],jerseys:[['🔵','GC','Primož Roglič']]},
-    2019:{top10:['Primož Roglič','Alejandro Valverde','Mikel Landa','Tadej Pogačar','Miguel Ángel López','Enric Mas','Carlos Rodríguez','David de la Cruz','David Gaudu','Aleksandr Vlasov'],jerseys:[['🔵','GC','Primož Roglič']]},
-  },
-  catalan:{
-    2025:{top10:['Tadej Pogačar','Jonas Vingegaard','Isaac del Toro','João Almeida','Remco Evenepoel','Carlos Rodríguez','Tom Pidcock','Ben O\'Connor','Juan Ayuso','Enric Mas'],jerseys:[['🔵','GC','Tadej Pogačar']]},
-    2024:{top10:['Tadej Pogačar','Jonas Vingegaard','Remco Evenepoel','Carlos Rodríguez','Primož Roglič','Enric Mas','Mikel Landa','Ben O\'Connor','João Almeida','David Gaudu'],jerseys:[['🔵','GC','Tadej Pogačar']]},
-    2023:{top10:['Tadej Pogačar','Primož Roglič','Carlos Rodríguez','Jonas Vingegaard','Enric Mas','Mikel Landa','João Almeida','Ben O\'Connor','David Gaudu','Aleksandr Vlasov'],jerseys:[['🔵','GC','Tadej Pogačar']]},
-    2022:{top10:['Tadej Pogačar','Carlos Rodríguez','Primož Roglič','Jonas Vingegaard','Enric Mas','Mikel Landa','Ben O\'Connor','João Almeida','David Gaudu','Aleksandr Vlasov'],jerseys:[['🔵','GC','Tadej Pogačar']]},
-    2021:{top10:['Brandon McNulty','Tadej Pogačar','Carlos Rodríguez','Aleksandr Vlasov','Enric Mas','Mikel Landa','Ben O\'Connor','João Almeida','David Gaudu','Simon Yates'],jerseys:[['🔵','GC','Brandon McNulty']]},
-    2020:{top10:['Tadej Pogačar','Primož Roglič','Carlos Rodríguez','Enric Mas','Mikel Landa','Ben O\'Connor','João Almeida','David Gaudu','Aleksandr Vlasov','Simon Yates'],jerseys:[['🔵','GC','Tadej Pogačar']]},
-    2019:{top10:['Egan Bernal','Emanuel Buchmann','Nairo Quintana','Wilco Kelderman','Tadej Pogačar','Primož Roglič','Carlos Rodríguez','David Gaudu','Aleksandr Vlasov','Mikel Landa'],jerseys:[['🔵','GC','Egan Bernal']]},
-  },
-  suisse:{
-    2025:{top10:['Remco Evenepoel','Tadej Pogačar','João Almeida','Isaac del Toro','Carlos Rodríguez','Ben O\'Connor','Matteo Jorgenson','Aleksandr Vlasov','Felix Großschartner','Geraint Thomas'],jerseys:[['🔵','GC','Remco Evenepoel']]},
-    2024:{top10:['Remco Evenepoel','Tadej Pogačar','João Almeida','Jonas Vingegaard','Carlos Rodríguez','Matteo Jorgenson','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','Geraint Thomas'],jerseys:[['🔵','GC','Remco Evenepoel']]},
-    2023:{top10:['Geraint Thomas','Matteo Jorgenson','Felix Großschartner','Damiano Caruso','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Romain Bardet','Tao Geoghegan Hart','João Almeida'],jerseys:[['🔵','GC','Geraint Thomas']]},
-    2022:{top10:['Tadej Pogačar','João Almeida','Felix Großschartner','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Geraint Thomas','Romain Bardet','Tao Geoghegan Hart','Matteo Jorgenson'],jerseys:[['🔵','GC','Tadej Pogačar']]},
-    2021:{top10:['Richie Porte','João Almeida','Geraint Thomas','Felix Großschartner','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Romain Bardet','Tao Geoghegan Hart','Matteo Jorgenson'],jerseys:[['🔵','GC','Richie Porte']]},
-    2020:{top10:['Patrick Konrad','João Almeida','Geraint Thomas','Felix Großschartner','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Romain Bardet','Tao Geoghegan Hart','Matteo Jorgenson'],jerseys:[['🔵','GC','Patrick Konrad']]},
-    2019:{top10:['Egan Bernal','Emanuel Buchmann','Richie Porte','João Almeida','Geraint Thomas','Felix Großschartner','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Romain Bardet'],jerseys:[['🔵','GC','Egan Bernal']]},
-  },
-  uae:{
-    2025:{top10:['João Almeida','Tadej Pogačar','Isaac del Toro','Ben O\'Connor','Adam Yates','Carlos Rodríguez','Aleksandr Vlasov','Remco Evenepoel','Felix Großschartner','Jai Hindley'],jerseys:[['🔵','GC','João Almeida']]},
-    2024:{top10:['João Almeida','Tadej Pogačar','Adam Yates','Ben O\'Connor','Isaac del Toro','Carlos Rodríguez','Aleksandr Vlasov','Remco Evenepoel','Matteo Jorgenson','Jai Hindley'],jerseys:[['🔵','GC','João Almeida']]},
-    2023:{top10:['Adam Yates','Tadej Pogačar','João Almeida','Primož Roglič','Ben O\'Connor','Carlos Rodríguez','Aleksandr Vlasov','Remco Evenepoel','Felix Großschartner','Jai Hindley'],jerseys:[['🔵','GC','Adam Yates']]},
-    2022:{top10:['Tadej Pogačar','João Almeida','Adam Yates','Ben O\'Connor','Carlos Rodríguez','Aleksandr Vlasov','Primož Roglič','Remco Evenepoel','Felix Großschartner','Jai Hindley'],jerseys:[['🔵','GC','Tadej Pogačar']]},
-    2021:{top10:['Tadej Pogačar','João Almeida','Adam Yates','Aleksandr Vlasov','Carlos Rodríguez','Ben O\'Connor','Primož Roglič','Remco Evenepoel','Felix Großschartner','Jai Hindley'],jerseys:[['🔵','GC','Tadej Pogačar']]},
-    2020:{top10:['Adam Yates','João Almeida','Brandon McNulty','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Primož Roglič','Remco Evenepoel','Felix Großschartner','Jai Hindley'],jerseys:[['🔵','GC','Adam Yates']]},
-    2019:{top10:['Alejandro Valverde','João Almeida','Adam Yates','Primož Roglič','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Remco Evenepoel','Felix Großschartner','Jai Hindley'],jerseys:[['🔵','GC','Alejandro Valverde']]},
-  },
-  pologne:{
-    2025:{top10:['Jonas Vingegaard','Remco Evenepoel','Tadej Pogačar','Carlos Rodríguez','João Almeida','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','Geraint Thomas','David Gaudu'],jerseys:[['🔵','GC','Jonas Vingegaard']]},
-    2024:{top10:['Remco Evenepoel','Jonas Vingegaard','Tadej Pogačar','Carlos Rodríguez','João Almeida','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','Geraint Thomas','David Gaudu'],jerseys:[['🔵','GC','Remco Evenepoel']]},
-    2023:{top10:['Jonas Vingegaard','Remco Evenepoel','Tadej Pogačar','Carlos Rodríguez','João Almeida','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','Geraint Thomas','David Gaudu'],jerseys:[['🔵','GC','Jonas Vingegaard']]},
-    2022:{top10:['Remco Evenepoel','Tadej Pogačar','Carlos Rodríguez','João Almeida','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','Geraint Thomas','David Gaudu','Simon Yates'],jerseys:[['🔵','GC','Remco Evenepoel']]},
-    2021:{top10:['Jonas Vingegaard','Tadej Pogačar','Carlos Rodríguez','João Almeida','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','Geraint Thomas','David Gaudu','Simon Yates'],jerseys:[['🔵','GC','Jonas Vingegaard']]},
-    2020:{top10:['Remco Evenepoel','Carlos Rodríguez','João Almeida','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','Geraint Thomas','David Gaudu','Simon Yates','Pello Bilbao'],jerseys:[['🔵','GC','Remco Evenepoel']]},
-    2019:{top10:['Rafal Majka','João Almeida','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','Geraint Thomas','David Gaudu','Simon Yates','Pello Bilbao'],jerseys:[['🔵','GC','Rafal Majka']]},
-  },
-  burgos:{
-    2025:{top10:['Juan Ayuso','Carlos Rodríguez','João Almeida','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao'],jerseys:[['🔵','GC','Juan Ayuso']]},
-    2024:{top10:['Remco Evenepoel','Carlos Rodríguez','João Almeida','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao'],jerseys:[['🔵','GC','Remco Evenepoel']]},
-    2023:{top10:['Juan Ayuso','Carlos Rodríguez','João Almeida','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao'],jerseys:[['🔵','GC','Juan Ayuso']]},
-    2022:{top10:['Carlos Rodríguez','João Almeida','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao','Damiano Caruso'],jerseys:[['🔵','GC','Carlos Rodríguez']]},
-    2021:{top10:['Remco Evenepoel','Carlos Rodríguez','João Almeida','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao'],jerseys:[['🔵','GC','Remco Evenepoel']]},
-    2020:{top10:['Carlos Rodríguez','João Almeida','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao','Damiano Caruso'],jerseys:[['🔵','GC','Carlos Rodríguez']]},
-  },
-  benelux:{
-    2025:{top10:['Remco Evenepoel','Mathieu van der Poel','Wout van Aert','Tim Wellens','Mads Pedersen','Stefan Küng','Søren Kragh Andersen','Christophe Laporte','Kasper Asgreen','Jonas Vingegaard'],jerseys:[['🔵','GC','Remco Evenepoel']]},
-    2024:{top10:['Remco Evenepoel','Mathieu van der Poel','Wout van Aert','Mads Pedersen','Jasper Stuyven','Stefan Küng','Tim Wellens','Søren Kragh Andersen','Christophe Laporte','Kasper Asgreen'],jerseys:[['🔵','GC','Remco Evenepoel']]},
-    2023:{top10:['Mathieu van der Poel','Remco Evenepoel','Wout van Aert','Mads Pedersen','Jasper Stuyven','Stefan Küng','Tim Wellens','Søren Kragh Andersen','Christophe Laporte','Kasper Asgreen'],jerseys:[['🔵','GC','Mathieu van der Poel']]},
-    2022:{top10:['Wout van Aert','Mathieu van der Poel','Remco Evenepoel','Mads Pedersen','Jasper Stuyven','Stefan Küng','Tim Wellens','Søren Kragh Andersen','Christophe Laporte','Kasper Asgreen'],jerseys:[['🔵','GC','Wout van Aert']]},
-    2021:{top10:['Primož Roglič','Remco Evenepoel','Mathieu van der Poel','Wout van Aert','Mads Pedersen','Tim Wellens','Søren Kragh Andersen','Stefan Küng','Christophe Laporte','Kasper Asgreen'],jerseys:[['🔵','GC','Primož Roglič']]},
-    2020:{top10:['Primož Roglič','Wout van Aert','Mathieu van der Poel','Tim Wellens','Søren Kragh Andersen','Mads Pedersen','Stefan Küng','Christophe Laporte','Kasper Asgreen','Oliver Naesen'],jerseys:[['🔵','GC','Primož Roglič']]},
-    2019:{top10:['Primož Roglič','Dylan van Baarle','Wout van Aert','Mathieu van der Poel','Tim Wellens','Søren Kragh Andersen','Stefan Küng','Mads Pedersen','Christophe Laporte','Oliver Naesen'],jerseys:[['🔵','GC','Primož Roglič']]},
-  },
-  downunder:{
-    2025:{top10:['Jay Vine','Simon Yates','Ben O\'Connor','Jai Hindley','Michael Matthews','Jack Haig','Richie Porte','Michael Storer','Tao Geoghegan Hart','Nick Schultz'],jerseys:[['🔵','GC','Jay Vine']]},
-    2024:{top10:['Jay Vine','Simon Yates','Ben O\'Connor','Michael Matthews','Jai Hindley','Jack Haig','Richie Porte','Michael Storer','Tao Geoghegan Hart','Nick Schultz'],jerseys:[['🔵','GC','Jay Vine']]},
-    2023:{top10:['Michael Matthews','Jay Vine','Simon Yates','Ben O\'Connor','Jai Hindley','Jack Haig','Richie Porte','Michael Storer','Tao Geoghegan Hart','Nick Schultz'],jerseys:[['🔵','GC','Michael Matthews']]},
-    2022:{top10:['Simon Yates','Thymen Arensman','Ben O\'Connor','Jai Hindley','Jay Vine','Michael Matthews','Jack Haig','Richie Porte','Michael Storer','Tao Geoghegan Hart'],jerseys:[['🔵','GC','Simon Yates']]},
-    2021:{top10:['Lucas Hamilton','Simon Yates','Ben O\'Connor','Jay Vine','Jai Hindley','Michael Matthews','Jack Haig','Richie Porte','Michael Storer','Tao Geoghegan Hart'],jerseys:[['🔵','GC','Lucas Hamilton']]},
-    2020:{top10:['Richie Porte','Jay Vine','Simon Yates','Ben O\'Connor','Jai Hindley','Michael Matthews','Jack Haig','Michael Storer','Tao Geoghegan Hart','Lucas Hamilton'],jerseys:[['🔵','GC','Richie Porte']]},
-    2019:{top10:['Daryl Impey','Simon Yates','Ben O\'Connor','Jai Hindley','Michael Matthews','Jay Vine','Jack Haig','Richie Porte','Michael Storer','Tao Geoghegan Hart'],jerseys:[['🔵','GC','Daryl Impey']]},
-  },
-  algarve:{
-    2025:{top10:['Remco Evenepoel','Carlos Rodríguez','João Almeida','Ben O\'Connor','Felix Großschartner','Aleksandr Vlasov','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao'],jerseys:[['🔵','GC','Remco Evenepoel']]},
-    2024:{top10:['Remco Evenepoel','Carlos Rodríguez','João Almeida','Ben O\'Connor','Felix Großschartner','Aleksandr Vlasov','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao'],jerseys:[['🔵','GC','Remco Evenepoel']]},
-    2023:{top10:['João Almeida','Carlos Rodríguez','Remco Evenepoel','Ben O\'Connor','Felix Großschartner','Aleksandr Vlasov','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao'],jerseys:[['🔵','GC','João Almeida']]},
-    2022:{top10:['João Almeida','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao','Damiano Caruso'],jerseys:[['🔵','GC','João Almeida']]},
-    2021:{top10:['João Almeida','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao','Damiano Caruso'],jerseys:[['🔵','GC','João Almeida']]},
-    2020:{top10:['Remco Evenepoel','Carlos Rodríguez','João Almeida','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao'],jerseys:[['🔵','GC','Remco Evenepoel']]},
-    2019:{top10:['David de la Cruz','João Almeida','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao'],jerseys:[['🔵','GC','David de la Cruz']]},
-  },
-  ruta:{
-    2025:{top10:['Brandon McNulty','Carlos Rodríguez','João Almeida','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao'],jerseys:[['🔵','GC','Brandon McNulty']]},
-    2024:{top10:['Brandon McNulty','Carlos Rodríguez','João Almeida','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao'],jerseys:[['🔵','GC','Brandon McNulty']]},
-    2023:{top10:['Carlos Rodríguez','João Almeida','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao','Damiano Caruso'],jerseys:[['🔵','GC','Carlos Rodríguez']]},
-    2022:{top10:['João Almeida','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao','Damiano Caruso'],jerseys:[['🔵','GC','João Almeida']]},
-    2021:{top10:['João Almeida','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao','Damiano Caruso'],jerseys:[['🔵','GC','João Almeida']]},
-    2020:{top10:['Carlos Rodríguez','João Almeida','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao','Damiano Caruso'],jerseys:[['🔵','GC','Carlos Rodríguez']]},
-    2019:{top10:['Tadej Pogačar','João Almeida','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao'],jerseys:[['🔵','GC','Tadej Pogačar']]},
-  },
-  challenge:{
-    2025:{top10:['Tadej Pogačar','João Almeida','Carlos Rodríguez','Aleksandr Vlasov','Ben O\'Connor','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao'],jerseys:[['🔵','GC','Tadej Pogačar']]},
-    2024:{top10:['Tadej Pogačar','João Almeida','Carlos Rodríguez','Aleksandr Vlasov','Ben O\'Connor','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao'],jerseys:[['🔵','GC','Tadej Pogačar']]},
-    2023:{top10:['Tadej Pogačar','João Almeida','Carlos Rodríguez','Aleksandr Vlasov','Ben O\'Connor','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao'],jerseys:[['🔵','GC','Tadej Pogačar']]},
-    2022:{top10:['João Almeida','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao','Damiano Caruso'],jerseys:[['🔵','GC','João Almeida']]},
-    2021:{top10:['João Almeida','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao','Damiano Caruso'],jerseys:[['🔵','GC','João Almeida']]},
-    2020:{top10:['Tadej Pogačar','João Almeida','Carlos Rodríguez','Aleksandr Vlasov','Ben O\'Connor','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao'],jerseys:[['🔵','GC','Tadej Pogačar']]},
-    2019:{top10:['Tadej Pogačar','João Almeida','Carlos Rodríguez','Alejandro Valverde','Primož Roglič','Aleksandr Vlasov','Ben O\'Connor','Felix Großschartner','David Gaudu','Simon Yates'],jerseys:[['🔵','GC','Tadej Pogačar']]},
-  },
-  omanbike:{
-    2025:{top10:['João Almeida','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao','Damiano Caruso'],jerseys:[['🔵','GC','João Almeida']]},
-    2024:{top10:['João Almeida','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao','Damiano Caruso'],jerseys:[['🔵','GC','João Almeida']]},
-    2023:{top10:['João Almeida','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao','Damiano Caruso'],jerseys:[['🔵','GC','João Almeida']]},
-    2022:{top10:['João Almeida','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao','Damiano Caruso'],jerseys:[['🔵','GC','João Almeida']]},
-    2021:{top10:['João Almeida','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao','Damiano Caruso'],jerseys:[['🔵','GC','João Almeida']]},
-    2020:{top10:['Aleksey Lutsenko','João Almeida','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao'],jerseys:[['🔵','GC','Aleksey Lutsenko']]},
-    2019:{top10:['Alejandro Valverde','João Almeida','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao'],jerseys:[['🔵','GC','Alejandro Valverde']]},
-  },
-  'romandie-extra':{
-    2025:{top10:['Mathieu van der Poel','Wout van Aert','Remco Evenepoel','Tim Wellens','Søren Kragh Andersen','Stefan Küng','Christophe Laporte','Mads Pedersen','Nils Politt','Kasper Asgreen'],jerseys:[['🔵','GC','Mathieu van der Poel']]},
-    2024:{top10:['Mathieu van der Poel','Wout van Aert','Remco Evenepoel','Søren Kragh Andersen','Tim Wellens','Stefan Küng','Christophe Laporte','Mads Pedersen','Nils Politt','Kasper Asgreen'],jerseys:[['🔵','GC','Mathieu van der Poel']]},
-    2023:{top10:['Wout van Aert','Mathieu van der Poel','Tim Wellens','Søren Kragh Andersen','Stefan Küng','Christophe Laporte','Mads Pedersen','Nils Politt','Kasper Asgreen','Oliver Naesen'],jerseys:[['🔵','GC','Wout van Aert']]},
-    2022:{top10:['Tim Wellens','Søren Kragh Andersen','Wout van Aert','Mathieu van der Poel','Stefan Küng','Christophe Laporte','Mads Pedersen','Nils Politt','Kasper Asgreen','Oliver Naesen'],jerseys:[['🔵','GC','Tim Wellens']]},
-    2021:{top10:['Søren Kragh Andersen','Wout van Aert','Tim Wellens','Mathieu van der Poel','Stefan Küng','Christophe Laporte','Mads Pedersen','Nils Politt','Kasper Asgreen','Oliver Naesen'],jerseys:[['🔵','GC','Søren Kragh Andersen']]},
-    2020:{top10:['Søren Kragh Andersen','Wout van Aert','Tim Wellens','Oliver Naesen','Stefan Küng','Christophe Laporte','Mads Pedersen','Nils Politt','Kasper Asgreen','Greg van Avermaet'],jerseys:[['🔵','GC','Søren Kragh Andersen']]},
-  },
-  norway:{
-    2025:{top10:['Tobias Johannessen','Jonas Vingegaard','Torstein Træen','Søren Wærenskjold','Amund Grøndahl Jansen','Pål Golberg','Kristoffer Halvorsen','Henrik Kulset','Magnus Cort Nielsen','Jonas Abrahamsen'],jerseys:[['🔵','GC','Tobias Johannessen']]},
-    2024:{top10:['Jonathan Milan','Mads Pedersen','Tim Merlier','Phil Bauhaus','Christophe Laporte','Bryan Coquard','Alexander Kristoff','Olav Kooij','Jasper Philipsen','Jonas Abrahamsen'],jerseys:[['🔵','GC','Jonathan Milan']]},
-    2023:{top10:['Tobias Johannessen','Jonas Vingegaard','Carl Fredrik Hagen','Soren Waerenskjold','Amund Grøndahl Jansen','Torstein Træen','Pål Golberg','Kristoffer Halvorsen','Magnus Cort Nielsen','Henrik Kulset'],jerseys:[['🔵','GC','Tobias Johannessen']]},
-    2022:{top10:['Søren Wærenskjold','Jonas Gregaard','Torstein Træen','Pål Golberg','Amund Grøndahl Jansen','Tobias Johannessen','Stig Broeckx','Thibault Guernalec','Arne Marit Lie','Ian Bibby'],jerseys:[['🔵','GC','Søren Wærenskjold']]},
-    2021:{top10:['Torstein Træen','Amund Grøndahl Jansen','Søren Wærenskjold','Tobias Johannessen','Pål Golberg','Stig Broeckx','Thibault Guernalec','Jonas Gregaard','Magnus Cort Nielsen','Lars Bak'],jerseys:[['🔵','GC','Torstein Træen']]},
-    2020:{top10:['Søren Wærenskjold','Tobias Johannessen','Amund Grøndahl Jansen','Torstein Træen','Pål Golberg','Kristoffer Halvorsen','Thibault Guernalec','Jonas Gregaard','Lars Bak','Ian Bibby'],jerseys:[['🔵','GC','Søren Wærenskjold']]},
-    2019:{top10:['Søren Wærenskjold','Tobias Johannessen','Amund Grøndahl Jansen','Torstein Træen','Pål Golberg','Thibault Guernalec','Jonas Gregaard','Lars Bak','Ian Bibby','Magnus Cort Nielsen'],jerseys:[['🔵','GC','Søren Wærenskjold']]},
-  },
-  hungary:{
-    2025:{top10:['Juan Ayuso','Carlos Rodríguez','João Almeida','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao'],jerseys:[['🔵','GC','Juan Ayuso']]},
-    2024:{top10:['Carlos Rodríguez','João Almeida','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao','Damiano Caruso'],jerseys:[['🔵','GC','Carlos Rodríguez']]},
-    2023:{top10:['João Almeida','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao','Damiano Caruso'],jerseys:[['🔵','GC','João Almeida']]},
-    2022:{top10:['Juan Ayuso','Carlos Rodríguez','João Almeida','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao'],jerseys:[['🔵','GC','Juan Ayuso']]},
-  },
-  colombia:{
-    2025:{top10:['Egan Bernal','Santiago Buitrago','Richard Carapaz','Carlos Rodríguez','João Almeida','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates'],jerseys:[['🔵','GC','Egan Bernal']]},
-    2024:{top10:['Carlos Rodríguez','João Almeida','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','Santiago Buitrago','Richard Carapaz','David Gaudu','Simon Yates','Pello Bilbao'],jerseys:[['🔵','GC','Carlos Rodríguez']]},
-    2023:{top10:['Santiago Buitrago','Carlos Rodríguez','João Almeida','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','Richard Carapaz','David Gaudu','Simon Yates','Pello Bilbao'],jerseys:[['🔵','GC','Santiago Buitrago']]},
-    2022:{top10:['Egan Bernal','Santiago Buitrago','Carlos Rodríguez','João Almeida','Richard Carapaz','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates'],jerseys:[['🔵','GC','Egan Bernal']]},
-    2021:{top10:['Egan Bernal','Santiago Buitrago','Richard Carapaz','Carlos Rodríguez','João Almeida','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates'],jerseys:[['🔵','GC','Egan Bernal']]},
-    2020:{top10:['Richard Carapaz','Egan Bernal','Santiago Buitrago','Carlos Rodríguez','João Almeida','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates'],jerseys:[['🔵','GC','Richard Carapaz']]},
-    2019:{top10:['Tadej Pogačar','Egan Bernal','Richard Carapaz','Santiago Buitrago','Carlos Rodríguez','João Almeida','Ben O\'Connor','Aleksandr Vlasov','David Gaudu','Simon Yates'],jerseys:[['🔵','GC','Tadej Pogačar']]},
-  },
-  guangxi:{
-    2025:{top10:['Tadej Pogačar','João Almeida','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao'],jerseys:[['🔵','GC','Tadej Pogačar']]},
-    2024:{top10:['Carlos Rodríguez','João Almeida','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao','Damiano Caruso'],jerseys:[['🔵','GC','Carlos Rodríguez']]},
-    2023:{top10:['Tadej Pogačar','João Almeida','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao'],jerseys:[['🔵','GC','Tadej Pogačar']]},
-    2022:{top10:['Tadej Pogačar','João Almeida','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao'],jerseys:[['🔵','GC','Tadej Pogačar']]},
-    2021:{top10:['João Almeida','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao','Damiano Caruso'],jerseys:[['🔵','GC','João Almeida']]},
-    2020:{top10:['Carlos Rodríguez','João Almeida','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao','Damiano Caruso'],jerseys:[['🔵','GC','Carlos Rodríguez']]},
-    2019:{top10:['Alejandro Valverde','João Almeida','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao'],jerseys:[['🔵','GC','Alejandro Valverde']]},
-  },
-  turkey:{
-    2025:{top10:['Mattias Skjelmose','João Almeida','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao'],jerseys:[['🔵','GC','Mattias Skjelmose']]},
-    2024:{top10:['Mattias Skjelmose','João Almeida','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao'],jerseys:[['🔵','GC','Mattias Skjelmose']]},
-    2023:{top10:['João Almeida','Mattias Skjelmose','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao'],jerseys:[['🔵','GC','João Almeida']]},
-    2022:{top10:['João Almeida','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao','Damiano Caruso'],jerseys:[['🔵','GC','João Almeida']]},
-    2021:{top10:['João Almeida','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao','Damiano Caruso'],jerseys:[['🔵','GC','João Almeida']]},
-    2020:{top10:['João Almeida','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao','Damiano Caruso'],jerseys:[['🔵','GC','João Almeida']]},
-    2019:{top10:['Kristijan Đurasek','João Almeida','Carlos Rodríguez','Ben O\'Connor','Aleksandr Vlasov','Felix Großschartner','David Gaudu','Simon Yates','Geraint Thomas','Pello Bilbao'],jerseys:[['🔵','GC','Kristijan Đurasek']]},
-  },
-  california:{
-    2021:{top10:['Sepp Kuss','Tejay van Garderen','Ben O\'Connor','Brandon McNulty','Simon Yates','Jack Haig','Neilson Powless','Georg Zimmermann','Rigoberto Urán','David Gaudu'],jerseys:[['🔵','GC','Sepp Kuss']]},
-    2020:{top10:['Tejay van Garderen','Sepp Kuss','Ben O\'Connor','Brandon McNulty','Simon Yates','Jack Haig','Neilson Powless','Rigoberto Urán','David Gaudu','Georg Zimmermann'],jerseys:[['🔵','GC','Tejay van Garderen']]},
-    2019:{top10:['Tejay van Garderen','Sepp Kuss','Ben O\'Connor','Brandon McNulty','Simon Yates','Neilson Powless','Rigoberto Urán','David Gaudu','Georg Zimmermann','Jack Haig'],jerseys:[['🔵','GC','Tejay van Garderen']]},
-  },
-  'abu-dhabi':{
-    2018:{top10:['Alejandro Valverde','Tom Dumoulin','Primož Roglič','Geraint Thomas','Adam Yates','Egan Bernal','João Almeida','Carlos Rodríguez','Ben O\'Connor','Rui Costa'],jerseys:[['🔵','GC','Alejandro Valverde']]},
-    2017:{top10:['Alejandro Valverde','Esteban Chaves','Tom Dumoulin','Primož Roglič','Geraint Thomas','Adam Yates','Carlos Rodríguez','Ben O\'Connor','João Almeida','Rui Costa'],jerseys:[['🔵','GC','Alejandro Valverde']]},
-    2016:{top10:['Alejandro Valverde','Esteban Chaves','Tom Dumoulin','Primož Roglič','Geraint Thomas','Adam Yates','Carlos Rodríguez','Ben O\'Connor','João Almeida','Rui Costa'],jerseys:[['🔵','GC','Alejandro Valverde']]},
-  },
-  beijing:{
-    2014:{top10:['Rui Costa','Alejandro Valverde','Carlos Rodríguez','Rigoberto Urán','Simon Yates','David Gaudu','Michael Woods','Geraint Thomas','Pello Bilbao','Rafal Majka'],jerseys:[['🔵','GC','Rui Costa']]},
-    2013:{top10:['Edvald Boasson Hagen','Rui Costa','Alejandro Valverde','Carlos Rodríguez','Rigoberto Urán','Simon Yates','David Gaudu','Michael Woods','Geraint Thomas','Pello Bilbao'],jerseys:[['🔵','GC','Edvald Boasson Hagen']]},
-    2012:{top10:['Edvald Boasson Hagen','Rui Costa','Alejandro Valverde','Carlos Rodríguez','Rigoberto Urán','Simon Yates','David Gaudu','Michael Woods','Geraint Thomas','Pello Bilbao'],jerseys:[['🔵','GC','Edvald Boasson Hagen']]},
-    2011:{top10:['Edvald Boasson Hagen','Rui Costa','Alejandro Valverde','Carlos Rodríguez','Rigoberto Urán','Simon Yates','David Gaudu','Michael Woods','Geraint Thomas','Pello Bilbao'],jerseys:[['🔵','GC','Edvald Boasson Hagen']]},
-  },
-  coppa_agostoni:{
-    2025:{top10:['Marc Hirschi','Romain Bardet','Simon Yates','Giulio Ciccone','Davide Formolo','Mattia Cattaneo','Rui Costa','Ben O\'Connor','Alexey Lutsenko','Andrea Vendrame']},
-    2024:{top10:['Marc Hirschi','Romain Bardet','Simon Yates','Giulio Ciccone','Davide Formolo','Mattia Cattaneo','Rui Costa','Ben O\'Connor','Alexey Lutsenko','Andrea Vendrame']},
-    2023:{top10:['Marc Hirschi','Romain Bardet','Simon Yates','Giulio Ciccone','Davide Formolo','Mattia Cattaneo','Rui Costa','Alexey Lutsenko','Andrea Vendrame','Antonio Nibali']},
-    2022:{top10:['Romain Bardet','Marc Hirschi','Simon Yates','Giulio Ciccone','Davide Formolo','Rui Costa','Mattia Cattaneo','Alexey Lutsenko','Andrea Vendrame','Antonio Nibali']},
-    2021:{top10:['Romain Bardet','Marc Hirschi','Davide Formolo','Simon Yates','Rui Costa','Mattia Cattaneo','Giulio Ciccone','Alexey Lutsenko','Andrea Vendrame','Antonio Nibali']},
-    2020:{top10:['Romain Bardet','Davide Formolo','Simon Yates','Rui Costa','Mattia Cattaneo','Giulio Ciccone','Alexey Lutsenko','Andrea Vendrame','Antonio Nibali','Juan Pedro López']},
-    2019:{top10:['Rui Costa','Davide Formolo','Simon Yates','Mattia Cattaneo','Romain Bardet','Giulio Ciccone','Alexey Lutsenko','Andrea Vendrame','Antonio Nibali','Juan Pedro López']},
-  },
-  'coppa-sabatini':{
-    2025:{top10:['Marc Hirschi','Romain Bardet','Simon Yates','Giulio Ciccone','Davide Formolo','Rui Costa','Mattia Cattaneo','Alexey Lutsenko','Andrea Vendrame','Antonio Nibali']},
-    2024:{top10:['Marc Hirschi','Romain Bardet','Simon Yates','Giulio Ciccone','Davide Formolo','Mattia Cattaneo','Rui Costa','Alexey Lutsenko','Andrea Vendrame','Antonio Nibali']},
-    2023:{top10:['Marc Hirschi','Romain Bardet','Simon Yates','Giulio Ciccone','Davide Formolo','Rui Costa','Mattia Cattaneo','Alexey Lutsenko','Andrea Vendrame','Antonio Nibali']},
-    2022:{top10:['Romain Bardet','Marc Hirschi','Simon Yates','Giulio Ciccone','Davide Formolo','Rui Costa','Mattia Cattaneo','Alexey Lutsenko','Andrea Vendrame','Antonio Nibali']},
-    2021:{top10:['Romain Bardet','Marc Hirschi','Davide Formolo','Simon Yates','Rui Costa','Giulio Ciccone','Mattia Cattaneo','Alexey Lutsenko','Andrea Vendrame','Antonio Nibali']},
-    2020:{top10:['Romain Bardet','Davide Formolo','Simon Yates','Rui Costa','Giulio Ciccone','Mattia Cattaneo','Alexey Lutsenko','Andrea Vendrame','Antonio Nibali','Juan Pedro López']},
-    2019:{top10:['Rui Costa','Davide Formolo','Simon Yates','Romain Bardet','Giulio Ciccone','Mattia Cattaneo','Alexey Lutsenko','Andrea Vendrame','Antonio Nibali','Juan Pedro López']},
-  },
-  'coppa-agostoni':{
-    2025:{top10:['Marc Hirschi','Simon Yates','Romain Bardet','Giulio Ciccone','Davide Formolo','Rui Costa','Mattia Cattaneo','Alexey Lutsenko','Andrea Vendrame','Antonio Nibali']},
-    2024:{top10:['Marc Hirschi','Romain Bardet','Simon Yates','Giulio Ciccone','Davide Formolo','Mattia Cattaneo','Rui Costa','Ben O\'Connor','Alexey Lutsenko','Andrea Vendrame']},
-    2023:{top10:['Marc Hirschi','Simon Yates','Romain Bardet','Giulio Ciccone','Davide Formolo','Rui Costa','Mattia Cattaneo','Alexey Lutsenko','Andrea Vendrame','Antonio Nibali']},
-    2022:{top10:['Romain Bardet','Marc Hirschi','Simon Yates','Giulio Ciccone','Davide Formolo','Rui Costa','Mattia Cattaneo','Alexey Lutsenko','Andrea Vendrame','Antonio Nibali']},
-    2021:{top10:['Romain Bardet','Marc Hirschi','Davide Formolo','Simon Yates','Rui Costa','Giulio Ciccone','Mattia Cattaneo','Alexey Lutsenko','Andrea Vendrame','Antonio Nibali']},
-    2020:{top10:['Davide Formolo','Romain Bardet','Simon Yates','Rui Costa','Giulio Ciccone','Mattia Cattaneo','Alexey Lutsenko','Andrea Vendrame','Antonio Nibali','Juan Pedro López']},
-    2019:{top10:['Rui Costa','Davide Formolo','Simon Yates','Romain Bardet','Giulio Ciccone','Mattia Cattaneo','Alexey Lutsenko','Andrea Vendrame','Antonio Nibali','Juan Pedro López']},
-  },
-};
 
 
 // ════════════════════════════════════════════════════════
@@ -1812,13 +1271,6 @@ const RACE_RESULTS = {
 // Combines all riders from RACE_RESULTS with a curated historical list
 function getAllRiders(){
   const set = new Set();
-  // From RACE_RESULTS
-  Object.values(RACE_RESULTS).forEach(byYear => {
-    Object.values(byYear).forEach(ed => {
-      (ed.top10||[]).forEach(n => set.add(n));
-      (ed.jerseys||[]).forEach(([,, n]) => set.add(n));
-    });
-  });
   // Additional historical & current riders
   [
     // TDF legends
@@ -2152,7 +1604,6 @@ const PCS_SLUG_MAP = {
   'la-roue-tourangelle': 'la-roue-tourangelle',
   'paris-camembert': 'paris-camembert',
   'paris-chauny-classique': 'paris-chauny-classique',
-  'paris-tours': 'paris-tours',
   'region-pays-de-la-loire': 'region-pays-de-la-loire',
   'tour-de-l-ain': 'tour-de-l-ain',
   'tour-de-vendee': 'tour-de-vendee',
@@ -2187,7 +1638,6 @@ const PCS_SLUG_MAP = {
   'tour-of-belgium': 'tour-of-belgium',
   'gp-samyn': 'gp-samyn',
   'volta-nxt-classic': 'volta-nxt-classic',
-  'coppa-agostoni': 'coppa-agostoni',
   'coppa-bernocchi': 'coppa-bernocchi',
   'giro-d-abruzzo': 'giro-d-abruzzo',
   'giro-del-veneto': 'giro-del-veneto',
@@ -2331,6 +1781,24 @@ function resolveRaceSlug(dbSlug){
 
 let userLog   = JSON.parse(localStorage.getItem('g3-log')   || '{}');
 let watchlist = JSON.parse(localStorage.getItem('g3-wl')    || '[]');
+// Cache of race results from Supabase: { [slug]: { [year]: { top10, stageWins } } }
+let raceResultsCache = JSON.parse(localStorage.getItem('g3-results-cache') || '{}');
+
+async function loadRaceResultsForLog(){
+  // Load results for all races the user has logged, to power stats
+  const slugsNeeded = Object.keys(userLog);
+  if(!slugsNeeded.length) return;
+  const { data } = await sb.from('race_results').select('slug,year,top10,stage_wins').in('slug', slugsNeeded);
+  if(!data) return;
+  data.forEach(row => {
+    if(!raceResultsCache[row.slug]) raceResultsCache[row.slug] = {};
+    raceResultsCache[row.slug][row.year] = {
+      top10: Array.isArray(row.top10) ? row.top10 : JSON.parse(row.top10 || '[]'),
+      stageWins: Array.isArray(row.stage_wins) ? row.stage_wins : JSON.parse(row.stage_wins || '[]'),
+    };
+  });
+  localStorage.setItem('g3-results-cache', JSON.stringify(raceResultsCache));
+}
 const TODAY = new Date().toISOString().split('T')[0];
 const CY    = new Date().getFullYear();
 const RL    = {0:'',0.5:'Just riding',1:'Unwatchable',1.5:'Very poor',2:'Disappointing',2.5:'Decent',3:'Good',3.5:'Very good',4:'Great',4.5:'Superb',5:'All-Time Classic'};
@@ -2382,7 +1850,7 @@ function showPage(p){
   if(p!=='discover') curRacePageId=null;
   if(p==='log') renderLogPage();
   else if(p==='top') renderLeaderboard();
-  else if(p==='stats') renderStats();
+  else if(p==='stats'){ loadRaceResultsForLog().then(()=>renderStats()); }
   else if(p==='profile') renderProfile();
   else if(p==='discover') { if(aDiscSection==='riders') renderRiders(); }
 }
@@ -2644,7 +2112,6 @@ async function renderRSPResults(id, year){
   if(error) console.warn('race_results error:', error.message, 'slug:', pcsSlug, 'year:', year);
 
   const top10 = data?.top10;
-  const hardcoded = RACE_RESULTS[id]?.[year];
   let html = '';
 
   if(top10 && top10.length){
@@ -2656,18 +2123,6 @@ async function renderRSPResults(id, year){
       </div>`;
     });
     html += `</div>`;
-  } else if(hardcoded){
-    html += `<div style="font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:2px;color:var(--ml);margin-bottom:10px;">${year} Results</div><div>`;
-    hardcoded.top10.forEach((n,i) => {
-      html += `<div class="top10-row"><span class="t10-pos">${i+1}</span><span class="t10-name">${n}</span></div>`;
-    });
-    html += `</div>`;
-    if(hardcoded.jerseys?.length){
-      html += `<div style="font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:2px;color:var(--ml);margin:14px 0 8px;">Jerseys</div>`;
-      hardcoded.jerseys.forEach(([icon,type,rider]) => {
-        html += `<div class="jersey-row"><span class="jersey-icon">${icon}</span><div><div class="jersey-type">${type}</div><div class="jersey-rider">${rider}</div></div></div>`;
-      });
-    }
   } else {
     html = `<div style="font-size:12px;color:var(--muted);font-style:italic;line-height:1.8;">No results data for ${year}.<br><a href="https://www.procyclingstats.com" target="_blank" style="color:var(--gold-dim);">ProCyclingStats.com</a></div>`;
   }
@@ -3145,9 +2600,8 @@ function getRiderData(){
     watchList.forEach(w=>{
       const yr = parseInt(w.year);
       if(!yr) return;
-      const raceResults = RACE_RESULTS[id];
-      if(!raceResults) return;
-      const res = raceResults[yr] || raceResults[String(yr)];
+      // Use cached Supabase results (keyed as slug:year in raceResultsCache)
+      const res = raceResultsCache[id]?.[yr] || raceResultsCache[id]?.[String(yr)];
       if(!res) return;
 
       const raceName = raceObj?.name || id;
