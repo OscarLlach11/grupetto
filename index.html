@@ -297,7 +297,14 @@
     document.getElementById('auth-tab-up').style.borderBottomColor = tab==='up' ? 'var(--gold)' : 'transparent';
   }
 
-  // Auth is initialised from the main DOMContentLoaded handler after loadAppData() completes
+  // Auth is initialised after loadAppData() completes — resolved by the main script block
+  let _appDataReady;
+  const appDataReady = new Promise(resolve => { _appDataReady = resolve; });
+
+  document.addEventListener('DOMContentLoaded', async () => {
+    await appDataReady; // wait for loadAppData() to finish before any rendering
+    await initAuth();
+  });
 </script>
 <style>
 :root{--black:#0a0a0a;--off-black:#111;--card-bg:#161616;--border:#252525;--border-light:#333;--gold:#e8c84a;--gold-dim:#9a8430;--white:#f0ede8;--muted:#5a5a5a;--ml:#888;--live:#e74c3c;--danger:#c0392b;}
@@ -1353,12 +1360,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   restoreDiscoverFilters();
   renderTabs();
 
-  // Now init auth — onSignedIn/onSignedOut will call renderAll() with RACES ready
-  await initAuth();
+  // Signal auth block that app data is ready — initAuth will now fire
+  _appDataReady();
 
-  // Handle URL hash routing (after auth resolves so user data is loaded)
+  // Handle URL hash routing
   if(location.hash && location.hash.length > 2) {
-    if(!location.hash.startsWith('#/review/')) handleRoute(location.hash);
+    if(!location.hash.startsWith('#/review/')) window._pendingRoute = location.hash;
   } else {
     const savedPage = localStorage.getItem('g3-activePage') || 'discover';
     const validPages = ['discover','log','top','stats','profile'];
