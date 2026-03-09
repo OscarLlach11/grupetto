@@ -39,6 +39,7 @@
     await loadUserData();
     await loadRaceResultsForLog();
     renderAll();
+    updateStats(); // force refresh after Supabase data loaded
     if(window._pendingRoute){ handleRoute(window._pendingRoute); window._pendingRoute=null; }
   }
 
@@ -1149,423 +1150,109 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 
 <script>
 // ════════════════════════════════════════════════════════
-//  RACE DATA CONSTANTS
+//  RACE DATA — loaded from Supabase at boot
 // ════════════════════════════════════════════════════════
-const SUBGENRES = {
-  // Grand Tours
-  tdf:['mountain','stage-race','gc'],giro:['mountain','stage-race','gc'],vuelta:['mountain','stage-race','gc'],
-  // Monuments
-  roubaix:['cobbled','monument'],flanders:['cobbled','monument'],msanremo:['sprint','monument'],lbl:['ardennes','monument'],lombardia:['mountain','monument'],
-  // Spring cobbled block
-  nieuwsblad:['cobbled','classics'],kuurne:['classics'],echelon:['cobbled','classics'],gent:['cobbled','classics'],dwars:['cobbled','classics'],harelbeke:['classics'],
-  // Ardennes
-  amstel:['ardennes','classics'],fleche:['ardennes','classics'],
-  // Italian classics
-  strade:['gravel','classics'],msanremo:['sprint','monument'],
-  // German
-  eschborn:['classics'],cyclassiqs:['sprint','classics'],
-  // Spanish
-  'clasica-san-sebastian':['mountain','classics'],
-  // Italian
-  sanmarino:['classics'],'coppa-sabatini':['classics'],'coppa-agostoni':['classics'],veneto:['classics'],
-  // Belgian
-  wallon:['ardennes','classics'],memorial:['classics'],'gent-wevelgem-women':['sprint','classics'],
-  // French
-  'paris-tours':['sprint','classics'],bretagne:['classics'],
-  // Swiss
-  zurich:['mountain','classics'],
-  // Canadian
-  quebec:['classics'],montreal:['classics'],
-  // Worlds
-  worlds:['mountain','classics'],
-  // Australian
-  'cadel-evans-great-ocean-road-race':['sprint','classics'],'la-classique-de-larrivee':['sprint','classics'],
-  // Stage races
-  tirreno:['mountain','stage-race'],  'paris-nice':['mountain','stage-race'], dauphiné:['mountain','stage-race'],
-  romandie:['mountain','stage-race'], basque:['mountain','stage-race'],catalan:['mountain','stage-race'],
-  suisse:['mountain','stage-race'],pologne:['mountain','stage-race'],burgos:['mountain','stage-race'],
-  benelux:['cobbled','stage-race'],uae:['stage-race'],algarve:['mountain','stage-race'],
-  omanbike:['mountain','stage-race'],downunder:['sprint','stage-race'],ruta:['mountain','stage-race'],
-  challenge:['mountain','stage-race'],california:['mountain','stage-race'],beijing:['stage-race'],
-  guangxi:['mountain','stage-race'],turkey:['mountain','stage-race'],colombia:['mountain','stage-race'],
-  hungary:['stage-race'],norway:['stage-race'],'abu-dhabi-tour':['stage-race'],'tour-de-wallonie':['ardennes','stage-race'],
-};
+let RACES = [];            // populated by loadAppData()
+let RACE_DATES = {};       // { race_id: { year: 'YYYY-MM-DD' } }
+let FEATURED_RIDERS = [];  // populated by loadAppData()
+
 const SG_LABELS = {cobbled:'Cobbled',gravel:'Gravel',mountain:'Mountain',sprint:'Sprinters',classics:'Classics',ardennes:'Ardennes',monument:'Monument',gc:'Grand Tour','stage-race':'Stage Race','tt':'Time Trial'};
-const SG_CLASS = {cobbled:'sg-cobbled',gravel:'sg-gravel',mountain:'sg-mountain',sprint:'sg-sprint',classics:'sg-classics',ardennes:'sg-ardennes',monument:'sg-classics',gc:'sg-stage','stage-race':'sg-stage','tt':'sg-tt'};
+const SG_CLASS  = {cobbled:'sg-cobbled',gravel:'sg-gravel',mountain:'sg-mountain',sprint:'sg-sprint',classics:'sg-classics',ardennes:'sg-ardennes',monument:'sg-classics',gc:'sg-stage','stage-race':'sg-stage','tt':'sg-tt'};
 
-// Approximate final race dates
-const RD = {
-  tdf:{1980:'1980-07-20',1981:'1981-07-19',1982:'1982-07-25',1983:'1983-07-24',1984:'1984-07-22',1985:'1985-07-21',1986:'1986-07-27',1987:'1987-07-26',1988:'1988-07-24',1989:'1989-07-23',1990:'1990-07-22',1991:'1991-07-28',1992:'1992-07-26',1993:'1993-07-25',1994:'1994-07-24',1995:'1995-07-23',1996:'1996-07-21',1997:'1997-07-27',1998:'1998-08-02',1999:'1999-07-25',2000:'2000-07-23',2001:'2001-07-29',2002:'2002-07-28',2003:'2003-07-27',2004:'2004-07-25',2005:'2005-07-24',2006:'2006-07-23',2007:'2007-07-29',2008:'2008-07-27',2009:'2009-07-26',2010:'2010-07-25',2011:'2011-07-24',2012:'2012-07-22',2013:'2013-07-21',2014:'2014-07-27',2015:'2015-07-26',2016:'2016-07-24',2017:'2017-07-23',2018:'2018-07-29',2019:'2019-07-28',2020:'2020-09-20',2021:'2021-07-18',2022:'2022-07-24',2023:'2023-07-23',2024:'2024-07-21',2025:'2025-07-27'},
-  giro:{1980:'1980-06-01',1981:'1981-06-07',1982:'1982-06-06',1983:'1983-06-05',1984:'1984-06-10',1985:'1985-06-09',1986:'1986-06-08',1987:'1987-06-07',1988:'1988-06-12',1989:'1989-06-11',1990:'1990-06-10',1991:'1991-06-09',1992:'1992-06-07',1993:'1993-06-13',1994:'1994-06-12',1995:'1995-06-11',1996:'1996-06-09',1997:'1997-06-15',1998:'1998-06-14',1999:'1999-06-06',2000:'2000-06-11',2001:'2001-06-10',2002:'2002-06-09',2003:'2003-06-08',2004:'2004-06-06',2005:'2005-06-05',2006:'2006-06-04',2007:'2007-06-03',2008:'2008-06-01',2009:'2009-05-31',2010:'2010-05-30',2011:'2011-05-29',2012:'2012-05-27',2013:'2013-05-26',2014:'2014-06-01',2015:'2015-05-31',2016:'2016-05-29',2017:'2017-05-28',2018:'2018-05-27',2019:'2019-06-02',2020:'2020-10-25',2021:'2021-05-30',2022:'2022-05-29',2023:'2023-05-28',2024:'2024-05-26',2025:'2025-06-01'},
-  vuelta:{1980:'1980-05-04',1985:'1985-05-05',1987:'1987-09-13',1990:'1990-09-16',1995:'1995-09-17',2000:'2000-09-17',2005:'2005-09-18',2010:'2010-09-19',2015:'2015-09-20',2019:'2019-09-15',2020:'2020-11-08',2021:'2021-09-05',2022:'2022-09-11',2023:'2023-09-17',2024:'2024-09-08',2025:'2025-09-14'},
-  roubaix:{1980:'1980-04-13',1985:'1985-04-14',1990:'1990-04-08',1995:'1995-04-09',2000:'2000-04-09',2005:'2005-04-10',2010:'2010-04-11',2015:'2015-04-12',2019:'2019-04-14',2021:'2021-10-03',2022:'2022-04-17',2023:'2023-04-09',2024:'2024-04-07',2025:'2025-04-13'},
-  flanders:{1980:'1980-04-06',1985:'1985-04-07',1990:'1990-04-01',1995:'1995-04-02',2000:'2000-04-02',2005:'2005-04-03',2010:'2010-04-04',2015:'2015-04-05',2019:'2019-04-07',2020:'2020-10-18',2021:'2021-04-04',2022:'2022-04-03',2023:'2023-04-02',2024:'2024-03-31',2025:'2025-04-06'},
-  msanremo:{1980:'1980-03-22',1985:'1985-03-23',1990:'1990-03-17',1995:'1995-03-18',2000:'2000-03-18',2005:'2005-03-19',2010:'2010-03-20',2015:'2015-03-22',2019:'2019-03-23',2020:'2020-08-08',2021:'2021-03-20',2022:'2022-03-19',2023:'2023-03-18',2024:'2024-03-16',2025:'2025-03-22'},
-  lbl:{1980:'1980-04-27',1985:'1985-04-21',1990:'1990-04-22',1995:'1995-04-23',2000:'2000-04-23',2005:'2005-04-24',2010:'2010-04-25',2015:'2015-04-26',2019:'2019-04-28',2020:'2020-10-04',2021:'2021-04-25',2022:'2022-04-24',2023:'2023-04-23',2024:'2024-04-21',2025:'2025-04-27'},
-  lombardia:{1980:'1980-10-04',1985:'1985-10-05',1990:'1990-10-06',1995:'1995-10-07',2000:'2000-10-07',2005:'2005-10-15',2010:'2010-10-02',2015:'2015-10-03',2019:'2019-10-12',2020:'2020-10-31',2021:'2021-10-09',2022:'2022-10-08',2023:'2023-10-07',2024:'2024-10-12',2025:'2025-10-11'},
-  strade:{2007:'2007-03-03',2010:'2010-03-06',2015:'2015-03-07',2019:'2019-03-02',2020:'2020-08-01',2021:'2021-03-06',2022:'2022-03-05',2023:'2023-03-04',2024:'2024-03-02',2025:'2025-03-08'},
-  amstel:{1980:'1980-04-20',1985:'1985-04-14',1990:'1990-04-15',1995:'1995-04-16',2000:'2000-04-16',2005:'2005-04-10',2010:'2010-04-18',2015:'2015-04-12',2019:'2019-04-14',2020:'2020-10-10',2021:'2021-04-18',2022:'2022-04-10',2023:'2023-04-16',2024:'2024-04-14',2025:'2025-04-13'},
-  fleche:{1980:'1980-04-23',1990:'1990-04-18',2000:'2000-04-19',2010:'2010-04-21',2019:'2019-04-24',2020:'2020-10-30',2021:'2021-04-21',2022:'2022-04-20',2023:'2023-04-19',2024:'2024-04-17',2025:'2025-04-16'},
-  eschborn:{2005:'2005-05-01',2010:'2010-05-01',2015:'2015-05-01',2019:'2019-05-01',2021:'2021-05-01',2022:'2022-05-01',2023:'2023-05-01',2024:'2024-05-01',2025:'2025-05-01'},
-  'clasica-san-sebastian':{2000:'2000-07-29',2005:'2005-07-30',2010:'2010-07-31',2015:'2015-08-01',2019:'2019-08-03',2021:'2021-07-31',2022:'2022-07-30',2023:'2023-07-29',2024:'2024-08-03',2025:'2025-08-02'},
-  'paris-tours':{1980:'1980-10-05',1985:'1985-10-06',1990:'1990-10-07',1995:'1995-10-08',2000:'2000-10-08',2005:'2005-10-09',2010:'2010-10-10',2015:'2015-10-11',2019:'2019-10-13',2020:'2020-10-11',2021:'2021-10-10',2022:'2022-10-09',2023:'2023-10-08',2024:'2024-10-06',2025:'2025-10-05'},
-  zurich:{1980:'1980-08-17',1985:'1985-08-18',1990:'1990-08-19',1995:'1995-08-20',2000:'2000-08-13',2005:'2005-08-14',2006:'2006-08-13',2007:'2007-08-12'},
-  bretagne:{1980:'1980-08-24',1985:'1985-08-25',1990:'1990-08-26',1995:'1995-08-27',2000:'2000-08-27',2005:'2005-08-28',2010:'2010-08-29',2015:'2015-08-30',2019:'2019-08-25',2020:'2020-08-30',2021:'2021-08-29',2022:'2022-08-28',2023:'2023-08-27',2024:'2024-08-25',2025:'2025-08-31'},
-  quebec:{2010:'2010-09-10',2011:'2011-09-09',2012:'2012-09-14',2013:'2013-09-13',2014:'2014-09-12',2015:'2015-09-11',2016:'2016-09-09',2017:'2017-09-08',2018:'2018-09-14',2019:'2019-09-13',2021:'2021-09-10',2022:'2022-09-09',2023:'2023-09-08',2024:'2024-09-13',2025:'2025-09-12'},
-  montreal:{2010:'2010-09-12',2011:'2011-09-11',2012:'2012-09-16',2013:'2013-09-15',2014:'2014-09-14',2015:'2015-09-13',2016:'2016-09-11',2017:'2017-09-10',2018:'2018-09-16',2019:'2019-09-15',2021:'2021-09-12',2022:'2022-09-11',2023:'2023-09-10',2024:'2024-09-15',2025:'2025-09-14'},
-  'cadel-evans-great-ocean-road-race':{2015:'2015-02-01',2016:'2016-01-31',2017:'2017-01-29',2018:'2018-01-28',2019:'2019-02-03',2020:'2020-02-02',2021:'2021-01-31',2022:'2022-01-30',2023:'2023-01-29',2024:'2024-02-04',2025:'2025-02-02'},
-  worlds:{1980:'1980-08-31',1985:'1985-09-01',1990:'1990-09-02',1995:'1995-10-01',2000:'2000-10-08',2005:'2005-09-25',2010:'2010-10-03',2015:'2015-09-27',2019:'2019-09-29',2020:'2020-09-27',2021:'2021-09-26',2022:'2022-09-25',2023:'2023-08-06',2024:'2024-09-29',2025:'2025-09-28'},
-};
-const SR_APPROX = {
-  tirreno:{m:3,d:17},'paris-nice':{m:3,d:15},dauphiné:{m:6,d:14},romandie:{m:5,d:4},basque:{m:4,d:11},
-  catalan:{m:3,d:24},suisse:{m:6,d:22},pologne:{m:8,d:7},burgos:{m:8,d:8},benelux:{m:9,d:5},
-  uae:{m:2,d:26},algarve:{m:2,d:23},omanbike:{m:2,d:22},downunder:{m:1,d:26},ruta:{m:2,d:16},
-  challenge:{m:2,d:9},california:{m:5,d:20},beijing:{m:10,d:14},guangxi:{m:10,d:23},turkey:{m:4,d:26},
-  colombia:{m:2,d:14},hungary:{m:5,d:26},norway:{m:5,d:25},'abu-dhabi-tour':{m:10,d:22},'tour-de-wallonie':{m:7,d:27},
-};
+// ── Bootstrap: load all static data from Supabase before rendering ────────
+async function loadAppData(){
+  try {
+    // Parallel fetch: races, race_dates (current + last 2 years), app_config
+    const [racesRes, datesRes, configRes] = await Promise.all([
+      sb.from('races').select('*').order('tier').order('type').order('name'),
+      sb.from('race_dates').select('race_id,year,race_date').gte('year', new Date().getFullYear() - 1),
+      sb.from('app_config').select('key,value'),
+    ]);
 
-function getRaceFinalDate(id,year){
-  if(RD[id]){
-    if(RD[id][year]) return RD[id][year];
-    const yrs=Object.keys(RD[id]).map(Number).filter(y=>RD[id][y]).sort((a,b)=>a-b);
-    const prev=yrs.filter(y=>y<year).pop();
-    if(prev){const pd=new Date(RD[id][prev]+'T12:00:00');const a=new Date(pd);a.setFullYear(year);return a.toISOString().split('T')[0];}
-    return null;
+    if(racesRes.data?.length){
+      RACES = racesRes.data.map(r => ({
+        id:          r.slug,           // app uses 'id', DB uses 'slug'
+        name:        r.race_name || r.name || '',
+        tier:        r.tier || 'Pro',
+        country:     r.country || '',
+        flag:        r.flag || '',
+        type:        r.race_type || r.type || '',
+        firstYear:   r.first_year,
+        tvYear:      r.tv_year,
+        distance:    r.distance || '',
+        gradient:    r.gradient || 'linear-gradient(135deg,#1a1a1a,#333)',
+        swatch:      r.swatch || '#333',
+        description: r.description || '',
+        subgenres:   r.subgenres || [],
+        stageCount:  r.stage_count || null,
+      }));
+      console.log(`Loaded ${RACES.length} races from Supabase`);
+    } else {
+      console.warn('No races returned from Supabase:', racesRes.error?.message);
+    }
+
+    if(datesRes.data?.length){
+      datesRes.data.forEach(row => {
+        if(!RACE_DATES[row.race_id]) RACE_DATES[row.race_id] = {};
+        RACE_DATES[row.race_id][row.year] = row.race_date;
+      });
+      console.log(`Loaded race dates for ${Object.keys(RACE_DATES).length} races`);
+    }
+
+    if(configRes.data?.length){
+      configRes.data.forEach(row => {
+        if(row.key === 'featured_riders') FEATURED_RIDERS = row.value;
+      });
+    }
+  } catch(e) {
+    console.error('loadAppData failed:', e);
   }
-  const s=SR_APPROX[id];
-  if(s) return `${year}-${String(s.m).padStart(2,'0')}-${String(s.d).padStart(2,'0')}`;
-  return null;
 }
 
+// ── getRaceFinalDate: reads from RACE_DATES (populated from Supabase) ─────
+function getRaceFinalDate(id, year){
+  return RACE_DATES[id]?.[year] || RACE_DATES[id]?.[String(year)] || null;
+}
+
+// ── getStageCount: reads stage_count from RACES ───────────────────────────
 function getStageCount(id){
-  if(['tour-de-france','giro-d-italia','vuelta-a-espana'].includes(id)) return 21;
-  if(['volta-a-catalunya','tour-de-pologne','vuelta-a-burgos','renewi-tour','tirreno-adriatico'].includes(id)) return 7;
-  if(['criterium-du-dauphine','tour-de-suisse','paris-nice','tour-of-california','tour-of-guangxi','presidential-cycling-tour-of-turkey','tour-of-norway'].includes(id)) return 8;
-  if(['tour-de-romandie','itzulia-basque-country','volta-ao-algarve','tour-of-oman','uae-tour','ruta-del-sol','volta-a-la-comunitat-valenciana','tour-down-under','tour-colombia','tour-de-hongrie','abu-dhabi-tour','tour-de-wallonie'].includes(id)) return 6;
-  if(['tour-of-beijing'].includes(id)) return 5;
-  return null;
+  return RACES.find(r => r.id === id)?.stageCount || null;
 }
 
-// FIXED buildStages — correctly places 2 rest days for GTs
-function buildStages(id,year){
-  const cnt=getStageCount(id); if(!cnt) return null;
-  const finalDate=getRaceFinalDate(id,year); if(!finalDate) return null;
-  const isGT=cnt===21;
-  // Calendar days span: GT = 23 days (21 stages + 2 rest days), others = cnt-1 days
-  const span=isGT?22:cnt-1;
-  const finalD=new Date(finalDate+'T12:00:00');
-  const startD=new Date(finalD);
-  startD.setDate(startD.getDate()-span);
-  const stages=[];
-  let d=new Date(startD);
-  let stageNum=0;
-  let calDay=0;
-  while(stageNum<cnt){
-    // GT rest days: after stage 9 (cal day 9) and after stage 15 (cal day 16, accounting for first rest)
-    if(isGT&&(calDay===9||calDay===16)){d.setDate(d.getDate()+1);calDay++;continue;}
+// ── buildStages: same logic, now uses DB-sourced data ─────────────────────
+function buildStages(id, year){
+  const cnt = getStageCount(id); if(!cnt) return null;
+  const finalDate = getRaceFinalDate(id, year); if(!finalDate) return null;
+  const isGT = cnt === 21;
+  const span = isGT ? 22 : cnt - 1;
+  const finalD = new Date(finalDate + 'T12:00:00');
+  const startD = new Date(finalD);
+  startD.setDate(startD.getDate() - span);
+  const stages = [];
+  let d = new Date(startD), stageNum = 0, calDay = 0;
+  while(stageNum < cnt){
+    if(isGT && (calDay === 9 || calDay === 16)){ d.setDate(d.getDate()+1); calDay++; continue; }
     stageNum++;
-    stages.push({num:stageNum,date:d.toISOString().split('T')[0],name:`Stage ${stageNum}${stageNum===cnt?' (Final)':''}`});
+    stages.push({ num: stageNum, date: d.toISOString().split('T')[0], name: `Stage ${stageNum}${stageNum===cnt?' (Final)':''}` });
     d.setDate(d.getDate()+1);
     calDay++;
   }
   return stages;
 }
 
-// ════════════════════════════════════════════════════════
-//  RIDERS DATABASE (key riders by race for results display)
-
-
-// ════════════════════════════════════════════════════════
-//  FULL RIDERS ROSTER  (for profile favourite-rider picker)
-// ════════════════════════════════════════════════════════
-// Combines all riders from RACE_RESULTS with a curated historical list
-function getAllRiders(){
-  const set = new Set();
-  // Additional historical & current riders
-  [
-    // TDF legends
-    'Eddy Merckx','Bernard Hinault','Laurent Fignon','Greg LeMond','Miguel Induráin',
-    'Jan Ullrich','Lance Armstrong','Alberto Contador','Andy Schleck','Cadel Evans',
-    'Bradley Wiggins','Vincenzo Nibali',
-    // Classics legends
-    'Sean Kelly','Stephen Roche','Francesco Moser','Moreno Argentin',
-    'Claudio Chiappucci','Laurent Jalabert','Erik Zabel','Mario Cipollini',
-    'Paolo Bettini','Tom Boonen','Fabian Cancellara','Philippe Gilbert',
-    'Peter Sagan','Alejandro Valverde','Vincenzo Nibali','Joaquim Rodríguez',
-    'Robert Millar','Luis Herrera','Claudio Chiappucci',
-    // Sprinters
-    'Mark Cavendish','André Greipel','Marcel Kittel','Alexander Kristoff',
-    'Caleb Ewan','Sam Bennett','Dylan Groenewegen','Fabio Jakobsen',
-    'Jasper Philipsen','Mads Pedersen','Wout van Aert','Mathieu van der Poel',
-    // Modern era climbers
-    'Primož Roglič','Tadej Pogačar','Jonas Vingegaard','Remco Evenepoel',
-    'Egan Bernal','Richard Carapaz','Nairo Quintana','Rigoberto Urán',
-    'Geraint Thomas','Chris Froome','Tom Dumoulin','Richie Porte',
-    'Steven Kruijswijk','Jakob Fuglsang','Romain Bardet','Thibaut Pinot',
-    'David Gaudu','Mikel Landa','Enric Mas','Carlos Rodríguez',
-    'João Almeida','Juan Ayuso','Ben O\'Connor','Simon Yates','Adam Yates',
-    'Jack Haig','Sepp Kuss','Aleksandr Vlasov','Felix Großschartner',
-    // Cobbled specialists
-    'Nils Politt','Sep Vanmarcke','Greg Van Avermaet','Zdeněk Štybar',
-    'Kasper Asgreen','Dylan van Baarle','Florian Vermeersch','Stefan Bissegger',
-    'Oliver Naesen','Yves Lampaert','Tom Van Asbroeck','Stefan Küng',
-    'Valentin Madouas','Tom Pidcock','Søren Kragh Andersen',
-    // Stage race domestiques & GC hopefuls
-    'Pello Bilbao','Damiano Caruso','Hugh Carthy','Tao Geoghegan Hart',
-    'Jai Hindley','Santiago Buitrago','Thymen Arensman','Einer Augusto Rubio',
-    'Lorenzo Fortunato','Giulio Ciccone','Antonio Tiberi','Brandon McNulty',
-    'Lennard Kämna','Marc Soler','Cian Uijtdebroeks','Louis Meintjes',
-    // Women (for completeness)
-    'Marianne Vos','Annemiek van Vleuten','Elisa Longo Borghini',
-  ].forEach(n => set.add(n));
-  return Array.from(set)
-    .filter(n => n && n.trim() && !n.includes('(') && n.split(' ').length >= 2)
-    .sort((a,b) => a.split(' ').pop().localeCompare(b.split(' ').pop()));
+// ── getAllRiders: pull from startlists table ──────────────────────────────
+async function getAllRiders(){
+  const { data } = await sb.from('startlists').select('rider_name').order('rider_name');
+  if(!data?.length) return [];
+  const seen = new Set();
+  return data.map(r => r.rider_name).filter(n => { if(seen.has(n)) return false; seen.add(n); return true; });
 }
-// ════════════════════════════════════════════════════════
-//  RACE DATABASE
-// ════════════════════════════════════════════════════════
-let RACES = [
-  // GRAND TOURS
-  {id:'tour-de-france',tier:'WT',name:'Tour de France',country:'France',flag:'🇫🇷',type:'Grand Tour',firstYear:1903,tvYear:1980,distance:'~3,400 km',gradient:'linear-gradient(135deg,#0c1a5e,#1a3a8c,#c0392b)',swatch:'#1a3a8c',description:'La Grande Boucle. Three weeks across France through the Pyrenees and Alps. The most prestigious race in world cycling, ending on the Champs-Élysées every July.'},
-  {id:'giro-d-italia',tier:'WT',name:"Giro d'Italia",country:'Italy',flag:'🇮🇹',type:'Grand Tour',firstYear:1909,tvYear:1980,distance:'~3,300 km',gradient:'linear-gradient(135deg,#003d29,#00594a,#e63946)',swatch:'#00594a',description:"La Corsa Rosa. Italy's grand tour through the Dolomites and Apennines. Famous for unpredictable racing, savage climbs, and the most passionate tifosi in sport."},
-  {id:'vuelta-a-espana',tier:'WT',name:'Vuelta a España',country:'Spain',flag:'🇪🇸',type:'Grand Tour',firstYear:1935,tvYear:1980,distance:'~3,200 km',gradient:'linear-gradient(135deg,#8b0000,#c0392b,#f39c12)',swatch:'#c0392b',description:"La Vuelta. Spain's race is known for aggressive racing, brutal summit finishes, and routes that seem topographically impossible. The most attacking grand tour."},
-  // MONUMENTS
-  {id:'paris-roubaix',tier:'WT',name:'Paris–Roubaix',country:'France',flag:'🇫🇷',type:'Monument',firstYear:1896,tvYear:1980,distance:'~257 km',gradient:'linear-gradient(135deg,#1a1a1a,#333,#5d4037)',swatch:'#5d4037',description:'The Hell of the North. Twenty-nine sectors of brutal cobblestones. Those who reach the Roubaix velodrome are covered in mud and legend.'},
-  {id:'ronde-van-vlaanderen',tier:'WT',name:'Tour of Flanders',country:'Belgium',flag:'🇧🇪',type:'Monument',firstYear:1913,tvYear:1980,distance:'~273 km',gradient:'linear-gradient(135deg,#12206e,#1a3082,#d4ac0d)',swatch:'#1a3082',description:'De Ronde. The cobbled bergs and muurs of Flemish Brabant. The Oude Kwaremont and Paterberg decide everything.'},
-  {id:'milano-sanremo',tier:'WT',name:'Milan–San Remo',country:'Italy',flag:'🇮🇹',type:'Monument',firstYear:1907,tvYear:1980,distance:'~294 km',gradient:'linear-gradient(135deg,#1a4a1a,#2e7d32,#e65100)',swatch:'#2e7d32',description:"La Primavera. The longest one-day race. The Poggio, kilometres from the finish, is the last chance to escape the sprinters."},
-  {id:'liege-bastogne-liege',tier:'WT',name:'Liège–Bastogne–Liège',country:'Belgium',flag:'🇧🇪',type:'Monument',firstYear:1892,tvYear:1980,distance:'~258 km',gradient:'linear-gradient(135deg,#263238,#37474f,#607d8b)',swatch:'#455a64',description:"La Doyenne. The oldest monument. The Ardennes climbs pile up until only the purest climbers remain."},
-  {id:'il-lombardia',tier:'WT',name:'Il Lombardia',country:'Italy',flag:'🇮🇹',type:'Monument',firstYear:1905,tvYear:1980,distance:'~252 km',gradient:'linear-gradient(135deg,#1a0a3e,#311b92,#ad1457)',swatch:'#4527a0',description:'The Race of the Falling Leaves. Autumn racing around Lake Como. The Madonna del Ghisallo chapel watches over every edition.'},
-  // COBBLED CLASSICS
-  {id:'omloop-het-nieuwsblad',tier:'WT',name:'Omloop Het Nieuwsblad',country:'Belgium',flag:'🇧🇪',type:'Classic',firstYear:1945,tvYear:1980,distance:'~200 km',gradient:'linear-gradient(135deg,#1a1a1a,#2d2d2d,#4a7c59)',swatch:'#4a7c59',description:'The unofficial opening of the Flemish classics season in late February. Cold, often miserable — exactly how classics fans like it.'},
-  {id:'kuurne-brussel-kuurne',tier:'Pro',name:'Kuurne–Brussel–Kuurne',country:'Belgium',flag:'🇧🇪',type:'Classic',firstYear:1945,tvYear:1980,distance:'~197 km',gradient:'linear-gradient(135deg,#0d1b2a,#1b2838,#2c4a6e)',swatch:'#1b2838',description:'The Sunday after Omloop. Punchy and often chaotic through the Flemish hills.'},
-  {id:'e3-saxo-classic',tier:'WT',name:'E3 Saxo Classic',country:'Belgium',flag:'🇧🇪',type:'Classic',firstYear:1958,tvYear:1980,distance:'~204 km',gradient:'linear-gradient(135deg,#002147,#003366,#c0a000)',swatch:'#003366',description:'The mini-Ronde. Hits the same iconic climbs as the Tour of Flanders one week earlier.'},
-  {id:'gent-wevelgem',tier:'WT',name:'Gent–Wevelgem',country:'Belgium',flag:'🇧🇪',type:'Classic',firstYear:1934,tvYear:1980,distance:'~253 km',gradient:'linear-gradient(135deg,#1a1a2e,#16213e,#0f3460)',swatch:'#16213e',description:'In Flanders Fields. Wind-swept spring classic across West Flanders.'},
-  {id:'dwars-door-vlaanderen',tier:'WT',name:'Dwars door Vlaanderen',country:'Belgium',flag:'🇧🇪',type:'Classic',firstYear:1945,tvYear:1980,distance:'~183 km',gradient:'linear-gradient(135deg,#1c2340,#2a3560,#c9a84c)',swatch:'#2a3560',description:'Through Flanders on Wednesday before the Ronde.'},
-  {id:'classic-brugge-de-panne',tier:'WT',name:'Classic Brugge–De Panne',country:'Belgium',flag:'🇧🇪',type:'Classic',firstYear:1945,tvYear:1980,distance:'~200 km',gradient:'linear-gradient(135deg,#2c3e50,#3d5166,#e8d5a3)',swatch:'#3d5166',description:'From Bruges to the North Sea coast. Crosswinds can split the peloton into echelons.'},
-  {id:'gent-wevelgem-women',tier:'Pro',name:"GP de l'Escaut",country:'Belgium',flag:'🇧🇪',type:'Classic',firstYear:1950,tvYear:1980,distance:'~196 km',gradient:'linear-gradient(135deg,#1e3a1e,#2e5e2e,#c0c000)',swatch:'#2e5e2e',description:"Scheldeprijs — the sprinters' classic along the Scheldt river."},
-  // ARDENNES
-  {id:'amstel-gold-race',tier:'WT',name:'Amstel Gold Race',country:'Netherlands',flag:'🇳🇱',type:'Classic',firstYear:1966,tvYear:1980,distance:'~253 km',gradient:'linear-gradient(135deg,#b34700,#e65c00,#f9c023)',swatch:'#e65c00',description:"Holland's biggest one-day race. Thirty-plus climbs, and a finale that suits punchers."},
-  {id:'la-fleche-wallonne',tier:'WT',name:'La Flèche Wallonne',country:'Belgium',flag:'🇧🇪',type:'Classic',firstYear:1936,tvYear:1980,distance:'~198 km',gradient:'linear-gradient(135deg,#2d2d2d,#444,#8e24aa)',swatch:'#6a1b9a',description:'Three ascents of the Mur de Huy decide everything. The steepest finish in the classics.'},
-  {id:'gp-de-wallonie',tier:'Pro',name:'GP de Wallonie',country:'Belgium',flag:'🇧🇪',type:'Classic',firstYear:1958,tvYear:1980,distance:'~196 km',gradient:'linear-gradient(135deg,#1a0a2e,#2d1a4e,#ffd700)',swatch:'#2d1a4e',description:'The Walloon Grand Prix through the Ardennes hills.'},
-  // GRAVEL / WHITE ROADS
-  {id:'strade-bianche',tier:'WT',name:'Strade Bianche',country:'Italy',flag:'🇮🇹',type:'Classic',firstYear:2007,tvYear:2007,distance:'~215 km',gradient:'linear-gradient(135deg,#3e2723,#5d4037,#bcaaa4)',swatch:'#6d4c41',description:'The White Roads of Tuscany. Through the Sienese hills on unpaved sterrato. Riders emerge dusted white.'},
-  // GERMAN
-  {id:'eschborn-frankfurt',tier:'WT',name:'Eschborn–Frankfurt',country:'Germany',flag:'🇩🇪',type:'Classic',firstYear:1962,tvYear:1980,distance:'~186 km',gradient:'linear-gradient(135deg,#1a1a1a,#cc0000,#ffcc00)',swatch:'#cc0000',description:"Germany's biggest one-day race on May 1st."},
-  {id:'euroeyes-cyclassics',tier:'WT',name:'EuroEyes Cyclassics',country:'Germany',flag:'🇩🇪',type:'Classic',firstYear:1996,tvYear:1996,distance:'~225 km',gradient:'linear-gradient(135deg,#c0392b,#e74c3c,#f5f5f5)',swatch:'#c0392b',description:"Hamburg's World Tour classic."},
-  // SPANISH / BASQUE
-  {id:'clasica-san-sebastian',tier:'WT',name:'Clásica San Sebastián',country:'Spain',flag:'🇪🇸',type:'Classic',firstYear:1981,tvYear:1981,distance:'~228 km',gradient:'linear-gradient(135deg,#006400,#228b22,#cc0000)',swatch:'#228b22',description:"The Basque Country's one-day classic. The Jaizkibel ascent decides the race."},
-  // ITALIAN
-  {id:'gran-piemonte',tier:'Pro',name:'Gran Piemonte',country:'Italy',flag:'🇮🇹',type:'Classic',firstYear:1901,tvYear:1980,distance:'~186 km',gradient:'linear-gradient(135deg,#2e4057,#3d5a73,#a8d5e2)',swatch:'#3d5a73',description:'An Italian classic through Piedmont as an autumnal appetiser before Il Lombardia.'},
-  {id:'coppa-agostoni',tier:'Pro',name:'Coppa Bernocchi',country:'Italy',flag:'🇮🇹',type:'Classic',firstYear:1919,tvYear:1980,distance:'~178 km',gradient:'linear-gradient(135deg,#2e1a0e,#5c3a1e,#d4a96a)',swatch:'#5c3a1e',description:'Coppa Bernocchi — Italian late-summer classic from the World Cup circuit era.'},
-  {id:'coppa-sabatini',tier:'Pro',name:'Coppa Sabatini',country:'Italy',flag:'🇮🇹',type:'Classic',firstYear:1956,tvYear:1980,distance:'~191 km',gradient:'linear-gradient(135deg,#1e2a1e,#3a5c3a,#c8b560)',swatch:'#3a5c3a',description:'The Tuscan classic from Pontedera. Part of the Italian late-season circuit.'},
-  {id:'veneto-classic',tier:'Pro',name:'Veneto Classic',country:'Italy',flag:'🇮🇹',type:'Classic',firstYear:1993,tvYear:1993,distance:'~198 km',gradient:'linear-gradient(135deg,#2a1a3e,#4a2a6e,#8b4513)',swatch:'#4a2a6e',description:'Tre Valli Varesine. Punchy Italian racing through the pre-Alps north of Milan.'},
-  // FRENCH
-  {id:'paris-tours',tier:'Pro',name:'Paris–Tours',country:'France',flag:'🇫🇷',type:'Classic',firstYear:1896,tvYear:1980,distance:'~234 km',gradient:'linear-gradient(135deg,#1a2a1a,#2d5a27,#a8c5a0)',swatch:'#2d5a27',description:'The Sprinters Classic. Arrow-straight roads of the Beauce lead to Tours. A World Cup staple.'},
-  {id:'bretagne-classic',tier:'WT',name:'Bretagne Classic',country:'France',flag:'🇫🇷',type:'Classic',firstYear:1931,tvYear:1980,distance:'~249 km',gradient:'linear-gradient(135deg,#0a1628,#1a3a6e,#c8a84b)',swatch:'#1a3a6e',description:"GP Ouest-France. The Breton classic from Plouay in late August."},
-  // SWISS
-  {id:'gp-zurich',tier:'Pro',name:'GP Zürich / Züri-Metzgete',country:'Switzerland',flag:'🇨🇭',type:'Classic',firstYear:1914,tvYear:1980,distance:'~238 km',gradient:'linear-gradient(135deg,#003399,#1a4db3,#e8e8e8)',swatch:'#1a4db3',description:"World Cup fixture 1989–2004, ProTour until 2007. One of cycling's great lost races."},
-  // NORTH AMERICAN
-  {id:'gp-de-quebec',tier:'WT',name:'GP de Québec',country:'Canada',flag:'🇨🇦',type:'Classic',firstYear:2010,tvYear:2010,distance:'~198 km',gradient:'linear-gradient(135deg,#8b0000,#cc0000,#ffffff)',swatch:'#cc0000',description:'The brutal Côte de la Montagne in Quebec City. One of the toughest short climbs in the WorldTour.'},
-  {id:'gp-de-montreal',tier:'WT',name:'GP de Montréal',country:'Canada',flag:'🇨🇦',type:'Classic',firstYear:2010,tvYear:2010,distance:'~219 km',gradient:'linear-gradient(135deg,#8b0000,#cc0000,#003087)',swatch:'#003087',description:'The Montreal classic on Mont Royal. Twelve punishing laps decide the winner.'},
-  // AUSTRALIAN
-  {id:'cadel-evans-great-ocean-road-race',tier:'WT',name:'Cadel Evans Great Ocean Road Race',country:'Australia',flag:'🇦🇺',type:'Classic',firstYear:2015,tvYear:2015,distance:'~174 km',gradient:'linear-gradient(135deg,#005c99,#0077cc,#00a651)',swatch:'#0077cc',description:'Named after the 2011 Tour de France champion. Along the Great Ocean Road in Victoria.'},
-  // WORLDS
-  {id:'uci-road-world-championships',tier:'Pro',name:'UCI Road World Championships',country:'International',flag:'🌍',type:'Classic',firstYear:1921,tvYear:1980,distance:'~260 km',gradient:'linear-gradient(135deg,#1a1a1a,#2d2d2d,#c9a84c)',swatch:'#c9a84c',description:"The rainbow jersey. Held in a different country every year. The most coveted prize in one-day racing."},
-  {id:'la-classique-de-larrivee',tier:'Pro',name:"La Classique de l'Arrivée",country:'France',flag:'🇫🇷',type:'Classic',firstYear:2020,tvYear:2020,distance:'~150 km',gradient:'linear-gradient(135deg,#002366,#003399,#c8102e)',swatch:'#003399',description:"WorldTour one-day race on the Champs-Élysées, introduced in 2020."},
-  {id:'memorial-rik-van-steenbergen',tier:'Pro',name:'Memorial Rik Van Steenbergen',country:'Belgium',flag:'🇧🇪',type:'Classic',firstYear:1952,tvYear:1980,distance:'~200 km',gradient:'linear-gradient(135deg,#1a1a2e,#2e2e50,#888)',swatch:'#2e2e50',description:'Honouring triple world champion Rik Van Steenbergen.'},
-  // STAGE RACES
-  {id:'tirreno-adriatico',tier:'WT',name:'Tirreno–Adriatico',country:'Italy',flag:'🇮🇹',type:'Stage Race',firstYear:1966,tvYear:1980,distance:'~1,000 km',gradient:'linear-gradient(135deg,#004d5e,#00838f,#26c6da)',swatch:'#00838f',description:'The Race of Two Seas. Seven spring days linking the Tyrrhenian and Adriatic coasts.'},
-  {id:'paris-nice',tier:'WT',name:'Paris–Nice',country:'France',flag:'🇫🇷',type:'Stage Race',firstYear:1933,tvYear:1980,distance:'~1,200 km',gradient:'linear-gradient(135deg,#0d47a1,#1565c0,#29b6f6)',swatch:'#1565c0',description:"The Race to the Sun. Eight stages from the cold north to the Côte d'Azur."},
-  {id:'criterium-du-dauphine',tier:'WT',name:'Critérium du Dauphiné',country:'France',flag:'🇫🇷',type:'Stage Race',firstYear:1947,tvYear:1980,distance:'~1,200 km',gradient:'linear-gradient(135deg,#003366,#0052a3,#63b3ed)',swatch:'#0052a3',description:'The Tour de France dress rehearsal. Eight Alpine stages in June.'},
-  {id:'tour-de-romandie',tier:'WT',name:'Tour de Romandie',country:'Switzerland',flag:'🇨🇭',type:'Stage Race',firstYear:1947,tvYear:1980,distance:'~750 km',gradient:'linear-gradient(135deg,#7b0000,#c62828,#e0e0e0)',swatch:'#c62828',description:"Switzerland's main stage race through the French-speaking cantons."},
-  {id:'itzulia-basque-country',tier:'WT',name:'Itzulia Basque Country',country:'Spain',flag:'🇪🇸',type:'Stage Race',firstYear:1924,tvYear:1980,distance:'~800 km',gradient:'linear-gradient(135deg,#006400,#228b22,#ff0000)',swatch:'#228b22',description:'Six punishing days through the Basque Country in April.'},
-  {id:'volta-a-catalunya',tier:'WT',name:'Volta a Catalunya',country:'Spain',flag:'🇪🇸',type:'Stage Race',firstYear:1911,tvYear:1980,distance:'~1,100 km',gradient:'linear-gradient(135deg,#8b0000,#cc0000,#f5c518)',swatch:'#cc0000',description:"One of cycling's oldest stage races, through the mountains and coast of Catalonia."},
-  {id:'tour-de-suisse',tier:'WT',name:'Tour de Suisse',country:'Switzerland',flag:'🇨🇭',type:'Stage Race',firstYear:1933,tvYear:1980,distance:'~1,300 km',gradient:'linear-gradient(135deg,#5c0000,#9b0000,#d4e0e8)',swatch:'#9b0000',description:'Nine days of Alpine racing. A final test before the Tour de France.'},
-  {id:'tour-de-pologne',tier:'WT',name:'Tour de Pologne',country:'Poland',flag:'🇵🇱',type:'Stage Race',firstYear:1928,tvYear:1993,distance:'~1,100 km',gradient:'linear-gradient(135deg,#8b0000,#dc143c,#f5f5f5)',swatch:'#dc143c',description:"Central Europe's biggest stage race. Tatra mountain stages and fast sprint finishes."},
-  {id:'vuelta-a-burgos',tier:'Pro',name:'Vuelta a Burgos',country:'Spain',flag:'🇪🇸',type:'Stage Race',firstYear:1946,tvYear:2020,distance:'~700 km',gradient:'linear-gradient(135deg,#3a0ca3,#560bad,#f72585)',swatch:'#560bad',description:'Five days in Castile. A key warm-up for the Vuelta a España.'},
-  {id:'renewi-tour',tier:'WT',name:'Renewi Tour',country:'Belgium/NL',flag:'🇧🇪',type:'Stage Race',firstYear:2005,tvYear:2005,distance:'~1,100 km',gradient:'linear-gradient(135deg,#00308f,#003f8f,#e87722)',swatch:'#003f8f',description:'A week of racing through the Low Countries in late summer.'},
-  {id:'uae-tour',tier:'WT',name:'UAE Tour',country:'UAE',flag:'🇦🇪',type:'Stage Race',firstYear:2019,tvYear:2019,distance:'~1,100 km',gradient:'linear-gradient(135deg,#006400,#008000,#c8102e)',swatch:'#008000',description:'Seven days in the desert. The World Tour season-opener.'},
-  {id:'volta-ao-algarve',tier:'Pro',name:'Volta ao Algarve',country:'Portugal',flag:'🇵🇹',type:'Stage Race',firstYear:1969,tvYear:1980,distance:'~750 km',gradient:'linear-gradient(135deg,#003580,#006cbf,#ff8c00)',swatch:'#006cbf',description:"Portugal's premier stage race along the southern coast."},
-  {id:'tour-of-oman',tier:'Pro',name:'Tour of Oman',country:'Oman',flag:'🇴🇲',type:'Stage Race',firstYear:2010,tvYear:2010,distance:'~750 km',gradient:'linear-gradient(135deg,#003300,#006600,#cc0000)',swatch:'#006600',description:'Six stages through the mountains and wadis of Oman.'},
-  {id:'tour-down-under',tier:'WT',name:'Tour Down Under',country:'Australia',flag:'🇦🇺',type:'Stage Race',firstYear:1999,tvYear:1999,distance:'~800 km',gradient:'linear-gradient(135deg,#006600,#009900,#ffcc00)',swatch:'#009900',description:'The first World Tour race of the calendar year, in the South Australian summer.'},
-  {id:'ruta-del-sol',tier:'Pro',name:'Ruta del Sol',country:'Spain',flag:'🇪🇸',type:'Stage Race',firstYear:1975,tvYear:1980,distance:'~700 km',gradient:'linear-gradient(135deg,#b5451b,#e07b39,#fce38a)',swatch:'#e07b39',description:"Andalusia's route of the sun in February."},
-  {id:'volta-a-la-comunitat-valenciana',tier:'Pro',name:'Volta Comunitat Valenciana',country:'Spain',flag:'🇪🇸',type:'Stage Race',firstYear:1931,tvYear:1980,distance:'~850 km',gradient:'linear-gradient(135deg,#c0392b,#e74c3c,#f39c12)',swatch:'#e74c3c',description:"Valencia's stage race along Spain's Mediterranean coast."},
-  {id:'tour-of-california',tier:'Pro',name:'Tour of California',country:'USA',flag:'🇺🇸',type:'Stage Race',firstYear:2006,tvYear:2006,distance:'~1,200 km',gradient:'linear-gradient(135deg,#002868,#003f9e,#bf0a30)',swatch:'#003f9e',description:'The American grand tour, 2006–2019. Eight days across the Sierra Nevada and Pacific Coast.'},
-  {id:'tour-of-beijing',tier:'Pro',name:'Tour of Beijing',country:'China',flag:'🇨🇳',type:'Stage Race',firstYear:2011,tvYear:2011,distance:'~750 km',gradient:'linear-gradient(135deg,#8b0000,#cc0000,#ffd700)',swatch:'#cc0000',description:'ProTour stage race around Beijing, held 2011–2014.'},
-  {id:'tour-of-guangxi',tier:'WT',name:'Tour de Guangxi',country:'China',flag:'🇨🇳',type:'Stage Race',firstYear:2017,tvYear:2017,distance:'~850 km',gradient:'linear-gradient(135deg,#004d00,#006600,#cc0000)',swatch:'#006600',description:'Successor to the Tour of Beijing. Spectacular karst mountain scenery.'},
-  {id:'presidential-cycling-tour-of-turkey',tier:'Pro',name:'Presidential Tour of Turkey',country:'Turkey',flag:'🇹🇷',type:'Stage Race',firstYear:2005,tvYear:2005,distance:'~1,100 km',gradient:'linear-gradient(135deg,#c8102e,#e8001e,#ffffff)',swatch:'#c8102e',description:'Beautiful coastal roads and demanding mountain stages around Antalya.'},
-  {id:'tour-colombia',tier:'Pro',name:'Tour Colombia',country:'Colombia',flag:'🇨🇴',type:'Stage Race',firstYear:2019,tvYear:2019,distance:'~850 km',gradient:'linear-gradient(135deg,#fcd116,#003893,#ce1126)',swatch:'#003893',description:"High-altitude racing through the Andes at over 2,600m."},
-  {id:'tour-de-hongrie',tier:'Pro',name:'Tour de Hongrie',country:'Hungary',flag:'🇭🇺',type:'Stage Race',firstYear:1925,tvYear:2022,distance:'~850 km',gradient:'linear-gradient(135deg,#c8102e,#cc0000,#ffffff)',swatch:'#009b3a',description:"Hungary's national stage race, elevated to the WorldTour in 2022."},
-  {id:'tour-of-norway',tier:'Pro',name:'Tour of Norway',country:'Norway',flag:'🇳🇴',type:'Stage Race',firstYear:1967,tvYear:2014,distance:'~750 km',gradient:'linear-gradient(135deg,#003087,#003faf,#ef2b2d)',swatch:'#003faf',description:'Five days of racing through the Norwegian fjords and mountains.'},
-  {id:'abu-dhabi-tour',tier:'Pro',name:'Abu Dhabi Tour',country:'UAE',flag:'🇦🇪',type:'Stage Race',firstYear:2015,tvYear:2015,distance:'~750 km',gradient:'linear-gradient(135deg,#004a00,#006600,#c8a84b)',swatch:'#006600',description:'WorldTour stage race 2015–2018 before merging into the UAE Tour.'},
-  {id:'tour-de-wallonie',tier:'Pro',name:'Tour de Wallonie',country:'Belgium',flag:'🇧🇪',type:'Stage Race',firstYear:1975,tvYear:2020,distance:'~750 km',gradient:'linear-gradient(135deg,#1a0030,#2e0052,#ffd700)',swatch:'#2e0052',description:'The Walloon stage race through the Belgian Ardennes in July.'},
 
-  {id:'4-jours-de-dunkerque',tier:'Pro',name:'Quatre Jours de Dunkerque',country:'France',flag:'🇫🇷',type:'Stage Race',firstYear:1980,tvYear:1980,distance:'~',gradient:'linear-gradient(135deg,#1a2340,#2c3e6b,#c8a84b)',swatch:'#c8a84b',description:'Five days of wind and pain through the flatlands of northern France.'},
-  {id:'boucles-de-l-aulne',tier:'Pro',name:'Boucles de l\'Aulne - Châteaulin',country:'France',flag:'🇫🇷',type:'One Day',firstYear:1980,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#1a2e1a,#2d5a2d,#8fbc8f)',swatch:'#2d5a2d',description:'A Breton classic winding through the wooded valleys above the Aulne river.'},
-  {id:'boucles-de-la-mayenne',tier:'Pro',name:'Boucles de la Mayenne',country:'France',flag:'🇫🇷',type:'One Day',firstYear:1980,tvYear:1995,distance:'~',gradient:'linear-gradient(135deg,#1c2b1c,#3a5c3a,#a0c878)',swatch:'#3a5c3a',description:'Rolling Loire country lanes decide this undercard classic every spring.'},
-  {id:'cholet-pays-de-loire',tier:'Pro',name:'Cholet - Pays de la Loire',country:'France',flag:'🇫🇷',type:'One Day',firstYear:1980,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#1a1a2e,#2e2e4a,#e8c547)',swatch:'#e8c547',description:'A one-day race through the vineyards and bocage of the Loire Valley.'},
-  {id:'chrono-des-nations',tier:'Pro',name:'Chrono Des Nations Les Herbiers Vendée',country:'France',flag:'🇫🇷',type:'One Day',firstYear:1982,tvYear:1995,distance:'~',gradient:'linear-gradient(135deg,#0d1117,#1e2a3a,#4a90d9)',swatch:'#4a90d9',description:'The unofficial time trial world championship that crowns the season\'s fastest.'},
-  {id:'circuit-franco-belge',tier:'Pro',name:'Circuit Franco-Belge',country:'France',flag:'🇫🇷',type:'Stage Race',firstYear:1988,tvYear:1995,distance:'~',gradient:'linear-gradient(135deg,#1a1a2e,#2e1a1a,#c8a84b)',swatch:'#c8a84b',description:'A border-crossing stage race bridging the classics heartlands of France and Belgium.'},
-  {id:'etoile-de-besseges',tier:'Pro',name:'Etoile de Bessèges',country:'France',flag:'🇫🇷',type:'Stage Race',firstYear:1980,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#1a2a1a,#2e4a2e,#d4a843)',swatch:'#d4a843',description:'The season opener in the Gard, where winter legs are tested on southern French climbs.'},
-  {id:'faun-ardeche-classic',tier:'Pro',name:'Faun-Ardèche Classic',country:'France',flag:'🇫🇷',type:'One Day',firstYear:2001,tvYear:2001,distance:'~',gradient:'linear-gradient(135deg,#1e1a0e,#3d3520,#b87333)',swatch:'#b87333',description:'A rugged one-day race through the volcanic plateaus and gorges of the Ardèche.'},
-  {id:'fleche-du-sud',tier:'Pro',name:'Flèche du Sud',country:'France',flag:'🇫🇷',type:'One Day',firstYear:1980,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#1a1a0d,#2e3a1a,#f0c040)',swatch:'#f0c040',description:'A southern French race where early-season sun meets surprisingly sharp climbs.'},
-  {id:'gp-d-isbergues',tier:'Pro',name:'Grand Prix d\'Isbergues - Pas de Calais',country:'France',flag:'🇫🇷',type:'One Day',firstYear:1980,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#111820,#1e2e3a,#7a9abf)',swatch:'#7a9abf',description:'A northern French cobbled classic in the shadow of the Paris-Roubaix heartland.'},
-  {id:'gp-d-ouverture',tier:'Pro',name:'Grand Prix Cycliste la Marseillaise',country:'France',flag:'🇫🇷',type:'One Day',firstYear:1980,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#1a0a0a,#3a1a1a,#e85c3a)',swatch:'#e85c3a',description:'The traditional season curtain-raiser held under Mediterranean skies above Marseille.'},
-  {id:'gp-de-denain',tier:'Pro',name:'Grand Prix de Denain',country:'France',flag:'🇫🇷',type:'One Day',firstYear:1980,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#111111,#2a2a2a,#8b7355)',swatch:'#8b7355',description:'Pavé and persistence in the industrial heart of northern France.'},
-  {id:'gp-de-fourmies',tier:'Pro',name:'GP de Fourmies / La Voix du Nord',country:'France',flag:'🇫🇷',type:'One Day',firstYear:1980,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#14181e,#232c38,#5a8a5a)',swatch:'#5a8a5a',description:'A fast northern French finale where sprinters and classics riders clash.'},
-  {id:'gp-de-plumelec',tier:'Pro',name:'Grand Prix du Morbihan',country:'France',flag:'🇫🇷',type:'One Day',firstYear:1980,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#0e1a1a,#1a3333,#4a9090)',swatch:'#4a9090',description:'A hilly Breton finale where the punchers find their rhythm among ancient standing stones.'},
-  {id:'gp-de-wallonie',tier:'Pro',name:'Grand Prix de Wallonie',country:'Belgium',flag:'🇧🇪',type:'One Day',firstYear:1980,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#1a0e0e,#3a1a1a,#c8b820)',swatch:'#c8b820',description:'Ardennes warmup with short punchy climbs that separate the real rouleurs from pretenders.'},
-  {id:'la-drome-classic',tier:'Pro',name:'Drôme Classic',country:'France',flag:'🇫🇷',type:'One Day',firstYear:2013,tvYear:2013,distance:'~',gradient:'linear-gradient(135deg,#1a1408,#332808,#d4a040)',swatch:'#d4a040',description:'Sun-baked roads through lavender country and limestone ridges in the Drôme.'},
-  {id:'la-poly-normande',tier:'Pro',name:'La Polynormande',country:'France',flag:'🇫🇷',type:'One Day',firstYear:2003,tvYear:2003,distance:'~',gradient:'linear-gradient(135deg,#0e1a0e,#1a3020,#6aaa6a)',swatch:'#6aaa6a',description:'A green Norman countryside classic ridden on rolling roads between bocage hedges.'},
-  {id:'la-route-d-occitanie',tier:'Pro',name:'La Route d\'Occitanie - CIC',country:'France',flag:'🇫🇷',type:'Stage Race',firstYear:1980,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#1a0e1a,#2e1a3a,#c87840)',swatch:'#c87840',description:'Sun and cols in the Pyrenean foothills, a traditional Tour de France warm-up.'},
-  {id:'la-roue-tourangelle',tier:'Pro',name:'La Roue Tourangelle',country:'France',flag:'🇫🇷',type:'One Day',firstYear:2004,tvYear:2004,distance:'~',gradient:'linear-gradient(135deg,#12200e,#223818,#90c850)',swatch:'#90c850',description:'A springtime loop through the Loire châteaux country on roads built for cycling.'},
-  {id:'paris-camembert',tier:'Pro',name:'Paris - Camembert',country:'France',flag:'🇫🇷',type:'One Day',firstYear:1980,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#1a1408,#2e2410,#d4b060)',swatch:'#d4b060',description:'Norman lanes and orchard country on a race named after the region\'s most famous export.'},
-  {id:'paris-chauny-classique',tier:'Pro',name:'Paris-Chauny',country:'France',flag:'🇫🇷',type:'One Day',firstYear:2015,tvYear:2015,distance:'~',gradient:'linear-gradient(135deg,#111820,#1e2e3a,#a0b8d0)',swatch:'#a0b8d0',description:'Northern French roads connecting the capital to the Picardy plains.'},
-  {id:'paris-tours',tier:'Pro',name:'Paris - Tours',country:'France',flag:'🇫🇷',type:'One Day',firstYear:1980,tvYear:1980,distance:'~',gradient:'linear-gradient(135deg,#1a1414,#2e2020,#c8c040)',swatch:'#c8c040',description:'The sprinters\' monument. Flat as a table, fast as a bullet through the Loire Valley.'},
-  {id:'region-pays-de-la-loire',tier:'Pro',name:'Circuit Cycliste Sarthe - Pays de la Loire',country:'France',flag:'🇫🇷',type:'Stage Race',firstYear:1980,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#0e1a14,#1a2e24,#78b890)',swatch:'#78b890',description:'A compact stage race through the green river valleys of the Sarthe and Maine.'},
-  {id:'tour-de-l-ain',tier:'Pro',name:'Tour de l\'Ain',country:'France',flag:'🇫🇷',type:'One Day',firstYear:1989,tvYear:1995,distance:'~',gradient:'linear-gradient(135deg,#141e2e,#202e48,#7090c0)',swatch:'#7090c0',description:'Alpine foothills and Jura climbs make this a genuine climbers\' test before the Tour.'},
-  {id:'tour-de-vendee',tier:'Pro',name:'Tour de Vendée',country:'France',flag:'🇫🇷',type:'One Day',firstYear:1980,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#0e1820,#1a2c36,#60a0c0)',swatch:'#60a0c0',description:'Coastal Atlantic winds batter riders on this flat Vendée finale near the sea.'},
-  {id:'tour-des-alpes-maritimes',tier:'Pro',name:'Tour des Alpes-Maritimes',country:'France',flag:'🇫🇷',type:'One Day',firstYear:1980,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#1a0a14,#2e1a28,#d4709a)',swatch:'#d4709a',description:'Mediterranean glamour meets Alpine altitude on the Côte d\'Azur\'s favourite one-day.'},
-  {id:'tour-du-finistere',tier:'Pro',name:'Tour du Finistère',country:'France',flag:'🇫🇷',type:'One Day',firstYear:1986,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#0e1a1e,#162e34,#5a9090)',swatch:'#5a9090',description:'The wild western tip of Brittany, where Atlantic storms shape both landscape and race.'},
-  {id:'tour-du-limousin',tier:'Pro',name:'Tour du Limousin-Périgord - Nouvelle Aquitaine',country:'France',flag:'🇫🇷',type:'Stage Race',firstYear:1980,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#1a1208,#2e2010,#c87830)',swatch:'#c87830',description:'Oak forests and Périgord hills make this southern stage race a summer gem.'},
-  {id:'tour-du-poitou-charentes-et-de-la-vienne',tier:'Pro',name:'Tour Poitou - Charentes',country:'France',flag:'🇫🇷',type:'Stage Race',firstYear:1987,tvYear:1995,distance:'~',gradient:'linear-gradient(135deg,#141c0e,#243018,#90a860)',swatch:'#90a860',description:'Flat Atlantic coast roads and rolling bocage in southwest France.'},
-  {id:'tro-bro-leon',tier:'Pro',name:'Tro-Bro Léon',country:'France',flag:'🇫🇷',type:'One Day',firstYear:1984,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#0e1414,#182222,#4a8080)',swatch:'#4a8080',description:'Breton ribin roads and Atlantic crosswinds on Finistère\'s most characterful one-day.'},
-  {id:'classic-grand-besancon-doubs',tier:'Pro',name:'Classic Grand Besançon Doubs',country:'France',flag:'🇫🇷',type:'One Day',firstYear:2021,tvYear:2021,distance:'~',gradient:'linear-gradient(135deg,#141a24,#202a3a,#8090b8)',swatch:'#8090b8',description:'A modern classic in the Franche-Comté hills, climbing to the ancient citadel of Besançon.'},
-  {id:'classic-var',tier:'Pro',name:'Classic Var',country:'France',flag:'🇫🇷',type:'One Day',firstYear:2024,tvYear:2024,distance:'~',gradient:'linear-gradient(135deg,#1a0e08,#2e1a10,#e8823a)',swatch:'#e8823a',description:'The newest jewel on the Riviera calendar, racing through the sun-drenched Var hills.'},
-  {id:'classique-dunkerque',tier:'Pro',name:'Classique Dunkerque / Grand prix des Hauts de France',country:'France',flag:'🇫🇷',type:'One Day',firstYear:2025,tvYear:2025,distance:'~',gradient:'linear-gradient(135deg,#0e1620,#182430,#5a7a9a)',swatch:'#5a7a9a',description:'Northern France\'s newest one-day, racing through the Channel coast flatlands.'},
-  {id:'mercan-tour-classic-alpes-maritimes',tier:'Pro',name:'Mercan\'Tour Classic Alpes-Maritimes',country:'France',flag:'🇫🇷',type:'One Day',firstYear:2021,tvYear:2021,distance:'~',gradient:'linear-gradient(135deg,#1a1428,#2a2040,#8878d0)',swatch:'#8878d0',description:'High Alpine passes above the French Riviera on a new mountainous classic.'},
-  {id:'tour-du-jura-cycliste',tier:'Pro',name:'Tour du Jura Cycliste',country:'France',flag:'🇫🇷',type:'Stage Race',firstYear:2018,tvYear:2018,distance:'~',gradient:'linear-gradient(135deg,#101820,#1a2c38,#6888a8)',swatch:'#6888a8',description:'The Jura limestone plateaus and cols form the backdrop for this compact stage race.'},
-  {id:'antwerp-port-epic',tier:'Pro',name:'Antwerp Port Epic / Sels Trophy',country:'Belgium',flag:'🇧🇪',type:'One Day',firstYear:2018,tvYear:2018,distance:'~',gradient:'linear-gradient(135deg,#111820,#1a2a32,#c8a030)',swatch:'#c8a030',description:'Gravel sectors and port-city grit define Antwerp\'s distinctive one-day race.'},
-  {id:'brabantse-pijl',tier:'Pro',name:'De Brabantse Pijl - La Flèche Brabançonne',country:'Belgium',flag:'🇧🇪',type:'One Day',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#1a1008,#2e2010,#d4a840)',swatch:'#d4a840',description:'The Wednesday classic between Flanders and Wallonia, hard enough to hurt the real stars.'},
-  {id:'bredene-koksijde-classic',tier:'Pro',name:'Bredene Koksijde Classic',country:'Belgium',flag:'🇧🇪',type:'One Day',firstYear:2011,tvYear:2011,distance:'~',gradient:'linear-gradient(135deg,#0e1420,#18243a,#d4c060)',swatch:'#d4c060',description:'Beach roads and coastal crosswinds make this flat Belgian one-day deceptively brutal.'},
-  {id:'brussels-cycling-classic',tier:'Pro',name:'Brussels Cycling Classic',country:'Belgium',flag:'🇧🇪',type:'One Day',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#1a1200,#2e2200,#e8c020)',swatch:'#e8c020',description:'The Belgian capital\'s home classic, finishing on the iconic Atomium climb.'},
-  {id:'circuit-de-wallonie',tier:'Pro',name:'Circuit de Wallonie',country:'Belgium',flag:'🇧🇪',type:'One Day',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#1a0e0e,#2e1818,#c8b830)',swatch:'#c8b830',description:'Short, punchy Ardennes climbs just south of Liège where rouleurs earn their spurs.'},
-  {id:'famenne-ardenne-classic',tier:'Pro',name:'Famenne Ardenne Classic',country:'Belgium',flag:'🇧🇪',type:'One Day',firstYear:2018,tvYear:2018,distance:'~',gradient:'linear-gradient(135deg,#141e10,#22321a,#88b060)',swatch:'#88b060',description:'Rolling Ardennes countryside between Namur and Dinant for the punchy finishers.'},
-  {id:'gooikse-pijl',tier:'Pro',name:'Gooikse Pijl',country:'Belgium',flag:'🇧🇪',type:'One Day',firstYear:2012,tvYear:2012,distance:'~',gradient:'linear-gradient(135deg,#14100a,#241c10,#c89040)',swatch:'#c89040',description:'Flemish Brabant bergs in a compact classic between the big monuments.'},
-  {id:'gp-impanis-van-petegem',tier:'Pro',name:'GP Impanis',country:'Belgium',flag:'🇧🇪',type:'One Day',firstYear:1982,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#101414,#1a2424,#6a9090)',swatch:'#6a9090',description:'A Flemish classic honoring two legends of Belgian cycling heritage.'},
-  {id:'grand-prix-criquielion',tier:'Pro',name:'Grand Prix Criquielion',country:'Belgium',flag:'🇧🇪',type:'One Day',firstYear:1995,tvYear:1995,distance:'~',gradient:'linear-gradient(135deg,#1a1414,#2e2020,#c8c020)',swatch:'#c8c020',description:'Wallonian hills pay tribute to one of Belgium\'s most beloved world champions.'},
-  {id:'grote-prijs-jean-pierre-monsere',tier:'Pro',name:'Grote prijs Jean-Pierre Monseré',country:'Belgium',flag:'🇧🇪',type:'One Day',firstYear:2017,tvYear:2017,distance:'~',gradient:'linear-gradient(135deg,#141018,#221828,#9070c0)',swatch:'#9070c0',description:'A Flemish memorial for the world champion taken too soon, racing his home roads.'},
-  {id:'heist-op-den-berg',tier:'Pro',name:'Heistse Pijl',country:'Belgium',flag:'🇧🇪',type:'One Day',firstYear:1980,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#101810,#1a2c1a,#60a860)',swatch:'#60a860',description:'A punchy Antwerp province classic for the fast finishers who can handle a final climb.'},
-  {id:'kampioenschap-van-vlaanderen1',tier:'Pro',name:'Kampioenschap van Vlaanderen',country:'Belgium',flag:'🇧🇪',type:'One Day',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#141010,#261c1c,#d4a030)',swatch:'#d4a030',description:'The unofficial Flemish championship, harder than it looks and proud of it.'},
-  {id:'kuurne-brussel-kuurne',tier:'Pro',name:'Kuurne - Brussel - Kuurne',country:'Belgium',flag:'🇧🇪',type:'One Day',firstYear:1980,tvYear:1980,distance:'~',gradient:'linear-gradient(135deg,#1a1a2e,#16213e,#e8b84b)',swatch:'#e8b84b',description:'The Sunday after Omloop. Semi-classic through Flemish hills with a sting in the tail.'},
-  {id:'memorial-frank-vandenbroucke',tier:'Pro',name:'Binche - Chimay - Binche',country:'Belgium',flag:'🇧🇪',type:'One Day',firstYear:1984,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#1a1420,#2a2030,#a080c0)',swatch:'#a080c0',description:'A tribute to the troubled genius, racing the Hainaut roads he made his own.'},
-  {id:'muur-classic-geraardsbergen',tier:'Pro',name:'Muur Classic Geraardsbergen',country:'Belgium',flag:'🇧🇪',type:'One Day',firstYear:2023,tvYear:2023,distance:'~',gradient:'linear-gradient(135deg,#180e0e,#2e1818,#d4402a)',swatch:'#d4402a',description:'The legendary Muur van Geraardsbergen at the heart of a modern Flemish classic.'},
-  {id:'nokere-koerse',tier:'Pro',name:'Nokere Koerse',country:'Belgium',flag:'🇧🇪',type:'One Day',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#0e1414,#182222,#88b8b8)',swatch:'#88b8b8',description:'Cobbled Flemish lanes make this early-season race a preview of the spring classics.'},
-  {id:'omloop-van-het-houtland-lichtervelde',tier:'Pro',name:'Omloop van het Houtland',country:'Belgium',flag:'🇧🇪',type:'One Day',firstYear:1980,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#141010,#241c1c,#c8b040)',swatch:'#c8b040',description:'West Flemish loops through hop fields and cobbled farm roads.'},
-  {id:'scheldeprijs',tier:'Pro',name:'Scheldeprijs',country:'Belgium',flag:'🇧🇪',type:'One Day',firstYear:1980,tvYear:1980,distance:'~',gradient:'linear-gradient(135deg,#0e1820,#162c34,#60a8c8)',swatch:'#60a8c8',description:'The sprinters\' classic along the Scheldt estuary, fast and flat and brutally selective.'},
-  {id:'tour-of-belgium',tier:'Pro',name:'Baloise Belgium Tour',country:'Belgium',flag:'🇧🇪',type:'Stage Race',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#1a1000,#2e1c00,#e8c020)',swatch:'#e8c020',description:'Belgium\'s national stage race through every terrain the country can throw at you.'},
-  {id:'gp-samyn',tier:'Pro',name:'Ename Samyn Classic',country:'Belgium',flag:'🇧🇪',type:'One Day',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#141414,#242424,#909090)',swatch:'#909090',description:'Cobbles and crosswinds on a late-winter Belgian semi-classic for iron-legged hardmen.'},
-  {id:'volta-nxt-classic',tier:'Pro',name:'Hel van het Mergelland',country:'Belgium',flag:'🇧🇪',type:'Stage Race',firstYear:1993,tvYear:1995,distance:'~',gradient:'linear-gradient(135deg,#141010,#201818,#c8a060)',swatch:'#c8a060',description:'The Limburg hills and Mergelland valleys straddle the Dutch-Belgian border on this stage race.'},
-  {id:'coppa-agostoni',tier:'Pro',name:'Coppa Agostoni',country:'Italy',flag:'🇮🇹',type:'One Day',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#1a0a0a,#2e1212,#c8382a)',swatch:'#c8382a',description:'A Brianza classic where the Como lake hills set up a punchy Lombard finale.'},
-  {id:'coppa-bernocchi',tier:'Pro',name:'Coppa Bernocchi',country:'Italy',flag:'🇮🇹',type:'One Day',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#1a1214,#2e2028,#d47090)',swatch:'#d47090',description:'An old Lombardy classic with early-season bite on the roads between Milan and the lakes.'},
-  {id:'giro-d-abruzzo',tier:'Pro',name:'Giro d\'Abruzzo',country:'Italy',flag:'🇮🇹',type:'Stage Race',firstYear:2003,tvYear:2003,distance:'~',gradient:'linear-gradient(135deg,#141820,#202a34,#6888b8)',swatch:'#6888b8',description:'Gran Sasso and the Apennine backbone give this central Italian stage race real teeth.'},
-  {id:'giro-del-veneto',tier:'Pro',name:'Giro del Veneto',country:'Italy',flag:'🇮🇹',type:'One Day',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#0e1820,#182c36,#5090c0)',swatch:'#5090c0',description:'Venice\'s hinterland hills on a late-season Venetian classic with Renaissance soul.'},
-  {id:'giro-dell-appennino',tier:'Pro',name:'Giro dell\'Appennino',country:'Italy',flag:'🇮🇹',type:'One Day',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#141414,#222222,#909090)',swatch:'#909090',description:'The Ligurian Apennines above Genoa: a mountain classic with a century of history.'},
-  {id:'giro-dell-emilia',tier:'Pro',name:'Giro dell\'Emilia',country:'Italy',flag:'🇮🇹',type:'One Day',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#1a0e0e,#2e1818,#c83020)',swatch:'#c83020',description:'San Luca\'s steep cobbled ramp above Bologna decides one of Italy\'s oldest classics.'},
-  {id:'giro-di-reggio-calabria',tier:'Pro',name:'Giro della Città Metropolitana di Reggio Calabria',country:'Italy',flag:'🇮🇹',type:'One Day',firstYear:1980,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#1a0808,#2e1212,#e85020)',swatch:'#e85020',description:'The toe of Italy\'s boot, where the Aspromonte mountains plunge to the Strait of Messina.'},
-  {id:'giro-di-romagna',tier:'Pro',name:'Giro della Romagna',country:'Italy',flag:'🇮🇹',type:'One Day',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#1a100a,#2e1c10,#d47830)',swatch:'#d47830',description:'Emilian foothills and Romagnan farmland on a classic with Coppi-era pedigree.'},
-  {id:'giro-di-sardegna',tier:'Pro',name:'Giro di Sardegna',country:'Italy',flag:'🇮🇹',type:'Stage Race',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#14180a,#222c10,#90b040)',swatch:'#90b040',description:'Wild Sardinian macchia and granite mountains on the Mediterranean\'s most rugged stage race.'},
-  {id:'giro-di-toscana',tier:'Pro',name:'Giro della Toscana',country:'Italy',flag:'🇮🇹',type:'One Day',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#1a1208,#2e2010,#c8a030)',swatch:'#c8a030',description:'Tuscan cypress-lined roads and strade bianche on a classic with Chianti in its DNA.'},
-  {id:'gp-citta-di-peccioli',tier:'Pro',name:'Coppa Sabatini',country:'Italy',flag:'🇮🇹',type:'One Day',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#1a1410,#2e2418,#d0a848)',swatch:'#d0a848',description:'A Tuscan classic finishing in the medieval hilltop village of Peccioli.'},
-  {id:'gp-industria-artigianato',tier:'Pro',name:'GP Industria & Artigianato',country:'Italy',flag:'🇮🇹',type:'One Day',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#141a10,#202e18,#8ab060)',swatch:'#8ab060',description:'The Larciano hills in Tuscany give this under-the-radar Italian classic its identity.'},
-  {id:'gran-piemonte',tier:'Pro',name:'Giro del Piemonte',country:'Italy',flag:'🇮🇹',type:'One Day',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#181010,#2c1818,#c04030)',swatch:'#c04030',description:'Piedmontese pre-Alps and the Superga climb above Turin set up a punchy finale.'},
-  {id:'memorial-marco-pantani',tier:'Pro',name:'Memorial Marco Pantani',country:'Italy',flag:'🇮🇹',type:'One Day',firstYear:2006,tvYear:2006,distance:'~',gradient:'linear-gradient(135deg,#14080e,#22101a,#e06090)',swatch:'#e06090',description:'The Romagna hills honour Il Pirata, racing the roads where he first learned to climb.'},
-  {id:'milano-torino',tier:'Pro',name:'Milano - Torino',country:'Italy',flag:'🇮🇹',type:'One Day',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#101010,#1c1c1c,#d0d0d0)',swatch:'#d0d0d0',description:'The world\'s oldest surviving bike race, connecting Italy\'s two industrial capitals.'},
-  {id:'settimana-internazionale-coppi-e-bartali',tier:'Pro',name:'Settimana Internazionale Coppi e Bartali',country:'Italy',flag:'🇮🇹',type:'Stage Race',firstYear:1984,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#1a0808,#2e1414,#c83028)',swatch:'#c83028',description:'The Romagna Apennines honour the eternal rivalry of cycling\'s two greatest champions.'},
-  {id:'tre-valli-varesine',tier:'Pro',name:'Tre Valli Varesine',country:'Italy',flag:'🇮🇹',type:'One Day',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#141a20,#20283a,#7888b8)',swatch:'#7888b8',description:'Three valleys above Lake Maggiore on a Lombardy classic older than the Giro itself.'},
-  {id:'trofeo-laigueglia',tier:'Pro',name:'Trofeo Laigueglia',country:'Italy',flag:'🇮🇹',type:'One Day',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#0e1a1a,#142e2e,#40a8a8)',swatch:'#40a8a8',description:'Ligurian Riviera sea views and steep hinterland climbs on a February season opener.'},
-  {id:'trofeo-matteotti',tier:'Pro',name:'Trofeo Matteotti',country:'Italy',flag:'🇮🇹',type:'One Day',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#1a1408,#2c2010,#d4a040)',swatch:'#d4a040',description:'A Pescara classic in the shadow of the Gran Sasso, named after a murdered antifascist.'},
-  {id:'trofeo-baracchi',tier:'Pro',name:'Trofeo Baracchi',country:'Italy',flag:'🇮🇹',type:'One Day',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#101418,#181e28,#6878a8)',swatch:'#6878a8',description:'The last great two-up time trial, once the season\'s most prestigious partnership race.'},
-  {id:'veneto-classic',tier:'Pro',name:'Veneto Classic',country:'Italy',flag:'🇮🇹',type:'One Day',firstYear:2021,tvYear:2021,distance:'~',gradient:'linear-gradient(135deg,#0e1820,#162c36,#4888b8)',swatch:'#4888b8',description:'The hills above Vicenza and Asolo on a modern classic with deep Veneto roots.'},
-  {id:'circuito-de-getxo',tier:'Pro',name:'Circuito de Getxo',country:'Spain',flag:'🇪🇸',type:'One Day',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#1a0e0e,#2e1818,#d43020)',swatch:'#d43020',description:'Basque country cliffs above the Bay of Biscay, where the Basques worship their classics.'},
-  {id:'clasica-de-almeria',tier:'Pro',name:'Clasica de Almeria',country:'Spain',flag:'🇪🇸',type:'One Day',firstYear:1992,tvYear:1995,distance:'~',gradient:'linear-gradient(135deg,#1a1208,#2e2010,#e8a830)',swatch:'#e8a830',description:'February sunshine and Andalusian aridness make this the warmest season opener.'},
-  {id:'clasica-jaen-paraiso-interior',tier:'Pro',name:'Clásica Jaén Paraiso Interior',country:'Spain',flag:'🇪🇸',type:'One Day',firstYear:2022,tvYear:2022,distance:'~',gradient:'linear-gradient(135deg,#1a1208,#2c2010,#d4a040)',swatch:'#d4a040',description:'Olive groves and Sierra Magina altitude on Jaén\'s mountainous one-day race.'},
-  {id:'clasica-terres-de-l-ebre',tier:'Pro',name:'Clàssica Terres de l\'Ebre',country:'Spain',flag:'🇪🇸',type:'One Day',firstYear:2024,tvYear:2024,distance:'~',gradient:'linear-gradient(135deg,#141008,#241c0c,#e09030)',swatch:'#e09030',description:'Catalonia\'s newest classic races through the Ebro delta and Terres de l\'Ebre hills.'},
-  {id:'classica-camp-de-morvedre',tier:'Pro',name:'Classica Camp de Morvedre',country:'Spain',flag:'🇪🇸',type:'One Day',firstYear:2025,tvYear:2025,distance:'~',gradient:'linear-gradient(135deg,#1a1008,#2e1c10,#e88830)',swatch:'#e88830',description:'Valencia\'s orange groves and Costa del Azahar roads host Spain\'s newest one-day.'},
-  {id:'gp-de-valence',tier:'Pro',name:'Clàssica Comunitat Valenciana - Gran Premi València',country:'Spain',flag:'🇪🇸',type:'One Day',firstYear:1981,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#1a0c08,#2e1810,#e88030)',swatch:'#e88030',description:'Valencia\'s winter classic on roads warmed by Mediterranean sunshine and orange blossom.'},
-  {id:'gran-camino',tier:'Pro',name:'O Gran Camiño',country:'Spain',flag:'🇪🇸',type:'Stage Race',firstYear:2022,tvYear:2022,distance:'~',gradient:'linear-gradient(135deg,#0e1a14,#182e22,#50a870)',swatch:'#50a870',description:'Galicia\'s rugged Atlantic coast and inland granite mountains on a bold new stage race.'},
-  {id:'gran-premio-miguel-indurain',tier:'Pro',name:'GP Navarra',country:'Spain',flag:'🇪🇸',type:'Stage Race',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#1a0808,#2e1212,#c83020)',swatch:'#c83020',description:'The Navarran steppe and Pyrenean foothills honour Spain\'s most dominant Tour champion.'},
-  {id:'prueba-villafranca',tier:'Pro',name:'Prueba Villafranca - Ordiziako Klasika',country:'Spain',flag:'🇪🇸',type:'One Day',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#141810,#20281a,#80a840)',swatch:'#80a840',description:'Basque valleys and industrial Gipuzkoa hills on one of Spain\'s oldest one-day races.'},
-  {id:'ruta-de-la-ceramica-gran-premio-castellon',tier:'Pro',name:'Gran Premio Castellón - Ruta de la Cerámica',country:'Spain',flag:'🇪🇸',type:'One Day',firstYear:2024,tvYear:2024,distance:'~',gradient:'linear-gradient(135deg,#1a1008,#2e1c10,#e89040)',swatch:'#e89040',description:'Castellón\'s ceramic heritage and Mediterranean coast hills debut on the modern calendar.'},
-  {id:'ruta-del-sol',tier:'Pro',name:'Vuelta a Andalucia Ruta Ciclista Del Sol',country:'Spain',flag:'🇪🇸',type:'Stage Race',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#1a0e00,#2e1c00,#f0a820)',swatch:'#f0a820',description:'February sunshine and Andalusian mountains make this a genuine early-season barometer.'},
-  {id:'vuelta-a-burgos',tier:'Pro',name:'Vuelta a Burgos',country:'Spain',flag:'🇪🇸',type:'Stage Race',firstYear:1981,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#1a1408,#2c2010,#c89030)',swatch:'#c89030',description:'Castilian meseta and Cantabrian climbs on an August stage race with Tour de France legs.'},
-  {id:'vuelta-a-castilla-y-leon',tier:'Pro',name:'Vuelta a Castilla y Leon',country:'Spain',flag:'🇪🇸',type:'Stage Race',firstYear:1981,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#1a1408,#2e2410,#e0b040)',swatch:'#e0b040',description:'The vast Castilian plateau and Picos de Europa approaches test climbers in spring.'},
-  {id:'vuelta-a-la-comunidad-valenciana',tier:'Pro',name:'Volta a la Comunitat Valenciana',country:'Spain',flag:'🇪🇸',type:'Stage Race',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#1a1008,#2e1c10,#e88030)',swatch:'#e88030',description:'Valencia\'s spring stage race from sea level to mountain tops with Mediterranean flair.'},
-  {id:'vuelta-asturias',tier:'Pro',name:'Vuelta Asturias',country:'Spain',flag:'🇪🇸',type:'Stage Race',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#0e1818,#162828,#489898)',swatch:'#489898',description:'Green Atlantic Asturias and the fearsome Lagos de Covadonga altitude finish.'},
-  {id:'vuelta-ciclista-a-la-region-de-murcia',tier:'Pro',name:'Vuelta a la Región de Murcia',country:'Spain',flag:'🇪🇸',type:'Stage Race',firstYear:1985,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#1a1008,#2e2010,#e0a030)',swatch:'#e0a030',description:'Murcia\'s semi-arid landscapes and warm winter sun attract the early-season peloton.'},
-  {id:'veenendaal-veenendaal',tier:'Pro',name:'Veenendaal-Veenendaal Classic',country:'Netherlands',flag:'🇳🇱',type:'One Day',firstYear:1985,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#1a0808,#2e1212,#e83020)',swatch:'#e83020',description:'A flat Dutch one-day where breakaway specialists and sprinters fight to the line.'},
-  {id:'zlm-tour',tier:'Pro',name:'ZLM Tour',country:'Netherlands',flag:'🇳🇱',type:'Stage Race',firstYear:1996,tvYear:1996,distance:'~',gradient:'linear-gradient(135deg,#1a0808,#2e1212,#e83020)',swatch:'#e83020',description:'Zeeland and Limburg provide Dutch diversity on this compact summer stage race.'},
-  {id:'tour-of-holland',tier:'Pro',name:'Tour of Holland',country:'Netherlands',flag:'🇳🇱',type:'Stage Race',firstYear:2025,tvYear:2025,distance:'~',gradient:'linear-gradient(135deg,#1a0808,#2e1212,#e8a820)',swatch:'#e8a820',description:'The Netherlands\' newest stage race reviving a proud tradition on Dutch roads.'},
-  {id:'deutschland-tour',tier:'Pro',name:'Deutschland Tour',country:'Germany',flag:'🇩🇪',type:'Stage Race',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#0e0e0e,#1c1c1c,#e8c020)',swatch:'#e8c020',description:'Germany\'s national stage race through Black Forest, Alps and Rhine valley.'},
-  {id:'munsterland-giro',tier:'Pro',name:'Sparkassen Münsterland Giro',country:'Germany',flag:'🇩🇪',type:'One Day',firstYear:2006,tvYear:2006,distance:'~',gradient:'linear-gradient(135deg,#101418,#1a2028,#6878a8)',swatch:'#6878a8',description:'Westphalian flatlands and the Teutoburg Forest on Germany\'s most prestigious one-day.'},
-  {id:'rund-um-koln',tier:'Pro',name:'Rund um Köln',country:'Germany',flag:'🇩🇪',type:'One Day',firstYear:1990,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#141010,#201818,#c0a830)',swatch:'#c0a830',description:'Eifel hills and Rhine valley roads circling Cologne\'s famous Gothic cathedral.'},
-  {id:'tour-de-luxembourg',tier:'Pro',name:'Tour de Luxembourg',country:'Luxembourg',flag:'🇱🇺',type:'Stage Race',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#1a1000,#2e1c00,#e8c020)',swatch:'#e8c020',description:'The Ardennes meets the Moselle wine country on this compact multi-day classic.'},
-  {id:'figueira-champions-classic',tier:'Pro',name:'Figueira Champions Classic',country:'Portugal',flag:'🇵🇹',type:'One Day',firstYear:2023,tvYear:2023,distance:'~',gradient:'linear-gradient(135deg,#1a0808,#2e1414,#e84030)',swatch:'#e84030',description:'Atlantic coast Portugal hosts this modern one-day on the roads above Figueira da Foz.'},
-  {id:'gp-internacional-beiras-e-serra-da-estrela',tier:'Pro',name:'GP Beiras e Serra da Estrela',country:'Portugal',flag:'🇵🇹',type:'Stage Race',firstYear:2016,tvYear:2016,distance:'~',gradient:'linear-gradient(135deg,#141818,#202828,#709090)',swatch:'#709090',description:'The Serra da Estrela mountains and Beiras plateau test climbers in central Portugal.'},
-  {id:'volta-a-portugal',tier:'Pro',name:'Volta a Portugal',country:'Portugal',flag:'🇵🇹',type:'Stage Race',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#1a0808,#2e1414,#e83020)',swatch:'#e83020',description:'Portugal\'s grand tour through Algarve beaches, Alentejo plains and mountain finishes.'},
-  {id:'volta-ao-algarve',tier:'Pro',name:'Volta ao Algarve em Bicicleta',country:'Portugal',flag:'🇵🇹',type:'Stage Race',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#1a1008,#2e1c10,#e89030)',swatch:'#e89030',description:'February sunshine on Portugal\'s southern coast, the peloton\'s favourite winter escape.'},
-  {id:'andorra-morabanc-classica',tier:'Pro',name:'Andorra Morabanc Clàssica',country:'Andorra',flag:'🇦🇩',type:'One Day',firstYear:2025,tvYear:2025,distance:'~',gradient:'linear-gradient(135deg,#141a28,#202e42,#6888c8)',swatch:'#6888c8',description:'Pyrenean passes at altitude make Andorra\'s debut classic an instant climbers\' race.'},
-  {id:'tour-of-britain',tier:'Pro',name:'Tour of Britain',country:'United Kingdom',flag:'🇬🇧',type:'Stage Race',firstYear:1987,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#0e0e1a,#1818,#4444c0)',swatch:'#4444c0',description:'From Scottish highlands to English south coast, Britain\'s biggest stage race.'},
-  {id:'arctic-race-of-norway',tier:'Pro',name:'Arctic Race of Norway',country:'Norway',flag:'🇳🇴',type:'Stage Race',firstYear:2013,tvYear:2013,distance:'~',gradient:'linear-gradient(135deg,#0e1820,#162c38,#4888b8)',swatch:'#4888b8',description:'Above the Arctic Circle where midnight sun and Norwegian fjords frame every climb.'},
-  {id:'tour-of-austria',tier:'Pro',name:'Bank Austria Tour',country:'Austria',flag:'🇦🇹',type:'Stage Race',firstYear:1996,tvYear:1996,distance:'~',gradient:'linear-gradient(135deg,#1a0808,#2e1212,#e83020)',swatch:'#e83020',description:'Alpine passes and Danube valley roads on Austria\'s beloved national stage race.'},
-  {id:'gp-du-canton-d-argovie',tier:'Pro',name:'G.P. Gippingen',country:'Switzerland',flag:'🇨🇭',type:'One Day',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#1a0808,#2e1212,#e83020)',swatch:'#e83020',description:'A Swiss spring classic in the Aargau canton with an unforgiving final climb.'},
-  {id:'czech-tour',tier:'Pro',name:'Czech Cycling Tour',country:'Czech Republic',flag:'🇨🇿',type:'Stage Race',firstYear:2010,tvYear:2010,distance:'~',gradient:'linear-gradient(135deg,#1a0808,#2e1212,#1a1ae8)',swatch:'#1a1ae8',description:'Bohemian forests and Moravian wine country on a Central European stage race.'},
-  {id:'okolo-slovenska',tier:'Pro',name:'Tour de Slovaquie',country:'Slovakia',flag:'🇸🇰',type:'Stage Race',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#0e0e1a,#181830,#e83020)',swatch:'#e83020',description:'Tatras foothills and Danube plains on Slovakia\'s national stage race.'},
-  {id:'gp-kranj',tier:'Pro',name:'GP Kranj',country:'Slovenia',flag:'🇸🇮',type:'One Day',firstYear:1996,tvYear:1996,distance:'~',gradient:'linear-gradient(135deg,#0e1418,#182230,#4878a8)',swatch:'#4878a8',description:'The Julian Alps shadow this Slovenian one-day finishing in the historic city of Kranj.'},
-  {id:'tour-of-slovenia',tier:'Pro',name:'Tour of Slovenia',country:'Slovenia',flag:'🇸🇮',type:'Stage Race',firstYear:1993,tvYear:1995,distance:'~',gradient:'linear-gradient(135deg,#0e1a10,#182e1a,#50a860)',swatch:'#50a860',description:'Karst plateau, Julian Alps and the Soča valley on one of Europe\'s most scenic stage races.'},
-  {id:'tour-of-croatia',tier:'Pro',name:'CRO Race',country:'Croatia',flag:'🇭🇷',type:'Stage Race',firstYear:1994,tvYear:1995,distance:'~',gradient:'linear-gradient(135deg,#1a0808,#2e1212,#4858c8)',swatch:'#4858c8',description:'Adriatic coast roads and Dinaric karst mountains on the Dalmatian tour.'},
-  {id:'tour-de-hongrie',tier:'Pro',name:'Tour de Hongrie',country:'Hungary',flag:'🇭🇺',type:'Stage Race',firstYear:2004,tvYear:2004,distance:'~',gradient:'linear-gradient(135deg,#1a0808,#2e1212,#3a3ae0)',swatch:'#3a3ae0',description:'The Hungarian plains and Transdanubian hills on Central Europe\'s hidden gem stage race.'},
-  {id:'sibiu-cycling-tour',tier:'Pro',name:'Sibiu Cycling Tour',country:'Romania',flag:'🇷🇴',type:'Stage Race',firstYear:2011,tvYear:2011,distance:'~',gradient:'linear-gradient(135deg,#0e0e18,#181830,#d4c020)',swatch:'#d4c020',description:'Transylvanian highlands and Carpathian cols on Romania\'s rapidly growing stage race.'},
-  {id:'tour-of-estonia',tier:'Pro',name:'Tour of Estonia',country:'Estonia',flag:'🇪🇪',type:'Stage Race',firstYear:2013,tvYear:2013,distance:'~',gradient:'linear-gradient(135deg,#0e1820,#182c38,#4898b8)',swatch:'#4898b8',description:'Baltic pine forests and flat Estonian roads on the fastest stage race in the north.'},
-  {id:'tour-of-denmark',tier:'Pro',name:'Tour of Denmark',country:'Denmark',flag:'🇩🇰',type:'Stage Race',firstYear:1985,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#1a0808,#2e1212,#e83020)',swatch:'#e83020',description:'Scandinavian crosswinds and Danish rolling countryside on a fast northern classic.'},
-  {id:'international-tour-of-hellas',tier:'Pro',name:'Tour of Hellas',country:'Greece',flag:'🇬🇷',type:'One Day',firstYear:1981,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#0e1620,#18263a,#4878c0)',swatch:'#4878c0',description:'Peloponnesian roads and Aegean coast views on Greece\'s oldest cycling race.'},
-  {id:'colombia-21',tier:'Pro',name:'Tour Colombia',country:'Colombia',flag:'🇨🇴',type:'Stage Race',firstYear:2018,tvYear:2018,distance:'~',gradient:'linear-gradient(135deg,#0e1a0e,#182e18,#f0c020)',swatch:'#f0c020',description:'High Andean altiplano and humid jungle descents on Colombia\'s showcase stage race.'},
-  {id:'maryland-cycling-classic',tier:'Pro',name:'Maryland Cycling Classic',country:'USA',flag:'🇺🇸',type:'One Day',firstYear:2022,tvYear:2022,distance:'~',gradient:'linear-gradient(135deg,#0e1020,#182038,#4060c0)',swatch:'#4060c0',description:'Baltimore\'s Inner Harbor to the Charm City finish on America\'s new one-day classic.'},
-  {id:'philadelphia-international-championship',tier:'Pro',name:'Commerce Bank International Championship',country:'USA',flag:'🇺🇸',type:'One Day',firstYear:1984,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#0e0e1a,#181830,#c02020)',swatch:'#c02020',description:'The legendary Manayunk Wall decided America\'s greatest one-day race for three decades.'},
-  {id:'herald-sun-tour',tier:'Pro',name:'Herald Sun Tour',country:'Australia',flag:'🇦🇺',type:'Stage Race',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#1a0808,#2e1414,#e89020)',swatch:'#e89020',description:'Victorian high country and Dandenong Ranges on Australia\'s second great stage race.'},
-  {id:'race-torquay',tier:'Pro',name:'Race Torquay',country:'Australia',flag:'🇦🇺',type:'One Day',firstYear:2020,tvYear:2020,distance:'~',gradient:'linear-gradient(135deg,#0e1820,#182e38,#4898c8)',swatch:'#4898c8',description:'The Great Ocean Road finale in Torquay, where surf culture meets professional cycling.'},
-  {id:'japan-cup',tier:'Pro',name:'Japan Cup',country:'Japan',flag:'🇯🇵',type:'One Day',firstYear:1992,tvYear:1992,distance:'~',gradient:'linear-gradient(135deg,#1a0808,#2e1212,#e83060)',swatch:'#e83060',description:'Nikko\'s forested mountain roads frame Japan\'s most prestigious one-day race.'},
-  {id:'tour-de-kyushu',tier:'Pro',name:'Tour de Kyushu',country:'Japan',flag:'🇯🇵',type:'Stage Race',firstYear:2023,tvYear:2023,distance:'~',gradient:'linear-gradient(135deg,#1a0808,#2e1414,#e83050)',swatch:'#e83050',description:'Volcanic Kyushu island\'s mountain roads and hot spring valleys on Japan\'s newest stage race.'},
-  {id:'tour-of-binzhou',tier:'Pro',name:'Tour of Binzhou',country:'China',flag:'🇨🇳',type:'Stage Race',firstYear:2022,tvYear:2022,distance:'~',gradient:'linear-gradient(135deg,#1a0808,#2e1212,#e8c020)',swatch:'#e8c020',description:'Yellow River delta flatlands and Shandong roads on China\'s growing race calendar.'},
-  {id:'tour-of-hainan',tier:'Pro',name:'Tour of Hainan',country:'China',flag:'🇨🇳',type:'Stage Race',firstYear:2006,tvYear:2006,distance:'~',gradient:'linear-gradient(135deg,#0e1a10,#182e1a,#40c860)',swatch:'#40c860',description:'Tropical Hainan Island: palm-lined roads and monsoon humidity on China\'s island tour.'},
-  {id:'tour-of-huangshan',tier:'Pro',name:'Tour of Huangshan',country:'China',flag:'🇨🇳',type:'Stage Race',firstYear:2023,tvYear:2023,distance:'~',gradient:'linear-gradient(135deg,#141820,#202c38,#8898c0)',swatch:'#8898c0',description:'The Yellow Mountain\'s pine-clad granite peaks frame China\'s most scenic stage race.'},
-  {id:'tour-of-magnificent-qinghai',tier:'Pro',name:'Tour of Magnificent Qinghai',country:'China',flag:'🇨🇳',type:'Stage Race',firstYear:2002,tvYear:2002,distance:'~',gradient:'linear-gradient(135deg,#0e1420,#182238,#608898)',swatch:'#608898',description:'The Tibetan plateau at 3000m: the highest-altitude stage race on the professional calendar.'},
-  {id:'tour-of-taihu-lake',tier:'Pro',name:'Tour of Taihu Lake',country:'China',flag:'🇨🇳',type:'One Day',firstYear:2010,tvYear:2010,distance:'~',gradient:'linear-gradient(135deg,#0e1820,#182e38,#4888b8)',swatch:'#4888b8',description:'China\'s largest freshwater lake sets a dramatic backdrop for this flat criterium-style race.'},
-  {id:'tour-de-taiwan',tier:'Pro',name:'Tour de Taiwan',country:'Taiwan',flag:'🇹🇼',type:'Stage Race',firstYear:2005,tvYear:2005,distance:'~',gradient:'linear-gradient(135deg,#0e1818,#182828,#4090a0)',swatch:'#4090a0',description:'Central Mountain Range cols and Pacific coast roads on this East Asian stage race.'},
-  {id:'tour-de-korea',tier:'Pro',name:'Tour de Korea',country:'South Korea',flag:'🇰🇷',type:'Stage Race',firstYear:2003,tvYear:2003,distance:'~',gradient:'linear-gradient(135deg,#1a0808,#2e1414,#4040c8)',swatch:'#4040c8',description:'Korea\'s Buddhist mountain temples and coastal roads on East Asia\'s oldest stage race.'},
-  {id:'tour-de-langkawi',tier:'Pro',name:'Tour de Langkawi',country:'Malaysia',flag:'🇲🇾',type:'Stage Race',firstYear:1996,tvYear:1996,distance:'~',gradient:'linear-gradient(135deg,#0e1a0e,#182e18,#f0c020)',swatch:'#f0c020',description:'Tropical Malaysian jungles and the Langkawi island paradise on a Southeast Asian stage race.'},
-  {id:'tour-of-thailand',tier:'Pro',name:'Tour of Thailand',country:'Thailand',flag:'🇹🇭',type:'Stage Race',firstYear:2006,tvYear:2006,distance:'~',gradient:'linear-gradient(135deg,#1a1008,#2e1c10,#e89820)',swatch:'#e89820',description:'Buddhist temples, tropical heat and Thai hospitality on an Asian racing adventure.'},
-  {id:'muscat-classic',tier:'Pro',name:'Muscat Classic',country:'Oman',flag:'🇴🇲',type:'One Day',firstYear:2023,tvYear:2023,distance:'~',gradient:'linear-gradient(135deg,#1a1208,#2e2010,#e8b030)',swatch:'#e8b030',description:'Desert mountains above the Gulf of Oman on the Arabian Peninsula\'s newest one-day.'},
-  {id:'tour-of-oman',tier:'Pro',name:'Tour of Oman',country:'Oman',flag:'🇴🇲',type:'Stage Race',firstYear:2010,tvYear:2010,distance:'~',gradient:'linear-gradient(135deg,#1a1408,#2e2210,#e8a030)',swatch:'#e8a030',description:'Hajar Mountain switchbacks and Arabian Sea coast roads under February desert sun.'},
-  {id:'alula-tour',tier:'Pro',name:'AlUla Tour',country:'Saudi Arabia',flag:'🇸🇦',type:'Stage Race',firstYear:1999,tvYear:2020,distance:'~',gradient:'linear-gradient(135deg,#1a1408,#2e2410,#e8b840)',swatch:'#e8b840',description:'Ancient Nabataean rock formations and Saudi desert roads on the Arabian Tour.'},
-  {id:'baku-khankendi-azerbaijan-cycling-race',tier:'Pro',name:'Tour of Azerbaijan',country:'Azerbaijan',flag:'🇦🇿',type:'Stage Race',firstYear:2012,tvYear:2012,distance:'~',gradient:'linear-gradient(135deg,#0e1a10,#182e1a,#e83020)',swatch:'#e83020',description:'Caspian Sea coast and Caucasus mountain foothills on the South Caucasus stage race.'},
-  {id:'tour-of-istanbul',tier:'Pro',name:'Tour of Istanbul',country:'Turkey',flag:'🇹🇷',type:'Stage Race',firstYear:2023,tvYear:2023,distance:'~',gradient:'linear-gradient(135deg,#1a0808,#2e1212,#e83020)',swatch:'#e83020',description:'The Bosphorus city\'s hills and Thracian roads on Turkey\'s newest stage race.'},
-  {id:'tour-of-turkey',tier:'Pro',name:'International Presidency Turkey Tour',country:'Turkey',flag:'🇹🇷',type:'Stage Race',firstYear:1981,tvYear:1990,distance:'~',gradient:'linear-gradient(135deg,#1a0808,#2e1212,#e83020)',swatch:'#e83020',description:'Anatolian highlands and Aegean coast roads on Turkey\'s historic national stage race.'},
-  {id:'trans-himalaya-cycling-race',tier:'Pro',name:'Trans-Himalaya Cycling Race',country:'India',flag:'🇮🇳',type:'Stage Race',firstYear:2022,tvYear:2022,distance:'~',gradient:'linear-gradient(135deg,#141028,#201840,#9060c0)',swatch:'#9060c0',description:'The world\'s highest stage race crossing Himalayan passes above 5000m in Ladakh.'},
-  {id:'sun-hung-kai-properties-hong-kong-challenge',tier:'Pro',name:'Sun Hung Kai Properties Hong Kong Challenge',country:'Hong Kong',flag:'🇭🇰',type:'One Day',firstYear:2017,tvYear:2017,distance:'~',gradient:'linear-gradient(135deg,#1a0808,#2e1414,#c83020)',swatch:'#c83020',description:'Kowloon to Hong Kong Island via the skyscraper-lined Victoria Harbour criterium.'},
-  {id:'tour-of-rwanda',tier:'Pro',name:'Tour du Rwanda',country:'Rwanda',flag:'🇷🇼',type:'Stage Race',firstYear:2009,tvYear:2009,distance:'~',gradient:'linear-gradient(135deg,#0e1a0e,#182e18,#20c020)',swatch:'#20c020',description:'The land of a thousand hills delivers the hardest climbing race in African cycling.'},
-  {id:'deia-trophy',tier:'Pro',name:'Challenge Mallorca - Trofeo Alcudia-Port d\'Alcudia',country:'Spain',flag:'🇪🇸',type:'One Day',firstYear:1997,tvYear:1997,distance:'~',gradient:'linear-gradient(135deg,#0e1820,#162e38,#4898c0)',swatch:'#4898c0',description:'Mallorca\'s Bay of Alcudia backdrop frames this flat early-season season opener.'},
-  {id:'trofeo-calvia',tier:'Pro',name:'Challenge Illes Balears - Trofeo Calvia',country:'Spain',flag:'🇪🇸',type:'One Day',firstYear:1997,tvYear:1997,distance:'~',gradient:'linear-gradient(135deg,#0e1820,#162c38,#4888b8)',swatch:'#4888b8',description:'Calvià\'s Serra de Tramuntana foothills open the Mallorcan racing week.'},
-  {id:'trofeo-palma',tier:'Pro',name:'Trofeo Palma',country:'Spain',flag:'🇪🇸',type:'One Day',firstYear:1997,tvYear:1997,distance:'~',gradient:'linear-gradient(135deg,#0e1820,#162c38,#50a8d0)',swatch:'#50a8d0',description:'Palma\'s cathedral city backdrop and Mallorcan roads at the start of the European season.'},
-  {id:'trofeo-pollenca-port-d-andratx',tier:'Pro',name:'Challenge Mallorca - Trofeo Manacor',country:'Spain',flag:'🇪🇸',type:'One Day',firstYear:1997,tvYear:1997,distance:'~',gradient:'linear-gradient(135deg,#0e1820,#162c38,#4890c0)',swatch:'#4890c0',description:'Mallorca\'s mountain roads from Pollença to Port d\'Andratx through the Tramuntana.'},
-  {id:'trofeo-ses-salines-felanitx',tier:'Pro',name:'Challenge Mallorca - Trofeo Cala Bona-Cala Rajada',country:'Spain',flag:'🇪🇸',type:'One Day',firstYear:1997,tvYear:1997,distance:'~',gradient:'linear-gradient(135deg,#0e1820,#162c38,#4898c8)',swatch:'#4898c8',description:'The eastern tip of Mallorca\'s Es Llevant coast on the Challenge\'s final day.'},
-  {id:'route-adelie-de-vitre',tier:'Pro',name:'Route Adélie de Vitré',country:'France',flag:'🇫🇷',type:'One Day',firstYear:1996,tvYear:1996,distance:'~',gradient:'linear-gradient(135deg,#0e1a10,#182e1a,#70b070)',swatch:'#70b070',description:'Breton bocage lanes and a medieval castle finish in Vitré\'s walled hilltop town.'},
-  {id:'gp-emilia',tier:'Pro',name:'G.P. Emilia',country:'Italy',flag:'🇮🇹',type:'One Day',firstYear:2025,tvYear:2025,distance:'~',gradient:'linear-gradient(135deg,#1a0e0e,#2e1818,#c83020)',swatch:'#c83020',description:'A revived Emilian classic on the Apennine hills above Bologna.'},
-  {id:'tour-of-the-alps',tier:'Pro',name:'Giro del Trentino',country:'Italy',flag:'🇮🇹',type:'Stage Race',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#141c28,#202e42,#8898c8)',swatch:'#8898c8',description:'Dolomite passes and Trentino valleys on a Tour de France preparation stage race.'},
-  {id:'ronde-van-limburg',tier:'Pro',name:'Ronde van Limburg',country:'Netherlands',flag:'🇳🇱',type:'One Day',firstYear:1980,tvYear:1985,distance:'~',gradient:'linear-gradient(135deg,#1a0808,#2e1212,#e83020)',swatch:'#e83020',description:'Limburg\'s rolling hills and hollow ways, a taste of the classics in Dutch territory.'},
-  {id:'tour-cycliste-international-la-provence',tier:'Pro',name:'Tour de la Provence',country:'France',flag:'🇫🇷',type:'Stage Race',firstYear:2016,tvYear:2016,distance:'~',gradient:'linear-gradient(135deg,#1a1008,#2e1c10,#e89030)',swatch:'#e89030',description:'Lavender plateaus and limestone Luberon climbs under the Provençal winter sun.'},
-  {id:'tour-de-wallonie',tier:'Pro',name:'Tour de Wallonie',country:'Belgium',flag:'🇧🇪',type:'Stage Race',firstYear:1996,tvYear:1996,distance:'~',gradient:'linear-gradient(135deg,#1a0e0e,#2e1818,#c8b820)',swatch:'#c8b820',description:'Ardennes classics terrain packed into a summer stage race through Wallonia.'},
-];
-
-
+// ── resolveRaceSlug: maps DB slug to RACES id ─────────────────────────────
 function resolveRaceSlug(dbSlug){
   if(!dbSlug) return null;
-  // Direct match first
   const direct = RACES.find(x => x.id === dbSlug);
   if(direct) return dbSlug;
-
-  // Fuzzy: try replacing hyphens and matching name
   const clean = dbSlug.replace(/-/g,' ').toLowerCase();
   const fuzzy = RACES.find(r => r.name.toLowerCase().includes(clean) || clean.includes(r.name.toLowerCase().slice(0,6)));
   return fuzzy ? fuzzy.id : null;
@@ -1617,16 +1304,32 @@ async function loadRaceResultsForLog(){
   // Load results for all races the user has logged, to power stats
   const slugsNeeded = Object.keys(userLog);
   if(!slugsNeeded.length) return;
-  const { data } = await sb.from('race_results').select('slug,year,top10,stage_wins').in('slug', slugsNeeded);
+
+  // Skip slugs already fully cached
+  const slugsToFetch = slugsNeeded.filter(slug => !_resultsCache[slug]);
+  if(!slugsToFetch.length) {
+    // Sync raceResultsCache from _resultsCache
+    Object.assign(raceResultsCache, _resultsCache);
+    return;
+  }
+
+  const { data } = await sbFetchWithTimeout(
+    sb.from('race_results').select('slug,year,top10,stage_wins').in('slug', slugsToFetch),
+    8000
+  );
   if(!data) return;
   data.forEach(row => {
-    if(!raceResultsCache[row.slug]) raceResultsCache[row.slug] = {};
-    raceResultsCache[row.slug][row.year] = {
-      top10: Array.isArray(row.top10) ? row.top10 : JSON.parse(row.top10 || '[]'),
-      stageWins: Array.isArray(row.stage_wins) ? row.stage_wins : JSON.parse(row.stage_wins || '[]'),
-    };
+    let top10 = row.top10;
+    if(typeof top10 === 'string'){ try{ top10 = JSON.parse(top10); }catch(e){ top10 = []; } }
+    let stageWins = row.stage_wins;
+    if(typeof stageWins === 'string'){ try{ stageWins = JSON.parse(stageWins); }catch(e){ stageWins = []; } }
+    _resultsCache[row.slug] = _resultsCache[row.slug] || {};
+    _resultsCache[row.slug][row.year] = { top10: top10||[], stageWins: stageWins||[] };
+    // Keep raceResultsCache in sync (used by getRiderData/stats)
+    raceResultsCache[row.slug] = raceResultsCache[row.slug] || {};
+    raceResultsCache[row.slug][row.year] = { top10: top10||[], stageWins: stageWins||[] };
   });
-  localStorage.setItem('g3-results-cache', JSON.stringify(raceResultsCache));
+  localStorage.setItem('g3-results-cache', JSON.stringify(_resultsCache));
 }
 const TODAY = new Date().toISOString().split('T')[0];
 const CY    = new Date().getFullYear();
@@ -1640,11 +1343,17 @@ let wholeLive=false;
 //  INIT
 // ════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', async () => {
+  // Show loading state while fetching static data from Supabase
+  document.getElementById('stat-races').textContent = '…';
+
+  // Load all static data (races, dates, config) before any rendering
+  await loadAppData();
+
   renderTabs();
-  // Always use handleRoute so all hashes (race, rider, review, discover/riders, log, stats, etc.) work on reload
+  document.getElementById('stat-races').textContent = RACES.length;
+
   if(location.hash && location.hash.length > 2) {
     renderAll();
-    // For review pages, wait for auth to load profile/userLog before routing
     if(location.hash.startsWith('#/review/')){
       window._pendingRoute = location.hash;
     } else {
@@ -1655,8 +1364,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const validPages = ['discover','log','top','stats','profile'];
     showPage(validPages.includes(savedPage) ? savedPage : 'discover');
   }
-  document.getElementById('stat-races').textContent = RACES.length;
-  // Preload featured riders in background so they're instant when user navigates to Discover → Riders
+
+  // Preload featured riders in background
   renderRiders();
 });
 
@@ -1965,38 +1674,12 @@ async function openRacePage(id, preferYear){
   if(years.length) renderRSPResults(id, bestYear||years[0]);
 }
 
-// id === PCS slug throughout
-function getPcsSlug(id){ return id; }
-
 async function renderRSPResults(id, year){
   const el = document.getElementById('rsp-results'); if(!el) return;
   el.innerHTML = `<div style="font-size:11px;color:var(--muted);">Loading…</div>`;
+  const result = await fetchRaceResults(id, year);
 
-  const pcsSlug = getPcsSlug(id);
-
-  const { data: rows, error } = await sb.from('race_results')
-    .select('top10, race_type, stage_wins, slug, year')
-    .eq('slug', pcsSlug)
-    .eq('year', year)
-    .limit(5);
-
-  if(error) {
-    console.warn('race_results error:', error.message, 'slug:', pcsSlug, 'year:', year);
-    el.innerHTML = `<div style="font-size:11px;color:#e55;">Query error: ${error.message}</div>
-      <div style="font-size:10px;color:var(--muted);margin-top:6px;">slug: "${pcsSlug}", year: ${year}</div>`;
-    return;
-  }
-
-  console.log('race_results query:', pcsSlug, year, '→', rows?.length, 'rows', rows);
-
-  const data = rows && rows.length ? rows[0] : null;
-
-  // top10 may be stored as a JSON string — parse if needed
-  let top10 = data?.top10;
-  if(typeof top10 === 'string'){
-    try { top10 = JSON.parse(top10); } catch(e){ top10 = null; }
-  }
-
+  const top10 = result?.top10;
   let html = '';
 
   if(top10 && Array.isArray(top10) && top10.length){
@@ -2009,84 +1692,102 @@ async function renderRSPResults(id, year){
     });
     html += `</div>`;
   } else {
-    // Show debug info to help diagnose slug/year mismatch
-    html = `<div style="font-size:12px;color:var(--muted);font-style:italic;line-height:1.8;">No results for ${year}.</div>
-      <div style="font-size:10px;color:var(--muted);margin-top:8px;padding:8px;background:rgba(255,255,255,0.03);border:1px solid var(--border);">
-        <div style="margin-bottom:4px;">Queried slug: <span style="color:var(--gold-dim);font-family:monospace;">${pcsSlug}</span></div>
-        <div style="margin-bottom:4px;">Rows returned: <span style="color:var(--gold-dim);">${rows ? rows.length : 'null'}</span></div>
-        ${data ? `<div style="margin-bottom:4px;">top10 type: <span style="color:var(--gold-dim);">${typeof data.top10}</span></div>
-        <div>top10 val: <span style="color:var(--gold-dim);font-family:monospace;">${JSON.stringify(data.top10)?.slice(0,80)}</span></div>` : ''}
-      </div>
-      <div style="margin-top:8px;"><a href="https://www.procyclingstats.com/race/${pcsSlug}/${year}" target="_blank" style="color:var(--gold-dim);font-size:11px;">View on PCS ↗</a></div>`;
+    html = `<div style="font-size:12px;color:var(--muted);font-style:italic;line-height:1.8;">No results for ${year}.<br>
+      <a href="https://www.procyclingstats.com/race/${pcsSlug}/${year}" target="_blank" style="color:var(--gold-dim);">View on PCS ↗</a></div>`;
   }
   el.innerHTML = html;
 }
 
-// Diagnostic: show what slugs actually exist in race_results for this race name
-async function diagSlugLookup(id){
-  const el = document.getElementById('rsp-diag'); if(!el) return;
-  el.innerHTML = 'Searching DB…';
-  const r = RACES.find(x=>x.id===id);
-  const namePart = (r?.name||id).split(/[\s-]/)[0].toLowerCase();
-  const { data, error } = await sb.from('race_results')
-    .select('slug, year')
-    .ilike('slug', `%${namePart}%`)
-    .order('year', {ascending:false})
-    .limit(20);
-  if(error){ el.innerHTML = `Error: ${error.message}`; return; }
-  if(!data?.length){
-    // Fall back to listing all distinct slugs
-    const { data: all } = await sb.from('race_results').select('slug').limit(50);
-    const slugs = [...new Set((all||[]).map(r=>r.slug))].slice(0,20);
-    el.innerHTML = `<div style="color:#e55;">No match for "${namePart}"</div><div style="margin-top:4px;">Sample slugs in DB:</div>`
-      + slugs.map(s=>`<div style="font-family:monospace;font-size:9px;">${s}</div>`).join('');
-    return;
-  }
-  const slugs = [...new Set(data.map(r=>r.slug))];
-  el.innerHTML = `<div style="margin-bottom:4px;color:var(--gold-dim);">App uses: <span style="font-family:monospace;">${id}</span></div>`
-    + `<div style="margin-bottom:4px;">Found in DB (click to test):</div>`
-    + slugs.map(s=>`<div style="font-family:monospace;cursor:pointer;padding:2px 0;color:${s===id?'var(--gold)':'inherit'};" onclick="testDbSlug('${id}','${s}')" onmouseover="this.style.color='var(--gold)'" onmouseout="this.style.color='${s===id?'var(--gold)':''}'">→ ${s}</div>`).join('');
+
+// Cache for race_results data: { slug: { year: { top10, stage_wins } } }
+let _resultsCache = JSON.parse(localStorage.getItem('g3-results-cache') || '{}');
+
+// Fetch with a timeout — if Supabase hangs (e.g. RLS blocking anon), don't wait forever
+async function sbFetchWithTimeout(queryPromise, timeoutMs=5000){
+  return Promise.race([
+    queryPromise,
+    new Promise(resolve => setTimeout(() => resolve({data: null, error: {message:'timeout'}}), timeoutMs))
+  ]);
 }
 
-async function testDbSlug(id, slug){
-  const diag = document.getElementById('rsp-diag');
-  const { data } = await sb.from('race_results').select('year').eq('slug',slug).order('year',{ascending:false}).limit(100);
-  if(!data?.length){ if(diag) diag.innerHTML += `<div style="color:#e55;">No years found for ${slug}</div>`; return; }
-  const yearEl = document.getElementById('rsp-yr-sel');
-  if(yearEl) yearEl.innerHTML = data.map(r=>`<option value="${r.year}">${r.year}</option>`).join('');
-  if(diag) diag.innerHTML += `<div style="color:var(--gold);margin-top:4px;">✓ Using: ${slug} (${data.length} years). Add to getPcsSlug()!</div>`;
-  const { data: rows } = await sb.from('race_results').select('top10').eq('slug',slug).eq('year',data[0].year).limit(1);
-  const top10raw = rows?.[0]?.top10;
-  const top10 = typeof top10raw==='string' ? JSON.parse(top10raw||'[]') : (top10raw||[]);
-  const el = document.getElementById('rsp-results'); if(!el) return;
-  if(top10?.length){
-    el.innerHTML = `<div style="font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:2px;color:var(--ml);margin-bottom:10px;">${data[0].year} Top 10</div>`
-      + top10.map((name,i)=>`<div class="top10-row"><span class="t10-pos">${i+1}</span><span class="t10-name" style="cursor:pointer;" onclick="navToRider('${name.replace(/'/g,"\\'")}')" onmouseover="this.style.color='var(--gold)'" onmouseout="this.style.color=''">${formatRiderName(name)}</span></div>`).join('');
-  } else {
-    el.innerHTML = `<div style="color:var(--muted);font-size:12px;">Slug matched but top10 is empty.</div>`;
-  }
-}
-
-// Fetch available years for a race from Supabase race_results table
+// Fetch available years for a race — uses race_results table (which years have data)
+// Also back-fills RACE_DATES for years not already loaded
 async function fetchAvailYears(id){
-  const pcsSlug = getPcsSlug(id);
-  try {
-    const { data, error } = await sb.from('race_results')
-      .select('year')
-      .eq('slug', pcsSlug)
-      .order('year', { ascending: false })
-      .limit(200);
-    console.log('fetchAvailYears', pcsSlug, '→', data?.length, 'rows', error?.message||'');
-    if(data && data.length) return data.map(r => r.year);
-  } catch(e) {
-    console.warn('fetchAvailYears exception:', e);
+  // Check cache first
+  if(_resultsCache[id]){
+    const cached = Object.keys(_resultsCache[id]).map(Number).sort((a,b)=>b-a);
+    if(cached.length) {
+      await ensureRaceDates(id);
+      return cached;
+    }
   }
-  // Fallback: generate from race tvYear but cap at last year (not current) since 2025/2026 likely has no results yet
+
+  const { data, error } = await sbFetchWithTimeout(
+    sb.from('race_results').select('year,top10,stage_wins').eq('slug', id).order('year', { ascending: false }).limit(200)
+  );
+
+  console.log('fetchAvailYears', id, '→', data?.length ?? 'null', 'rows', error?.message||'ok');
+
+  if(data && data.length){
+    _resultsCache[id] = _resultsCache[id] || {};
+    data.forEach(row => {
+      let top10 = row.top10;
+      if(typeof top10 === 'string'){ try{ top10 = JSON.parse(top10); }catch(e){ top10 = []; } }
+      let stageWins = row.stage_wins;
+      if(typeof stageWins === 'string'){ try{ stageWins = JSON.parse(stageWins); }catch(e){ stageWins = []; } }
+      _resultsCache[id][row.year] = { top10: top10||[], stageWins: stageWins||[] };
+    });
+    localStorage.setItem('g3-results-cache', JSON.stringify(_resultsCache));
+    await ensureRaceDates(id);
+    return data.map(r => r.year);
+  }
+
+  if(error?.message === 'timeout'){
+    console.warn('race_results timed out for', id);
+    const el = document.getElementById('rsp-results');
+    if(el) el.innerHTML = `<div style="font-size:11px;color:var(--muted);line-height:1.8;">Results require sign-in.<br><a href="https://www.procyclingstats.com/race/${id}" target="_blank" style="color:var(--gold-dim);font-size:11px;">View on PCS ↗</a></div>`;
+  }
+
+  // Fallback: generate year list from race data
   const r = RACES.find(x => x.id === id);
   if(!r) return [];
   const ys = [];
-  for(let y = CY - 1; y >= r.tvYear; y--) ys.push(y);
+  for(let y = CY - 1; y >= (r.tvYear || 1990); y--) ys.push(y);
   return ys;
+}
+
+// Ensure RACE_DATES has all years for a given race (lazy load from race_dates table)
+async function ensureRaceDates(id){
+  if(RACE_DATES[id] && Object.keys(RACE_DATES[id]).length > 2) return; // already loaded
+  const { data } = await sbFetchWithTimeout(
+    sb.from('race_dates').select('year,race_date').eq('race_id', id).order('year', {ascending: false}),
+    5000
+  );
+  if(data?.length){
+    RACE_DATES[id] = RACE_DATES[id] || {};
+    data.forEach(row => { RACE_DATES[id][row.year] = row.race_date; });
+  }
+}
+
+// Fetch race results for a specific year (uses cache)
+async function fetchRaceResults(slug, year){
+  if(_resultsCache[slug]?.[year]) return _resultsCache[slug][year];
+
+  const { data, error } = await sbFetchWithTimeout(
+    sb.from('race_results').select('top10,stage_wins').eq('slug', slug).eq('year', year).limit(1)
+  );
+  if(error?.message === 'timeout' || !data?.length) return null;
+
+  const row = data[0];
+  let top10 = row.top10;
+  if(typeof top10 === 'string'){ try{ top10 = JSON.parse(top10); }catch(e){ top10 = []; } }
+  let stageWins = row.stage_wins;
+  if(typeof stageWins === 'string'){ try{ stageWins = JSON.parse(stageWins); }catch(e){ stageWins = []; } }
+  const result = { top10: top10||[], stageWins: stageWins||[] };
+  _resultsCache[slug] = _resultsCache[slug] || {};
+  _resultsCache[slug][year] = result;
+  localStorage.setItem('g3-results-cache', JSON.stringify(_resultsCache));
+  return result;
 }
 
 // ════════════════════════════════════════════════════════
@@ -2643,11 +2344,8 @@ function showRiderDetail(name){
   document.getElementById('rider-detail').style.display='block';
 }
 
-const FEATURED_RIDERS = [
-  'Pogačar Tadej', 'Del Toro Isaac', 'Evenepoel Remco', 'Almeida João',
-  'Vingegaard Jonas', 'Pedersen Mads', 'Van der Poel Mathieu',
-  'Pidcock Thomas', 'De Lie Arnaud', 'Vine Jay'
-];
+// FEATURED_RIDERS loaded from app_config table via loadAppData()
+
 
 function renderRiderCard(rider){
   const rawName = rider.rider_name || rider.name || '';
