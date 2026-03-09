@@ -1379,8 +1379,13 @@ function showPage(p){
   if(aPg==='log' && p!=='log'){
     logFilter = { rating:0, country:'', type:'', sort:'date', live:'' };
   }
-  // Reset rider search when leaving discover page
-  if(aPg==='discover' && p!=='discover' && aDiscSection==='riders') resetRiderSearch();
+  // Reset ALL discover filters when leaving the discover page
+  if(aPg==='discover' && p!=='discover'){
+    aTab='all'; aFil='all'; aSearch=''; aTier='all';
+    const si=document.getElementById('search-input'); if(si) si.value='';
+    document.querySelectorAll('.tier-btn').forEach((x,i)=>x.classList.toggle('active',i===0));
+    if(aDiscSection==='riders') resetRiderSearch();
+  }
   document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));
   document.getElementById('page-'+p).classList.add('active');
   document.querySelectorAll('.nav-a').forEach(x=>x.classList.remove('active'));
@@ -1397,7 +1402,10 @@ function showPage(p){
   else if(p==='top') renderLeaderboard();
   else if(p==='stats'){ loadRaceResultsForLog().then(()=>renderStats()); }
   else if(p==='profile') renderProfile();
-  else if(p==='discover') { if(aDiscSection==='riders') renderRiders(); }
+  else if(p==='discover') {
+    renderTabs(); renderGrid();
+    if(aDiscSection==='riders') renderRiders();
+  }
 }
 
 // ════════════════════════════════════════════════════════
@@ -1876,7 +1884,15 @@ function toggleLive(){
   if(wholeLive){
     const y=parseInt(document.getElementById('lm-year').value);
     const fd=getRaceFinalDate(curId,y);
-    if(fd) document.getElementById('lm-date').value=fd;
+    if(fd){
+      document.getElementById('lm-date').value=fd;
+    } else {
+      // Date not in DB yet — leave date as-is, user can set manually
+      console.warn(`No race date found for ${curId} ${y}`);
+    }
+  } else {
+    // Turned off — restore to today
+    document.getElementById('lm-date').value=TODAY;
   }
 }
 
