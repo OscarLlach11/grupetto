@@ -2517,9 +2517,8 @@ async function executeRiderSearch(){
     if(r.year > prev.year) seenBest.set(r.rider_name, r);
   });
   const unique = Array.from(seenBest.values()).map(r => ({...r, last_year: seenYear.get(r.rider_name) || r.year}));
-  const unique = Array.from(seen.values());
   if(label) label.textContent = `${unique.length} result${unique.length!==1?'s':''}`;
-  grid.innerHTML = unique.map(r => renderRiderCard({...r, last_year: r.year})).join('');
+  grid.innerHTML = unique.map(r => renderRiderCard(r)).join('');
 }
 
 // Reset rider search input and restore featured riders when leaving the section
