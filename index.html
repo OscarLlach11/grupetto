@@ -3595,7 +3595,8 @@ async function renderRiderPage(inputName){
 }
 
 function sgBadgesHTML(id){
-  const sgs=SUBGENRES[id]||[];
+  const race = RACES.find(r => r.id === id);
+  const sgs = race?.subgenres || [];
   return sgs.map(sg=>`<span class="sg-badge ${SG_CLASS[sg]||''}">${SG_LABELS[sg]||sg}</span>`).join('');
 }
 </script>
