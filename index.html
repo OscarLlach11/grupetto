@@ -2394,10 +2394,10 @@ function renderRiderCard(rider){
   const col = riderColor(rawName);
   const ini = riderInitials(rawName);
   const encodedName = encodeURIComponent(rawName);
-  // Team display: show most recent team, or "Retired" if last startlist was 3+ years ago
+  // Team display: "Retired" only if not in any startlist in the past 3 years
   const CUR_YEAR = new Date().getFullYear();
   const lastYear = rider.last_year || rider.year || 0;
-  const teamLabel = (!lastYear || CUR_YEAR - lastYear >= 3) ? 'Retired' : (rider.team_name || '');
+  const teamLabel = (!lastYear || CUR_YEAR - lastYear > 3) ? 'Retired' : (rider.team_name || '');
   const thumb = imgSrc
     ? `<img src="${imgSrc}" style="width:100%;height:100%;object-fit:cover;object-position:center top;"
          onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
@@ -2440,13 +2440,26 @@ async function renderRiders(forceRefresh){
     return;
   }
 
-  // Deduplicate: keep most recent entry per rider, preserving FEATURED_RIDERS order
-  const seen = new Map();
+  // Deduplicate: track latest year separately from best image row
+  const seenBest = new Map();  // name → best row (has image preferred)
+  const seenYear = new Map();  // name → latest year seen
   data.forEach(r => {
-    if(!seen.has(r.rider_name) || r.year > seen.get(r.rider_name).year) seen.set(r.rider_name, r);
+    // Track latest year regardless of image
+    if(!seenYear.has(r.rider_name) || r.year > seenYear.get(r.rider_name)) seenYear.set(r.rider_name, r.year);
+    // Track best row for image
+    const prev = seenBest.get(r.rider_name);
+    if(!prev) { seenBest.set(r.rider_name, r); return; }
+    const rHasImg  = r.image_url && r.image_url !== 'none';
+    const pvHasImg = prev.image_url && prev.image_url !== 'none';
+    if(rHasImg && !pvHasImg) { seenBest.set(r.rider_name, r); return; }
+    if(!rHasImg && pvHasImg) return;
+    if(r.year > prev.year) seenBest.set(r.rider_name, r);
   });
   // Maintain the original FEATURED_RIDERS order, falling back to placeholder if missing
-  const riders = FEATURED_RIDERS.map(name => seen.get(name) || {rider_name: name, image_url: null, year: null});
+  const riders = FEATURED_RIDERS.map(name => {
+    const r = seenBest.get(name) || {rider_name: name, image_url: null, year: null};
+    return {...r, last_year: seenYear.get(name) || r.year};
+  });
   _featuredRidersCache = riders;
 
   if(label) label.textContent = 'Featured Riders';
@@ -2470,9 +2483,20 @@ async function executeRiderSearch(){
     grid.innerHTML = '<div style="color:var(--muted);font-size:12px;grid-column:1/-1;">No riders found.</div>';
     return;
   }
-  // Deduplicate by rider_name, keeping most recent entry
-  const seen = new Map();
-  data.forEach(r => { if(!seen.has(r.rider_name) || r.year > seen.get(r.rider_name).year) seen.set(r.rider_name, r); });
+  // Deduplicate by rider_name — prefer rows with image, track last_year separately
+  const seenBest = new Map();
+  const seenYear = new Map();
+  data.forEach(r => {
+    if(!seenYear.has(r.rider_name) || r.year > seenYear.get(r.rider_name)) seenYear.set(r.rider_name, r.year);
+    const prev = seenBest.get(r.rider_name);
+    if(!prev) { seenBest.set(r.rider_name, r); return; }
+    const rHasImg  = r.image_url && r.image_url !== 'none';
+    const pvHasImg = prev.image_url && prev.image_url !== 'none';
+    if(rHasImg && !pvHasImg) { seenBest.set(r.rider_name, r); return; }
+    if(!rHasImg && pvHasImg) return;
+    if(r.year > prev.year) seenBest.set(r.rider_name, r);
+  });
+  const unique = Array.from(seenBest.values()).map(r => ({...r, last_year: seenYear.get(r.rider_name) || r.year}));
   const unique = Array.from(seen.values());
   if(label) label.textContent = `${unique.length} result${unique.length!==1?'s':''}`;
   grid.innerHTML = unique.map(r => renderRiderCard({...r, last_year: r.year})).join('');
