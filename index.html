@@ -1897,10 +1897,8 @@ async function openRacePage(id, preferYear){
   const watches=(rl.watches||[]);
   const cnt=getStageCount(id);
 
-  // Fetch available years from Supabase (shows only years with actual results)
-  const years = await fetchAvailYears(id);
-  const hashYear = preferYear || years[0];
-  history.pushState(null, '', hashYear ? `#/race/${id}/${hashYear}` : `#/race/${id}`);
+  // Push hash immediately with whatever year we have (will be updated once years load)
+  history.pushState(null, '', preferYear ? `#/race/${id}/${preferYear}` : `#/race/${id}`);
 
   // Main column
   let mainHTML=`
@@ -1945,21 +1943,26 @@ async function openRacePage(id, preferYear){
   }
   document.getElementById('rsp-main').innerHTML=mainHTML;
 
-  // Sidebar: year selector + results
-  let sbHTML=`<div class="sb-title">Race Results</div>
-    <div style="margin-bottom:16px;"><label class="flbl">Show year:</label>
-    <select class="ysel" id="rsp-yr-sel" onchange="renderRSPResults('${id}',parseInt(this.value))" style="width:100%;">
-      ${years.map(y=>`<option value="${y}">${y}</option>`).join('')}
-    </select></div>
-    <div id="rsp-results"></div>
-    <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);">
-      <button onclick="diagSlugLookup('${id}')" style="background:none;border:1px solid var(--border);color:var(--muted);padding:5px 10px;font-size:9px;letter-spacing:1px;cursor:pointer;width:100%;">🔍 Debug: check DB slugs</button>
-      <div id="rsp-diag" style="margin-top:8px;font-size:10px;color:var(--muted);"></div>
-    </div>`;
-  document.getElementById('rsp-sidebar').innerHTML=sbHTML;
+  // Sidebar: year selector + results — build first with loading state
+  document.getElementById('rsp-sidebar').innerHTML=`<div class="sb-title">Race Results</div>
+    <div style="font-size:11px;color:var(--muted);">Loading years…</div>`;
 
   showPage('race');
-  if(years.length) renderRSPResults(id,years[0]);
+
+  // Fetch available years AFTER showing the page (auth may now be ready)
+  const years = await fetchAvailYears(id);
+  const bestYear = preferYear && years.includes(preferYear) ? preferYear : years[0];
+  history.replaceState(null, '', bestYear ? `#/race/${id}/${bestYear}` : `#/race/${id}`);
+
+  // Build sidebar with real years
+  document.getElementById('rsp-sidebar').innerHTML=`<div class="sb-title">Race Results</div>
+    <div style="margin-bottom:16px;"><label class="flbl">Show year:</label>
+    <select class="ysel" id="rsp-yr-sel" onchange="renderRSPResults('${id}',parseInt(this.value))" style="width:100%;">
+      ${years.map(y=>`<option value="${y}"${y===bestYear?' selected':''}>  ${y}</option>`).join('')}
+    </select></div>
+    <div id="rsp-results"></div>`;
+
+  if(years.length) renderRSPResults(id, bestYear||years[0]);
 }
 
 // id === PCS slug throughout
@@ -2067,18 +2070,22 @@ async function testDbSlug(id, slug){
 // Fetch available years for a race from Supabase race_results table
 async function fetchAvailYears(id){
   const pcsSlug = getPcsSlug(id);
-  const { data, error } = await sb.from('race_results')
-    .select('year')
-    .eq('slug', pcsSlug)
-    .order('year', { ascending: false })
-    .limit(100);
-  if(error) console.warn('fetchAvailYears error:', error.message, 'slug:', pcsSlug);
-  if(data && data.length) return data.map(r => r.year);
-  // Fallback: generate from race tvYear
+  try {
+    const { data, error } = await sb.from('race_results')
+      .select('year')
+      .eq('slug', pcsSlug)
+      .order('year', { ascending: false })
+      .limit(200);
+    console.log('fetchAvailYears', pcsSlug, '→', data?.length, 'rows', error?.message||'');
+    if(data && data.length) return data.map(r => r.year);
+  } catch(e) {
+    console.warn('fetchAvailYears exception:', e);
+  }
+  // Fallback: generate from race tvYear but cap at last year (not current) since 2025/2026 likely has no results yet
   const r = RACES.find(x => x.id === id);
   if(!r) return [];
   const ys = [];
-  for(let y = CY; y >= r.tvYear; y--) ys.push(y);
+  for(let y = CY - 1; y >= r.tvYear; y--) ys.push(y);
   return ys;
 }
 
@@ -2979,19 +2986,29 @@ function confirmDeleteRaceLogs(){
   });
 }
 function confirmClearAll(){
-  const n=allEntries().length; if(!n){toast('Nothing to clear');return;}
-  showConfirm('Clear All Logs',`Delete all <strong>${n}</strong> log entries and reset stats to zero? This cannot be undone.`,async ()=>{
-    const dbIds = Object.values(userLog).flatMap(rl=>(rl.watches||[]).map(w=>w.id).filter(Boolean));
-    // Wipe all local state
+  const n=allEntries().length;
+  const hasAnything = n > 0 || watchlist.length > 0;
+  if(!hasAnything){toast('Nothing to clear');return;}
+  showConfirm('Clear All Data',`Delete all logs, ratings and reset everything to zero? This cannot be undone.`,async ()=>{
+    // Wipe all local state immediately
     userLog={};
     raceResultsCache={};
     localStorage.removeItem('g3-log');
     localStorage.removeItem('g3-results-cache');
     persist();
-    renderLogPage(); renderAll(); toast('All logs cleared — stats reset to 0');
-    if(dbIds.length && currentUser){
-      const { error } = await sb.from('race_logs').delete().in('id', dbIds).eq('user_id', currentUser.id);
-      if(error) console.error('Delete from DB failed:', error);
+    renderLogPage(); renderAll(); toast('Clearing from server…');
+
+    if(currentUser){
+      // Delete ALL race_logs for this user (server-side, catches any orphaned rows too)
+      const { error } = await sb.from('race_logs')
+        .delete()
+        .eq('user_id', currentUser.id);
+      if(error) { console.error('Delete race_logs failed:', error); toast('Server delete failed: ' + error.message); return; }
+      // stage_logs are cascade-deleted by FK, but explicitly clean up too
+      await sb.from('stage_logs').delete().eq('user_id', currentUser.id);
+      toast('All cleared ✓');
+    } else {
+      toast('All local data cleared ✓');
     }
   });
 }
