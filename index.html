@@ -9,7 +9,7 @@
 <script>
   const SUPABASE_URL = 'https://pkbxgeloejmnblwpsuch.supabase.co';
   const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBrYnhnZWxvZWptbmJsd3BzdWNoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI4MTU0MDcsImV4cCI6MjA4ODM5MTQwN30.2JbsShp7ZIQ4qs-kgF7_O4wWZDTgQ_qDdI9X9SFjnWA';
-  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  var sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   let currentUser = null;
 
@@ -1910,15 +1910,28 @@ async function toggleLive(){
   document.getElementById('lm-live').classList.toggle('on',wholeLive);
   if(wholeLive){
     const y=parseInt(document.getElementById('lm-year').value);
-    await ensureRaceDates(curId);
-    const fd=getRaceFinalDate(curId,y);
+    // Try cache first
+    let fd = getRaceFinalDate(curId, y);
+    if(!fd){
+      // Direct query for this specific race+year
+      const { data } = await sb.from('race_dates')
+        .select('race_date')
+        .eq('race_id', curId)
+        .eq('year', y)
+        .limit(1);
+      fd = data?.[0]?.race_date || null;
+      if(fd){
+        RACE_DATES[curId] = RACE_DATES[curId] || {};
+        RACE_DATES[curId][y] = fd;
+      }
+    }
     if(fd){
-      document.getElementById('lm-date').value=fd;
+      document.getElementById('lm-date').value = fd;
     } else {
       console.warn(`No race date in DB for ${curId} ${y}`);
     }
   } else {
-    document.getElementById('lm-date').value=TODAY;
+    document.getElementById('lm-date').value = TODAY;
   }
 }
 
