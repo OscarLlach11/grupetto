@@ -1951,7 +1951,11 @@ async function openRacePage(id, preferYear){
     <select class="ysel" id="rsp-yr-sel" onchange="renderRSPResults('${id}',parseInt(this.value))" style="width:100%;">
       ${years.map(y=>`<option value="${y}">${y}</option>`).join('')}
     </select></div>
-    <div id="rsp-results"></div>`;
+    <div id="rsp-results"></div>
+    <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border);">
+      <button onclick="diagSlugLookup('${id}')" style="background:none;border:1px solid var(--border);color:var(--muted);padding:5px 10px;font-size:9px;letter-spacing:1px;cursor:pointer;width:100%;">🔍 Debug: check DB slugs</button>
+      <div id="rsp-diag" style="margin-top:8px;font-size:10px;color:var(--muted);"></div>
+    </div>`;
   document.getElementById('rsp-sidebar').innerHTML=sbHTML;
 
   showPage('race');
@@ -1967,20 +1971,32 @@ async function renderRSPResults(id, year){
 
   const pcsSlug = getPcsSlug(id);
 
-  // Use .limit(1) instead of .maybeSingle() to avoid 406 PGRST116 errors
   const { data: rows, error } = await sb.from('race_results')
-    .select('top10, race_type, stage_wins')
+    .select('top10, race_type, stage_wins, slug, year')
     .eq('slug', pcsSlug)
     .eq('year', year)
-    .limit(1);
+    .limit(5);
 
-  if(error) console.warn('race_results error:', error.message, 'slug:', pcsSlug, 'year:', year);
+  if(error) {
+    console.warn('race_results error:', error.message, 'slug:', pcsSlug, 'year:', year);
+    el.innerHTML = `<div style="font-size:11px;color:#e55;">Query error: ${error.message}</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:6px;">slug: "${pcsSlug}", year: ${year}</div>`;
+    return;
+  }
+
+  console.log('race_results query:', pcsSlug, year, '→', rows?.length, 'rows', rows);
 
   const data = rows && rows.length ? rows[0] : null;
-  const top10 = data?.top10;
+
+  // top10 may be stored as a JSON string — parse if needed
+  let top10 = data?.top10;
+  if(typeof top10 === 'string'){
+    try { top10 = JSON.parse(top10); } catch(e){ top10 = null; }
+  }
+
   let html = '';
 
-  if(top10 && top10.length){
+  if(top10 && Array.isArray(top10) && top10.length){
     html += `<div style="font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:2px;color:var(--ml);margin-bottom:10px;">${year} Top 10</div><div>`;
     top10.forEach((name, i) => {
       html += `<div class="top10-row">
@@ -1990,9 +2006,62 @@ async function renderRSPResults(id, year){
     });
     html += `</div>`;
   } else {
-    html = `<div style="font-size:12px;color:var(--muted);font-style:italic;line-height:1.8;">No results for ${year}.<br><a href="https://www.procyclingstats.com/race/${pcsSlug}/${year}" target="_blank" style="color:var(--gold-dim);">View on PCS ↗</a></div>`;
+    // Show debug info to help diagnose slug/year mismatch
+    html = `<div style="font-size:12px;color:var(--muted);font-style:italic;line-height:1.8;">No results for ${year}.</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:8px;padding:8px;background:rgba(255,255,255,0.03);border:1px solid var(--border);">
+        <div style="margin-bottom:4px;">Queried slug: <span style="color:var(--gold-dim);font-family:monospace;">${pcsSlug}</span></div>
+        <div style="margin-bottom:4px;">Rows returned: <span style="color:var(--gold-dim);">${rows ? rows.length : 'null'}</span></div>
+        ${data ? `<div style="margin-bottom:4px;">top10 type: <span style="color:var(--gold-dim);">${typeof data.top10}</span></div>
+        <div>top10 val: <span style="color:var(--gold-dim);font-family:monospace;">${JSON.stringify(data.top10)?.slice(0,80)}</span></div>` : ''}
+      </div>
+      <div style="margin-top:8px;"><a href="https://www.procyclingstats.com/race/${pcsSlug}/${year}" target="_blank" style="color:var(--gold-dim);font-size:11px;">View on PCS ↗</a></div>`;
   }
   el.innerHTML = html;
+}
+
+// Diagnostic: show what slugs actually exist in race_results for this race name
+async function diagSlugLookup(id){
+  const el = document.getElementById('rsp-diag'); if(!el) return;
+  el.innerHTML = 'Searching DB…';
+  const r = RACES.find(x=>x.id===id);
+  const namePart = (r?.name||id).split(/[\s-]/)[0].toLowerCase();
+  const { data, error } = await sb.from('race_results')
+    .select('slug, year')
+    .ilike('slug', `%${namePart}%`)
+    .order('year', {ascending:false})
+    .limit(20);
+  if(error){ el.innerHTML = `Error: ${error.message}`; return; }
+  if(!data?.length){
+    // Fall back to listing all distinct slugs
+    const { data: all } = await sb.from('race_results').select('slug').limit(50);
+    const slugs = [...new Set((all||[]).map(r=>r.slug))].slice(0,20);
+    el.innerHTML = `<div style="color:#e55;">No match for "${namePart}"</div><div style="margin-top:4px;">Sample slugs in DB:</div>`
+      + slugs.map(s=>`<div style="font-family:monospace;font-size:9px;">${s}</div>`).join('');
+    return;
+  }
+  const slugs = [...new Set(data.map(r=>r.slug))];
+  el.innerHTML = `<div style="margin-bottom:4px;color:var(--gold-dim);">App uses: <span style="font-family:monospace;">${id}</span></div>`
+    + `<div style="margin-bottom:4px;">Found in DB (click to test):</div>`
+    + slugs.map(s=>`<div style="font-family:monospace;cursor:pointer;padding:2px 0;color:${s===id?'var(--gold)':'inherit'};" onclick="testDbSlug('${id}','${s}')" onmouseover="this.style.color='var(--gold)'" onmouseout="this.style.color='${s===id?'var(--gold)':''}'">→ ${s}</div>`).join('');
+}
+
+async function testDbSlug(id, slug){
+  const diag = document.getElementById('rsp-diag');
+  const { data } = await sb.from('race_results').select('year').eq('slug',slug).order('year',{ascending:false}).limit(100);
+  if(!data?.length){ if(diag) diag.innerHTML += `<div style="color:#e55;">No years found for ${slug}</div>`; return; }
+  const yearEl = document.getElementById('rsp-yr-sel');
+  if(yearEl) yearEl.innerHTML = data.map(r=>`<option value="${r.year}">${r.year}</option>`).join('');
+  if(diag) diag.innerHTML += `<div style="color:var(--gold);margin-top:4px;">✓ Using: ${slug} (${data.length} years). Add to getPcsSlug()!</div>`;
+  const { data: rows } = await sb.from('race_results').select('top10').eq('slug',slug).eq('year',data[0].year).limit(1);
+  const top10raw = rows?.[0]?.top10;
+  const top10 = typeof top10raw==='string' ? JSON.parse(top10raw||'[]') : (top10raw||[]);
+  const el = document.getElementById('rsp-results'); if(!el) return;
+  if(top10?.length){
+    el.innerHTML = `<div style="font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:2px;color:var(--ml);margin-bottom:10px;">${data[0].year} Top 10</div>`
+      + top10.map((name,i)=>`<div class="top10-row"><span class="t10-pos">${i+1}</span><span class="t10-name" style="cursor:pointer;" onclick="navToRider('${name.replace(/'/g,"\\'")}')" onmouseover="this.style.color='var(--gold)'" onmouseout="this.style.color=''">${formatRiderName(name)}</span></div>`).join('');
+  } else {
+    el.innerHTML = `<div style="color:var(--muted);font-size:12px;">Slug matched but top10 is empty.</div>`;
+  }
 }
 
 // Fetch available years for a race from Supabase race_results table
@@ -2911,9 +2980,15 @@ function confirmDeleteRaceLogs(){
 }
 function confirmClearAll(){
   const n=allEntries().length; if(!n){toast('Nothing to clear');return;}
-  showConfirm('Clear All Logs',`Delete all <strong>${n}</strong> log entries? This cannot be undone.`,async ()=>{
+  showConfirm('Clear All Logs',`Delete all <strong>${n}</strong> log entries and reset stats to zero? This cannot be undone.`,async ()=>{
     const dbIds = Object.values(userLog).flatMap(rl=>(rl.watches||[]).map(w=>w.id).filter(Boolean));
-    userLog={}; persist(); renderLogPage(); renderAll(); toast('All logs cleared');
+    // Wipe all local state
+    userLog={};
+    raceResultsCache={};
+    localStorage.removeItem('g3-log');
+    localStorage.removeItem('g3-results-cache');
+    persist();
+    renderLogPage(); renderAll(); toast('All logs cleared — stats reset to 0');
     if(dbIds.length && currentUser){
       const { error } = await sb.from('race_logs').delete().in('id', dbIds).eq('user_id', currentUser.id);
       if(error) console.error('Delete from DB failed:', error);
