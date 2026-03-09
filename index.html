@@ -297,7 +297,7 @@
     document.getElementById('auth-tab-up').style.borderBottomColor = tab==='up' ? 'var(--gold)' : 'transparent';
   }
 
-  document.addEventListener('DOMContentLoaded', initAuth);
+  // Auth is initialised from the main DOMContentLoaded handler after loadAppData() completes
 </script>
 <style>
 :root{--black:#0a0a0a;--off-black:#111;--card-bg:#161616;--border:#252525;--border-light:#333;--gold:#e8c84a;--gold-dim:#9a8430;--white:#f0ede8;--muted:#5a5a5a;--ml:#888;--live:#e74c3c;--danger:#c0392b;}
@@ -1344,22 +1344,21 @@ let wholeLive=false;
 //  INIT
 // ════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', async () => {
-  // Show loading state while fetching static data from Supabase
+  // Load all static data FIRST — RACES must be populated before any rendering
   document.getElementById('stat-races').textContent = '…';
-
-  // Load all static data (races, dates, config) before any rendering
   await loadAppData();
-
-  renderTabs();
   document.getElementById('stat-races').textContent = RACES.length;
 
+  // Restore discover filters from last session
+  restoreDiscoverFilters();
+  renderTabs();
+
+  // Now init auth — onSignedIn/onSignedOut will call renderAll() with RACES ready
+  await initAuth();
+
+  // Handle URL hash routing (after auth resolves so user data is loaded)
   if(location.hash && location.hash.length > 2) {
-    renderAll();
-    if(location.hash.startsWith('#/review/')){
-      window._pendingRoute = location.hash;
-    } else {
-      handleRoute(location.hash);
-    }
+    if(!location.hash.startsWith('#/review/')) handleRoute(location.hash);
   } else {
     const savedPage = localStorage.getItem('g3-activePage') || 'discover';
     const validPages = ['discover','log','top','stats','profile'];
@@ -1382,6 +1381,7 @@ function showPage(p){
   // Reset ALL discover filters when leaving the discover page
   if(aPg==='discover' && p!=='discover'){
     aTab='all'; aFil='all'; aSearch=''; aTier='all';
+    localStorage.removeItem('g3-filters');
     const si=document.getElementById('search-input'); if(si) si.value='';
     document.querySelectorAll('.tier-btn').forEach((x,i)=>x.classList.toggle('active',i===0));
     if(aDiscSection==='riders') resetRiderSearch();
@@ -1413,12 +1413,35 @@ function showPage(p){
 // ════════════════════════════════════════════════════════
 let aTab='all',aFil='all',aSearch='',aTier='all';
 
+function saveDiscoverFilters(){
+  localStorage.setItem('g3-filters', JSON.stringify({aTab,aFil,aSearch,aTier}));
+}
+
+function restoreDiscoverFilters(){
+  try {
+    const saved = JSON.parse(localStorage.getItem('g3-filters') || '{}');
+    aTab   = saved.aTab   || 'all';
+    aFil   = saved.aFil   || 'all';
+    aSearch= saved.aSearch|| '';
+    aTier  = saved.aTier  || 'all';
+    // Restore UI state for tier buttons
+    document.querySelectorAll('.tier-btn').forEach(btn => {
+      const t = btn.getAttribute('onclick')?.match(/'(\w+)'\)/)?.[1];
+      btn.classList.toggle('active', t === aTier);
+    });
+    // Restore search input
+    const si = document.getElementById('search-input');
+    if(si) si.value = aSearch;
+  } catch(e) {}
+}
+
 function isWT(r){ return r.tier === 'WT'; }
 
 function setTier(el, t){
   aTier=t; aTab='all';
   document.querySelectorAll('.tier-btn').forEach(x=>x.classList.remove('active'));
   el.classList.add('active');
+  saveDiscoverFilters();
   renderTabs(); renderGrid();
 }
 
@@ -1439,9 +1462,9 @@ function renderTabs(){
 // Log-specific filters (separate from discover)
 let logFilter = { rating: 0, country: '', type: '', sort: 'date', live: '' };
 
-function setTab(el,t){aTab=t;document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));el.classList.add('active');renderGrid();}
-function setFilter(el,f){aFil=f;document.querySelectorAll('.fb').forEach(x=>x.classList.remove('active'));el.classList.add('active');renderGrid();}
-function setSearch(v){aSearch=v.toLowerCase();renderGrid();}
+function setTab(el,t){aTab=t;document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));el.classList.add('active');saveDiscoverFilters();renderGrid();}
+function setFilter(el,f){aFil=f;document.querySelectorAll('.fb').forEach(x=>x.classList.remove('active'));el.classList.add('active');saveDiscoverFilters();renderGrid();}
+function setSearch(v){aSearch=v.toLowerCase();saveDiscoverFilters();renderGrid();}
 
 // ── Log filter dropdown logic ────────────────────────────
 function toggleLogDD(id){
@@ -1763,17 +1786,20 @@ async function fetchAvailYears(id){
   return ys;
 }
 
-// All race dates are loaded upfront in loadAppData — this is a no-op safety net
+// Set of race IDs whose full date history has been loaded
+const _raceDatesFullyLoaded = new Set();
+
 async function ensureRaceDates(id){
-  if(RACE_DATES[id]) return; // already loaded
+  if(_raceDatesFullyLoaded.has(id)) return;
   const { data } = await sbFetchWithTimeout(
     sb.from('race_dates').select('year,race_date').eq('race_id', id).order('year', {ascending: false}),
     5000
   );
   if(data?.length){
-    RACE_DATES[id] = {};
+    RACE_DATES[id] = RACE_DATES[id] || {};
     data.forEach(row => { RACE_DATES[id][row.year] = row.race_date; });
   }
+  _raceDatesFullyLoaded.add(id);
 }
 
 // Fetch race results for a specific year (uses cache)
@@ -1868,30 +1894,30 @@ function openLogModal(id, watchIdx=null){
   openMO('log-mo');
 }
 
-function onYearChange(){
+async function onYearChange(){
   stRatings={};
   if(wholeLive){
     const y=parseInt(document.getElementById('lm-year').value);
+    await ensureRaceDates(curId);
     const fd=getRaceFinalDate(curId,y);
     if(fd) document.getElementById('lm-date').value=fd;
   }
   renderLogFormBody();
 }
 
-function toggleLive(){
+async function toggleLive(){
   wholeLive=!wholeLive;
   document.getElementById('lm-live').classList.toggle('on',wholeLive);
   if(wholeLive){
     const y=parseInt(document.getElementById('lm-year').value);
+    await ensureRaceDates(curId);
     const fd=getRaceFinalDate(curId,y);
     if(fd){
       document.getElementById('lm-date').value=fd;
     } else {
-      // Date not in DB yet — leave date as-is, user can set manually
-      console.warn(`No race date found for ${curId} ${y}`);
+      console.warn(`No race date in DB for ${curId} ${y}`);
     }
   } else {
-    // Turned off — restore to today
     document.getElementById('lm-date').value=TODAY;
   }
 }
@@ -2475,7 +2501,7 @@ function showStatsRidersPanel(){
     return `<div style="display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid var(--border);cursor:pointer;" onclick="showRiderDetail('${name.replace(/'/g,"\\'")}');showDiscover('riders');">
       <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:${i<3?'var(--accent)':'var(--muted)'};width:24px;text-align:center;">${i+1}</div>
       <div style="flex:1;">
-        <div style="font-size:13px;font-weight:600;">${name}</div>
+        <div style="font-size:13px;font-weight:600;">${formatRiderName(name)}</div>
         <div style="font-size:11px;color:var(--muted);margin-top:2px;">
           ${ow?`🏆 ${ow} overall win${ow!==1?'s':''}`:''} ${gw?`🟡 ${gw} GC win${gw!==1?'s':''}`:''} ${sw?`⚡ ${sw} stage${sw!==1?'s':''}`:''}</div>
       </div>
@@ -2545,10 +2571,10 @@ function renderStats(){
     <div class="stat-card">
       <div class="stat-card-title">Most Watched</div>
       ${topRaceObj?`<div class="stat-row stat-clickrow" onclick="showStatsPanel('race')"><span class="stat-row-label">Race ↓</span><span class="stat-row-val" style="font-size:13px;text-align:right;max-width:60%;">${topRaceObj.name}<br><span style="font-size:11px;color:var(--muted);">${topRace[1]} races</span></span></div>`:'<div style="color:var(--muted);font-size:12px;">No data yet</div>'}
-      ${topRider?`<div class="stat-row stat-clickrow" onclick="showStatsPanel('rider')"><span class="stat-row-label">Rider ↓</span><span class="stat-row-val" style="font-size:13px;text-align:right;">${topRider[0]}<br><span style="font-size:11px;color:var(--muted);">${topRider[1]} races seen</span></span></div>`:''}
-      ${topOverallWinner?`<div class="stat-row stat-clickrow" onclick="showStatsPanel('gcwins')"><span class="stat-row-label">Overall Wins ↓</span><span class="stat-row-val" style="font-size:13px;text-align:right;">${topOverallWinner[0]}<br><span style="font-size:11px;color:var(--muted);">${topOverallWinner[1]} overall wins</span></span></div>`:''}
-      ${topGCWinner?`<div class="stat-row stat-clickrow" onclick="showStatsPanel('gcwins2')"><span class="stat-row-label">GC Wins ↓</span><span class="stat-row-val" style="font-size:13px;text-align:right;">${topGCWinner[0]}<br><span style="font-size:11px;color:var(--muted);">${topGCWinner[1]} GC wins</span></span></div>`:''}
-      ${topStageWinner?`<div class="stat-row stat-clickrow" onclick="showStatsPanel('stagewins')"><span class="stat-row-label">Stage Wins ↓</span><span class="stat-row-val" style="font-size:13px;text-align:right;">${topStageWinner[0]}<br><span style="font-size:11px;color:var(--muted);">${topStageWinner[1]} stage wins</span></span></div>`:''}
+      ${topRider?`<div class="stat-row stat-clickrow" onclick="showStatsPanel('rider')"><span class="stat-row-label">Rider ↓</span><span class="stat-row-val" style="font-size:13px;text-align:right;">${formatRiderName(topRider[0])}<br><span style="font-size:11px;color:var(--muted);">${topRider[1]} races seen</span></span></div>`:''}
+      ${topOverallWinner?`<div class="stat-row stat-clickrow" onclick="showStatsPanel('gcwins')"><span class="stat-row-label">Overall Wins ↓</span><span class="stat-row-val" style="font-size:13px;text-align:right;">${formatRiderName(topOverallWinner[0])}<br><span style="font-size:11px;color:var(--muted);">${topOverallWinner[1]} overall wins</span></span></div>`:''}
+      ${topGCWinner?`<div class="stat-row stat-clickrow" onclick="showStatsPanel('gcwins2')"><span class="stat-row-label">GC Wins ↓</span><span class="stat-row-val" style="font-size:13px;text-align:right;">${formatRiderName(topGCWinner[0])}<br><span style="font-size:11px;color:var(--muted);">${topGCWinner[1]} GC wins</span></span></div>`:''}
+      ${topStageWinner?`<div class="stat-row stat-clickrow" onclick="showStatsPanel('stagewins')"><span class="stat-row-label">Stage Wins ↓</span><span class="stat-row-val" style="font-size:13px;text-align:right;">${formatRiderName(topStageWinner[0])}<br><span style="font-size:11px;color:var(--muted);">${topStageWinner[1]} stage wins</span></span></div>`:''}
     </div>
   </div>`;
 }
@@ -2586,7 +2612,7 @@ function showStatsPanel(type){
     document.getElementById('stats-gcwins-list').innerHTML=top10.map(([name,cnt],i)=>
       `<div style="display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid var(--border);">
         <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:${i<3?'var(--accent)':'var(--muted)'};width:24px;text-align:center;">${i+1}</div>
-        <div style="flex:1;font-size:13px;font-weight:600;">${name}</div>
+        <div style="flex:1;font-size:13px;font-weight:600;">${formatRiderName(name)}</div>
         <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;">${cnt}</div>
         <div style="font-size:10px;color:var(--muted);width:56px;">overall win${cnt!==1?'s':''}</div>
       </div>`
@@ -2601,7 +2627,7 @@ function showStatsPanel(type){
     document.getElementById('stats-gcwins2-list').innerHTML=top10.map(([name,cnt],i)=>
       `<div style="display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid var(--border);">
         <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:${i<3?'var(--gold)':'var(--muted)'};width:24px;text-align:center;">${i+1}</div>
-        <div style="flex:1;font-size:13px;font-weight:600;">${name}</div>
+        <div style="flex:1;font-size:13px;font-weight:600;">${formatRiderName(name)}</div>
         <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;">${cnt}</div>
         <div style="font-size:10px;color:var(--muted);width:48px;">GC win${cnt!==1?'s':''}</div>
       </div>`
@@ -2616,7 +2642,7 @@ function showStatsPanel(type){
     document.getElementById('stats-stagewins-list').innerHTML=top10.map(([name,cnt],i)=>
       `<div style="display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid var(--border);">
         <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:${i<3?'#58a6ff':'var(--muted)'};width:24px;text-align:center;">${i+1}</div>
-        <div style="flex:1;font-size:13px;font-weight:600;">${name}</div>
+        <div style="flex:1;font-size:13px;font-weight:600;">${formatRiderName(name)}</div>
         <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;">${cnt}</div>
         <div style="font-size:10px;color:var(--muted);width:48px;">stage${cnt!==1?'s':''}</div>
       </div>`
