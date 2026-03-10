@@ -65,11 +65,10 @@
     const email    = document.getElementById('su-email').value.trim();
     const password = document.getElementById('su-password').value;
 
-    if (!name)               { toast('Please enter your name');        return; }
-    if (!email)              { toast('Please enter your email');       return; }
-    if (password.length < 6) { toast('Password min 6 characters');    return; }
+    if (!name)               { toast('Please enter your name');     return; }
+    if (!email)              { toast('Please enter your email');    return; }
+    if (password.length < 6) { toast('Password min 6 characters'); return; }
 
-    // Auto-generate handle from email prefix, cleaned up
     const handle = email.split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g,'').slice(0,24) || 'cyclist';
 
     const { data, error } = await sb.auth.signUp({
@@ -79,13 +78,15 @@
     });
 
     if (error) { toast(error.message); return; }
-    // Save initial profile with handle
+
+    // Try to save profile — may already exist if DB trigger fired, so ignore conflicts
     if(data?.user){
-      await sb.from('profiles').upsert({
-        user_id: data.user.id,
+      const { error: profErr } = await sb.from('profiles').upsert({
+        user_id:      data.user.id,
         display_name: name,
         handle,
       }, { onConflict: 'user_id' });
+      if(profErr) console.warn('Profile upsert (non-fatal):', profErr.message);
       profile.name = name;
       profile.handle = handle;
       persistProfile();
