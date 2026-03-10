@@ -2360,36 +2360,59 @@ function renderLogPage(){
 // ════════════════════════════════════════════════════════
 //  LEADERBOARD
 // ════════════════════════════════════════════════════════
-function renderLeaderboard(){
-  const lb=document.getElementById('leaderboard');
-  const entries=[];
-  // Each edition as its own entry
-  RACES.forEach(r=>{
-    const rl=userLog[r.id]||{};
-    (rl.watches||[]).forEach(w=>{
-      if(w.rating){
-        entries.push({label:`${r.name} <span style="color:var(--muted);font-size:13px;">${w.year}</span>`,sublabel:`${r.flag} ${r.country} · ${r.type}`,gradient:r.gradient,rating:w.rating,id:r.id,isStage:false});
-      }
-      // Each rated stage as its own entry
-      Object.entries(w.stages||{}).forEach(([stNum,s])=>{
-        if(s.rating){
-          entries.push({label:`${r.name} <span style="color:var(--muted);font-size:13px;">${w.year} · Stage ${stNum}</span>`,sublabel:`${r.flag} ${r.country} · Stage`,gradient:r.gradient,rating:s.rating,id:r.id,isStage:true});
-        }
-      });
-    });
+// Minimum number of ratings required to appear in community leaderboard
+const TOP_RACES_MIN_RATINGS = 2;
+
+async function renderLeaderboard(){
+  const lb = document.getElementById('leaderboard');
+  lb.innerHTML = '<div style="padding:24px 40px;color:var(--muted);font-size:12px;">Loading community rankings…</div>';
+
+  // Fetch all rated race logs from all users
+  const { data: allLogs, error } = await sb.from('race_logs')
+    .select('slug,year,rating')
+    .not('rating', 'is', null)
+    .gt('rating', 0)
+    .limit(5000);
+
+  if(error || !allLogs?.length){
+    lb.innerHTML = '<div class="empty">No community ratings yet.</div>';
+    return;
+  }
+
+  // Aggregate: group by slug+year, compute avg and count
+  const map = {}; // key: "slug|year"
+  allLogs.forEach(log => {
+    const key = `${log.slug}|${log.year}`;
+    if(!map[key]) map[key] = { slug: log.slug, year: log.year, ratings: [] };
+    map[key].ratings.push(parseFloat(log.rating));
   });
-  entries.sort((a,b)=>b.rating-a.rating);
-  if(!entries.length){lb.innerHTML='<div class="empty">Rate some races or stages to build your leaderboard.</div>';return;}
-  lb.innerHTML=entries.map(({label,sublabel,gradient,rating,isStage},i)=>`
-    <div class="lbi">
+
+  // Build entries, filter by minimum rating count
+  const entries = Object.values(map)
+    .filter(e => e.ratings.length >= TOP_RACES_MIN_RATINGS)
+    .map(e => {
+      const avg = e.ratings.reduce((a,b)=>a+b,0) / e.ratings.length;
+      const race = RACES.find(r => r.id === e.slug);
+      return { slug: e.slug, year: e.year, avg, count: e.ratings.length, race };
+    })
+    .filter(e => e.race) // must be a known race
+    .sort((a,b) => b.avg - a.avg || b.count - a.count);
+
+  if(!entries.length){
+    lb.innerHTML = `<div class="empty">Not enough ratings yet — each race needs at least ${TOP_RACES_MIN_RATINGS} ratings to appear.</div>`;
+    return;
+  }
+
+  lb.innerHTML = entries.map(({slug, year, avg, count, race}, i) => `
+    <div class="lbi" onclick="openRacePage('${slug}')">
       <div class="lbrank ${i<3?'pod':''}">${i+1}</div>
-      <div class="lbsw" style="background:${gradient}"></div>
+      <div class="lbsw" style="background:${race.gradient}"></div>
       <div class="lbinfo">
-        <div class="lbname">${label}${isStage?' <span style="font-size:9px;letter-spacing:1px;color:#58a6ff;background:rgba(88,166,255,.12);padding:1px 5px;">STAGE</span>':''}</div>
-        <div class="lbsub">${sublabel}</div>
-        <div style="margin-top:3px;">${starsHTML(rating,10)}</div>
+        <div class="lbname">${race.name} <span style="color:var(--muted);font-size:13px;">${year}</span></div>
+        <div class="lbsub">${race.flag} ${race.country} · ${race.type} · ${count} rating${count!==1?'s':''}</div>
+        <div style="margin-top:3px;">${starsHTML(avg, 10)}</div>
       </div>
-      <div><div class="lbsc">${rating.toFixed(1)}</div><div class="lbsc-s">/ 5.0</div></div>
+      <div><div class="lbsc">${avg.toFixed(2)}</div><div class="lbsc-s">/ 5.0</div></div>
     </div>`).join('');
 }
 
@@ -4142,45 +4165,49 @@ async function openUserPage(userId){
   header.innerHTML = '<div style="color:var(--muted);font-size:12px;">Loading…</div>';
   inner.innerHTML  = '';
 
-  // Load profile + logs + follows in parallel
-  const [profRes, logsRes, followersRes] = await Promise.all([
+  // Load profile + follower count (race_logs may be RLS-blocked for other users)
+  const [profRes, followersRes] = await Promise.all([
     sb.from('profiles').select('*').eq('user_id', userId).maybeSingle(),
-    sb.from('race_logs').select('*,stage_logs(*)').eq('user_id', userId).order('created_at',{ascending:false}),
     sb.from('follows').select('follower_id',{count:'exact',head:true}).eq('following_id', userId),
   ]);
 
+  // Try loading race_logs — may be empty if RLS blocks it, that's ok
+  const { data: logsData } = await sb.from('race_logs')
+    .select('id,slug,year,rating,date_watched,watched_live,created_at')
+    .eq('user_id', userId)
+    .order('created_at',{ascending:false});
+
   const p = profRes.data || {};
-  const logs = logsRes.data || [];
+  const logs = logsData || [];
   const followerCount = followersRes.count || 0;
 
-  // Rebuild userLog structure for this user
-  const uLog = {};
-  logs.forEach(log => {
-    if(!uLog[log.slug]) uLog[log.slug] = { watches: [] };
-    const stages = {};
-    (log.stage_logs||[]).forEach(s => { stages[s.stage_num] = {rating:s.rating,review:s.review,date:s.date_watched,live:s.watched_live}; });
-    uLog[log.slug].watches.push({id:log.id,year:log.year,date:log.date_watched,live:log.watched_live,rating:parseFloat(log.rating)||0,review:log.review||'',stages,ts:new Date(log.created_at).getTime()});
-  });
+  // Build summary from logs
+  const allEntrs = logs.map(log => [log.slug, {
+    year: log.year,
+    date: log.date_watched,
+    live: log.watched_live,
+    rating: parseFloat(log.rating)||0,
+    ts: new Date(log.created_at).getTime()
+  }]);
 
-  const allEntrs = Object.entries(uLog).flatMap(([id,rl])=>(rl.watches||[]).map(w=>[id,w]));
   const total = allEntrs.length;
   const liveCount = allEntrs.filter(([,w])=>w.live).length;
   const rts = allEntrs.filter(([,w])=>w.rating).map(([,w])=>w.rating);
   const avg = rts.length ? (rts.reduce((a,b)=>a+b,0)/rts.length).toFixed(1) : '—';
 
-  // Check if I'm following this user
+  // Check follow state
   if(!_followingIds.size && currentUser) await loadFollowingIds();
   const isFollowing = _followingIds.has(userId);
   const ini = (p.display_name||'?').split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
   const avatarHTML = p.avatar_url
-    ? `<img src="${p.avatar_url}" style="width:38px;height:38px;border-radius:50%;object-fit:cover;">`
-    : `<div style="width:38px;height:38px;border-radius:50%;background:var(--card-bg);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;font-size:14px;">${ini}</div>`;
+    ? `<img src="${p.avatar_url}" style="width:44px;height:44px;border-radius:50%;object-fit:cover;">`
+    : `<div style="width:44px;height:44px;border-radius:50%;background:var(--card-bg);border:1px solid var(--border-light);display:flex;align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;font-size:16px;">${ini}</div>`;
 
   header.innerHTML = `
     ${avatarHTML}
     <div style="flex:1;">
-      <div style="font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:2px;">${(p.display_name||'Cyclist').toUpperCase()}</div>
-      <div style="font-size:11px;color:var(--muted);">@${p.handle||'cyclist'}</div>
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:2px;">${(p.display_name||'Cyclist').toUpperCase()}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px;">@${p.handle||'cyclist'}</div>
     </div>
     ${currentUser ? `<button id="follow-btn-${userId}" class="follow-btn ${isFollowing?'following':'follow'}" onclick="toggleFollow('${userId}')">${isFollowing?'Following':'Follow'}</button>` : ''}
   `;
@@ -4193,42 +4220,62 @@ async function openUserPage(userId){
       ).join('')}
     </div>`;
 
-  // Col 2: fav riders
+  // Col 2: fav riders (with real photos if available)
   const favRiders = Array.isArray(p.fav_riders) ? p.fav_riders.filter(Boolean) : [];
-  const favRidersHTML = favRiders.length ? `
-    <div class="profile-section-title">Favourite Riders</div>
-    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:28px;">
-      ${favRiders.map(name => {
-        const col = riderColor(name);
-        const ini2 = riderInitials(name);
-        return `<div style="width:90px;text-align:center;cursor:pointer;" onclick="navToRider('${name.replace(/'/g,"\\'")}')">
-          <div style="width:90px;aspect-ratio:2/3;background:${col};display:flex;align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;font-size:16px;color:#fff;margin-bottom:4px;">${ini2}</div>
-          <div style="font-size:9px;letter-spacing:.5px;text-transform:uppercase;line-height:1.2;">${formatRiderName(name)}</div>
-        </div>`;
-      }).join('')}
-    </div>` : '';
+  let favRidersHTML = '';
+  if(favRiders.length){
+    // Try fetching rider images
+    const { data: riderRows } = await sb.from('startlists')
+      .select('rider_name,image_url,year')
+      .in('rider_name', favRiders)
+      .order('year',{ascending:false});
+    const imgMap = {};
+    (riderRows||[]).forEach(r => {
+      if(!imgMap[r.rider_name] || (r.image_url && r.image_url!=='none' && (!imgMap[r.rider_name].image_url||imgMap[r.rider_name].image_url==='none')))
+        imgMap[r.rider_name] = r;
+    });
+    favRidersHTML = `
+      <div class="profile-section-title">Favourite Riders</div>
+      <div class="fav-riders-grid" style="margin-bottom:28px;">
+        ${favRiders.map(name => {
+          const col = riderColor(name);
+          const ini2 = riderInitials(name);
+          const imgSrc = imgMap[name]?.image_url;
+          const hasImg = imgSrc && imgSrc !== 'none';
+          return `<div class="fav-rider-slot filled" onclick="navToRider('${name.replace(/'/g,"\\'")}')">
+            ${hasImg
+              ? `<img class="fav-rider-photo" src="${imgSrc}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
+              : ''}
+            <div class="fav-rider-photo-placeholder" style="display:${hasImg?'none':'flex'};background:${col};">
+              <span style="font-family:'Bebas Neue',sans-serif;font-size:28px;color:#fff;">${ini2}</span>
+            </div>
+            <div class="fav-rider-name-overlay">${formatRiderName(name)}</div>
+          </div>`;
+        }).join('')}
+      </div>`;
+  }
 
   // Col 2: fav race
   const favRaceId = p.fav_race_slug;
   const favRaceObj = favRaceId ? RACES.find(r=>r.id===favRaceId) : null;
   const favRaceHTML = favRaceObj ? `
     <div class="profile-section-title">Favourite Race</div>
-    <div class="fav-race-card filled" style="width:100%;margin-bottom:28px;" onclick="openRacePage('${favRaceId}')">
+    <div class="fav-race-card filled" style="width:100%;max-width:500px;margin-bottom:28px;" onclick="openRacePage('${favRaceId}')">
       <div class="fav-race-swatch" style="background:${favRaceObj.gradient||'var(--border)'};"></div>
       <div class="fav-race-info">
         <div class="fav-race-name">${favRaceObj.name}</div>
-        <div class="fav-race-sub">${p.fav_race_year||''}</div>
+        <div class="fav-race-sub">${p.fav_race_year ? p.fav_race_year+' edition' : ''}</div>
       </div>
     </div>` : '';
 
   // Col 3: recent activity
-  const recent = allEntrs.sort((a,b)=>b[1].ts-a[1].ts).slice(0,6);
+  const recent = [...allEntrs].sort((a,b)=>b[1].ts-a[1].ts).slice(0,8);
   const activityHTML = recent.map(([id,w])=>{
     const race = RACES.find(r=>r.id===id);
     const name = race?.name||id;
     const stars = w.rating ? `★${w.rating}` : '';
     return `<div class="recent-activity-card" onclick="openRacePage('${id}')">
-      <div style="width:4px;height:36px;background:${race?.gradient||'var(--border)'};flex-shrink:0;"></div>
+      <div style="width:4px;height:36px;background:${race?.gradient||'var(--border)'};flex-shrink:0;border-radius:1px;"></div>
       <div style="flex:1;">
         <div class="ra-name" style="font-size:12px;font-weight:500;">${name}</div>
         <div style="font-size:10px;color:var(--muted);">${w.year||''} ${stars}</div>
@@ -4236,13 +4283,16 @@ async function openUserPage(userId){
     </div>`;
   }).join('');
 
-  inner.innerHTML = `
-    <div>${statsHTML}</div>
-    <div>${favRidersHTML}${favRaceHTML}</div>
-    <div>
-      <div class="profile-section-title">Recent Activity</div>
-      ${activityHTML || '<div style="color:var(--muted);font-size:12px;">No activity yet.</div>'}
-    </div>`;
+  const noContent = !favRiders.length && !favRaceObj && !total;
+
+  inner.innerHTML = noContent
+    ? `<div style="grid-column:1/-1;color:var(--muted);font-size:13px;font-style:italic;padding:20px 0;">This member hasn't added anything to their profile yet.</div>`
+    : `<div>${statsHTML}</div>
+       <div>${favRidersHTML}${favRaceHTML}</div>
+       <div>
+         <div class="profile-section-title">Recent Activity</div>
+         ${activityHTML || '<div style="color:var(--muted);font-size:12px;font-style:italic;">No activity yet.</div>'}
+       </div>`;
 }
 
 function sgBadgesHTML(id){
