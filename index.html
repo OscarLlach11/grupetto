@@ -69,7 +69,7 @@
     if (!email)              { toast('Please enter your email');    return; }
     if (password.length < 6) { toast('Password min 6 characters'); return; }
 
-    const handle = email.split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g,'').slice(0,24) || 'cyclist';
+    const handle = name.toLowerCase().replace(/\s+/g,'').replace(/[^a-z0-9_]/g,'').slice(0,24) || 'cyclist';
 
     const { data, error } = await sb.auth.signUp({
       email,
@@ -3928,12 +3928,22 @@ async function executeMembersSearch(){
   resultsSection.style.display = 'block';
   resultsList.innerHTML = '<div style="color:var(--muted);font-size:12px;">Searching…</div>';
 
-  const { data } = await sb.from('profiles')
-    .select('user_id,display_name,handle,avatar_url')
-    .or(`display_name.ilike.%${q}%,handle.ilike.%${q}%`)
-    .limit(20);
+  // Run two queries and merge — .or() with ilike has quoting issues in supabase-js
+  const [byName, byHandle] = await Promise.all([
+    sb.from('profiles').select('user_id,display_name,handle,avatar_url')
+      .ilike('display_name', `%${q}%`).limit(20),
+    sb.from('profiles').select('user_id,display_name,handle,avatar_url')
+      .ilike('handle', `%${q}%`).limit(20),
+  ]);
 
-  if(!data?.length){
+  // Deduplicate by user_id
+  const seen = new Set();
+  const data = [...(byName.data||[]), ...(byHandle.data||[])].filter(p => {
+    if(seen.has(p.user_id)) return false;
+    seen.add(p.user_id); return true;
+  });
+
+  if(!data.length){
     resultsList.innerHTML = '<div style="color:var(--muted);font-size:13px;font-style:italic;">No members found.</div>';
     resultsLabel.textContent = '0 results';
     return;
