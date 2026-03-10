@@ -77,9 +77,19 @@
       options: { data: { display_name: name, handle } }
     });
 
-    if (error) { toast(error.message); return; }
+    if (error) {
+      console.error('signUp error:', error);
+      const msg = error.message || '';
+      if(msg.toLowerCase().includes('already') || msg.toLowerCase().includes('registered')){
+        toast('That email is already registered — try signing in');
+      } else {
+        toast('Sign up failed: ' + msg);
+      }
+      return;
+    }
 
-    // Try to save profile — may already exist if DB trigger fired, so ignore conflicts
+    // data.user exists but may be unconfirmed — profile insert happens via DB trigger.
+    // Also attempt upsert from client as fallback (non-fatal if it fails).
     if(data?.user){
       const { error: profErr } = await sb.from('profiles').upsert({
         user_id:      data.user.id,
@@ -87,7 +97,7 @@
         handle,
       }, { onConflict: 'user_id' });
       if(profErr) console.warn('Profile upsert (non-fatal):', profErr.message);
-      profile.name = name;
+      profile.name   = name;
       profile.handle = handle;
       persistProfile();
     }
