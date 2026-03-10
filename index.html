@@ -670,6 +670,23 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 .rider-race-year{font-size:11px;color:var(--muted);}
 .rider-race-rating{font-size:11px;color:var(--gold);margin-left:auto;flex-shrink:0;}
 .review-meta{font-size:10px;color:var(--muted);margin-top:4px;}
+/* ── Members page ────────────────────────────────────────────────────── */
+.member-card{background:var(--card-bg);border:1px solid var(--border);padding:24px 20px;text-align:center;transition:border-color .15s;}
+.member-card:hover{border-color:var(--border-light);}
+.member-avatar-lg{width:96px;height:96px;border-radius:50%;margin:0 auto 14px;overflow:hidden;background:var(--off-black);border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;font-size:32px;color:var(--white);cursor:pointer;transition:border-color .15s;}
+.member-avatar-lg:hover{border-color:var(--gold);}
+.member-avatar-lg img{width:100%;height:100%;object-fit:cover;}
+.member-name{font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:2px;cursor:pointer;transition:color .15s;margin-bottom:2px;}
+.member-name:hover{color:var(--gold);}
+.member-handle{font-size:10px;color:var(--muted);letter-spacing:1px;margin-bottom:14px;}
+.member-fav-riders{display:flex;justify-content:center;gap:5px;margin-bottom:16px;}
+.member-rider-slot{width:44px;aspect-ratio:2/3;overflow:hidden;cursor:pointer;transition:opacity .15s;flex-shrink:0;}
+.member-rider-slot:hover{opacity:.8;}
+.member-rider-slot img{width:100%;height:100%;object-fit:cover;object-position:center top;}
+.member-rider-initials{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;font-size:12px;color:#fff;}
+.members-result-row{display:flex;align-items:center;gap:14px;padding:12px 0;border-bottom:1px solid var(--border);cursor:pointer;}
+.members-result-row:hover .members-result-name{color:var(--gold);}
+.members-result-name{font-size:13px;font-weight:500;transition:color .15s;}
 /* ── Followers / Following ───────────────────────────────────────────── */
 .profile-stat-cell.clickable{cursor:pointer;transition:background .15s;}
 .profile-stat-cell.clickable:hover{background:var(--border);}
@@ -702,6 +719,7 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
   <div class="nav-links">
     <button class="nav-a" id="nav-discover" onclick="showPage('discover')">Discover</button>
     <button class="nav-a" id="nav-log" onclick="showPage('log')">My Log</button>
+    <button class="nav-a" id="nav-members" onclick="showPage('members')">Members</button>
     <button class="nav-a" id="nav-top" onclick="showPage('top')">Top Races</button>
     <button class="nav-a" id="nav-stats" onclick="showPage('stats')">Stats</button>
     <button class="nav-a" id="nav-profile" onclick="showPage('profile')">Profile</button>
@@ -867,6 +885,36 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
     </div>
   </div>
   <div id="log-list"><div class="empty">No races logged yet.</div></div>
+</div>
+
+<!-- MEMBERS -->
+<div id="page-members" class="page">
+  <div class="hero" style="padding-bottom:32px;">
+    <div class="hero-bg">PELOTON</div>
+    <div class="eyebrow">— The Community</div>
+    <h1>Find<br><em>fellow</em><br>fans.</h1>
+  </div>
+
+  <!-- Search bar -->
+  <div style="padding:0 40px 24px;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:center;">
+    <input id="members-search-input" type="text" placeholder="Search by name or handle…"
+      onkeydown="if(event.key==='Enter') executeMembersSearch()"
+      style="background:var(--card-bg);border:1px solid var(--border);color:var(--white);padding:9px 16px;font-family:'DM Sans',sans-serif;font-size:13px;flex:1;max-width:360px;transition:border-color .15s;"
+      oninput="if(!this.value.trim()) renderMembersPage()">
+    <button onclick="executeMembersSearch()" style="background:var(--gold);color:var(--black);border:none;padding:9px 20px;font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:1px;cursor:pointer;">Search</button>
+  </div>
+
+  <!-- Top members -->
+  <div style="padding:28px 40px 0;">
+    <div id="members-section-label" style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:28px;">Popular This Week</div>
+    <div id="members-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:24px;"></div>
+  </div>
+
+  <!-- Search results -->
+  <div id="members-search-results" style="display:none;padding:28px 40px 0;">
+    <div id="members-results-label" style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:20px;"></div>
+    <div id="members-results-list"></div>
+  </div>
 </div>
 
 <!-- TOP RACES -->
@@ -1440,6 +1488,7 @@ function showPage(p){
   else if(p==='profile') renderProfile();
   else if(p==='followers') {} // rendered by openFollowersPage()
   else if(p==='user') {}      // rendered by openUserPage()
+  else if(p==='members') { renderMembersPage(); }
   else if(p==='discover') {
     renderTabs(); renderGrid();
     if(aDiscSection==='riders') renderRiders();
@@ -3722,6 +3771,186 @@ async function renderRiderPage(inputName){
 
 
 // ════════════════════════════════════════════════════════
+//  MEMBERS PAGE
+// ════════════════════════════════════════════════════════
+let _membersCache = null; // cache top members so page re-renders are instant
+
+async function renderMembersPage(){
+  // Reset search state
+  document.getElementById('members-search-input').value = '';
+  document.getElementById('members-search-results').style.display = 'none';
+  document.getElementById('members-grid').style.display = 'grid';
+  document.getElementById('members-section-label').textContent = 'Popular This Week';
+
+  if(_membersCache){
+    renderMemberCards(_membersCache);
+    return;
+  }
+
+  const grid = document.getElementById('members-grid');
+  grid.innerHTML = '<div style="color:var(--muted);font-size:12px;grid-column:1/-1;">Loading…</div>';
+
+  // Top 5 by follower count — get counts from follows table
+  // Strategy: get the most-followed users by counting followers
+  const { data: followCounts } = await sb.from('follows')
+    .select('following_id')
+    .limit(1000);
+
+  if(!followCounts?.length){
+    // Fallback: just show most recently created profiles
+    const { data: profiles } = await sb.from('profiles')
+      .select('user_id,display_name,handle,avatar_url,fav_riders')
+      .limit(5);
+    _membersCache = await enrichMembersWithRiderImages(profiles||[]);
+    renderMemberCards(_membersCache);
+    return;
+  }
+
+  // Count followers per user
+  const counts = {};
+  followCounts.forEach(r => { counts[r.following_id] = (counts[r.following_id]||0) + 1; });
+  const topIds = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([id])=>id);
+
+  const { data: profiles } = await sb.from('profiles')
+    .select('user_id,display_name,handle,avatar_url,fav_riders')
+    .in('user_id', topIds);
+
+  // Sort in follower-count order and attach counts
+  const sorted = topIds.map(id => {
+    const p = (profiles||[]).find(x=>x.user_id===id) || {user_id:id};
+    return {...p, followerCount: counts[id]||0};
+  }).filter(p=>p.display_name||p.handle);
+
+  _membersCache = await enrichMembersWithRiderImages(sorted);
+  renderMemberCards(_membersCache);
+}
+
+async function enrichMembersWithRiderImages(members){
+  // For each member, fetch the best image_url for their fav_riders
+  const allRiderNames = [...new Set(members.flatMap(m => (m.fav_riders||[]).filter(Boolean)))];
+  if(!allRiderNames.length) return members;
+
+  const { data: riderRows } = await sb.from('startlists')
+    .select('rider_name,image_url,year')
+    .in('rider_name', allRiderNames)
+    .order('year', {ascending:false});
+
+  // Build best image map (prefer rows with image)
+  const riderImgMap = {};
+  (riderRows||[]).forEach(r => {
+    const hasImg = r.image_url && r.image_url !== 'none';
+    const prev = riderImgMap[r.rider_name];
+    if(!prev || (hasImg && (!prev.image_url || prev.image_url==='none')))
+      riderImgMap[r.rider_name] = r;
+  });
+
+  return members.map(m => ({
+    ...m,
+    ridersWithImages: (m.fav_riders||[]).filter(Boolean).map(name => ({
+      name,
+      image_url: riderImgMap[name]?.image_url || null,
+    }))
+  }));
+}
+
+function renderMemberCards(members){
+  const grid = document.getElementById('members-grid');
+  if(!members?.length){
+    grid.innerHTML = '<div style="color:var(--muted);font-size:12px;grid-column:1/-1;">No members found.</div>';
+    return;
+  }
+  if(!_followingIds.size && currentUser) loadFollowingIds();
+
+  grid.innerHTML = members.map(m => {
+    const ini = (m.display_name||'?').split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
+    const avatarHTML = m.avatar_url
+      ? `<img src="${m.avatar_url}" alt="${m.display_name||''}">`
+      : ini;
+    const followerLine = m.followerCount != null
+      ? `<div style="font-size:10px;color:var(--muted);margin-bottom:12px;">${m.followerCount} follower${m.followerCount!==1?'s':''}</div>`
+      : '';
+    const isFollowing = _followingIds.has(m.user_id);
+    const isMe = currentUser && m.user_id === currentUser.id;
+    const followBtn = !isMe
+      ? `<button id="follow-btn-${m.user_id}" class="follow-btn ${isFollowing?'following':'follow'}"
+           onclick="event.stopPropagation();toggleFollow('${m.user_id}')"
+           style="width:100%;margin-bottom:14px;">${isFollowing?'Following':'Follow'}</button>`
+      : '<div style="height:30px;margin-bottom:14px;"></div>';
+
+    // Up to 4 fav riders
+    const riders = (m.ridersWithImages||[]).slice(0,4);
+    const riderSlots = riders.map(r => {
+      const col = riderColor(r.name);
+      const ini2 = riderInitials(r.name);
+      const img = r.image_url && r.image_url !== 'none'
+        ? `<img src="${r.image_url}" style="width:100%;height:100%;object-fit:cover;object-position:center top;" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
+          + `<div class="member-rider-initials" style="display:none;background:${col};">${ini2}</div>`
+        : `<div class="member-rider-initials" style="background:${col};">${ini2}</div>`;
+      const encodedName = encodeURIComponent(r.name);
+      return `<div class="member-rider-slot" title="${formatRiderName(r.name)}"
+        onclick="event.stopPropagation();navToRider(decodeURIComponent('${encodedName}'))">${img}</div>`;
+    }).join('');
+    // Fill empty slots
+    const emptySlots = Array(Math.max(0,4-riders.length)).fill(
+      `<div class="member-rider-slot" style="background:var(--border);opacity:.3;"></div>`
+    ).join('');
+
+    return `<div class="member-card" onclick="openUserPage('${m.user_id}')">
+      <div class="member-avatar-lg" onclick="event.stopPropagation();openUserPage('${m.user_id}')">${avatarHTML}</div>
+      <div class="member-name" onclick="event.stopPropagation();openUserPage('${m.user_id}')">${(m.display_name||'Cyclist').toUpperCase()}</div>
+      <div class="member-handle">@${m.handle||'cyclist'}</div>
+      ${followerLine}
+      ${followBtn}
+      <div class="member-fav-riders">${riderSlots}${emptySlots}</div>
+    </div>`;
+  }).join('');
+}
+
+async function executeMembersSearch(){
+  const q = (document.getElementById('members-search-input')?.value||'').trim();
+  const resultsSection = document.getElementById('members-search-results');
+  const resultsList = document.getElementById('members-results-list');
+  const resultsLabel = document.getElementById('members-results-label');
+  if(!q){ renderMembersPage(); return; }
+
+  document.getElementById('members-grid').style.display = 'none';
+  resultsSection.style.display = 'block';
+  resultsList.innerHTML = '<div style="color:var(--muted);font-size:12px;">Searching…</div>';
+
+  const { data } = await sb.from('profiles')
+    .select('user_id,display_name,handle,avatar_url')
+    .or(`display_name.ilike.%${q}%,handle.ilike.%${q}%`)
+    .limit(20);
+
+  if(!data?.length){
+    resultsList.innerHTML = '<div style="color:var(--muted);font-size:13px;font-style:italic;">No members found.</div>';
+    resultsLabel.textContent = '0 results';
+    return;
+  }
+
+  resultsLabel.textContent = `${data.length} result${data.length!==1?'s':''}`;
+  if(!_followingIds.size && currentUser) await loadFollowingIds();
+
+  resultsList.innerHTML = data.map(p => {
+    const ini = (p.display_name||'?').split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
+    const avatarHTML = p.avatar_url
+      ? `<img src="${p.avatar_url}" style="width:100%;height:100%;object-fit:cover;">`
+      : ini;
+    const isFollowing = _followingIds.has(p.user_id);
+    const isMe = currentUser && p.user_id === currentUser.id;
+    return `<div class="members-result-row" onclick="openUserPage('${p.user_id}')">
+      <div class="fc-avatar">${avatarHTML}</div>
+      <div style="flex:1;">
+        <div class="members-result-name">${p.display_name||'Cyclist'}</div>
+        <div style="font-size:11px;color:var(--muted);">@${p.handle||'cyclist'}</div>
+      </div>
+      ${!isMe ? `<button id="follow-btn-${p.user_id}" class="follow-btn ${isFollowing?'following':'follow'}"
+        onclick="event.stopPropagation();toggleFollow('${p.user_id}')">${isFollowing?'Following':'Follow'}</button>` : ''}
+    </div>`;
+  }).join('');
+}
+
+// ════════════════════════════════════════════════════════
 //  FOLLOWERS / FOLLOWING
 // ════════════════════════════════════════════════════════
 // SQL to run once in Supabase:
@@ -3771,6 +4000,7 @@ async function toggleFollow(targetUserId){
   }
   // Refresh UI
   renderFollowButton(targetUserId);
+  _membersCache = null; // force re-fetch on next members page load
   loadFollowerCounts();
   loadFollowingFeed();
 }
