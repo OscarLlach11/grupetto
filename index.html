@@ -3824,36 +3824,38 @@ async function renderMembersPage(){
   const grid = document.getElementById('members-grid');
   grid.innerHTML = '<div style="color:var(--muted);font-size:12px;grid-column:1/-1;">Loading…</div>';
 
-  // Top 5 by follower count — get counts from follows table
-  // Strategy: get the most-followed users by counting followers
-  const { data: followCounts } = await sb.from('follows')
-    .select('following_id')
-    .limit(1000);
+  // Always load all profiles (up to 20), then sort by follower count if we can get it
+  const { data: profiles, error: profErr } = await sb.from('profiles')
+    .select('user_id,display_name,handle,avatar_url,fav_riders')
+    .not('display_name', 'is', null)
+    .limit(20);
 
-  if(!followCounts?.length){
-    // Fallback: just show most recently created profiles
-    const { data: profiles } = await sb.from('profiles')
-      .select('user_id,display_name,handle,avatar_url,fav_riders')
-      .limit(5);
-    _membersCache = await enrichMembersWithRiderImages(profiles||[]);
-    renderMemberCards(_membersCache);
+  if(profErr) console.error('profiles fetch error:', profErr);
+
+  if(!profiles?.length){
+    grid.innerHTML = '<div style="color:var(--muted);font-size:12px;grid-column:1/-1;">No members found. Make sure the profiles table has a public SELECT policy in Supabase.</div>';
     return;
   }
 
-  // Count followers per user
-  const counts = {};
-  followCounts.forEach(r => { counts[r.following_id] = (counts[r.following_id]||0) + 1; });
-  const topIds = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([id])=>id);
+  // Try to get follower counts to sort by — not critical if it fails
+  const { data: followCounts, error: followErr } = await sb.from('follows')
+    .select('following_id')
+    .limit(5000);
 
-  const { data: profiles } = await sb.from('profiles')
-    .select('user_id,display_name,handle,avatar_url,fav_riders')
-    .in('user_id', topIds);
+  if(followErr) console.error('follows fetch error:', followErr);
 
-  // Sort in follower-count order and attach counts
-  const sorted = topIds.map(id => {
-    const p = (profiles||[]).find(x=>x.user_id===id) || {user_id:id};
-    return {...p, followerCount: counts[id]||0};
-  }).filter(p=>p.display_name||p.handle);
+  let sorted;
+  if(followCounts?.length){
+    const counts = {};
+    followCounts.forEach(r => { counts[r.following_id] = (counts[r.following_id]||0) + 1; });
+    sorted = profiles
+      .map(p => ({ ...p, followerCount: counts[p.user_id] || 0 }))
+      .sort((a, b) => b.followerCount - a.followerCount)
+      .slice(0, 5);
+  } else {
+    // No follow data — just show first 5 profiles
+    sorted = profiles.slice(0, 5).map(p => ({ ...p, followerCount: null }));
+  }
 
   _membersCache = await enrichMembersWithRiderImages(sorted);
   renderMemberCards(_membersCache);
@@ -4170,6 +4172,14 @@ async function openUserPage(userId){
     sb.from('profiles').select('*').eq('user_id', userId).maybeSingle(),
     sb.from('follows').select('follower_id',{count:'exact',head:true}).eq('following_id', userId),
   ]);
+
+  if(profRes.error) console.error('openUserPage profile error:', profRes.error);
+
+  // If profile is null, show a clear error rather than a blank page
+  if(!profRes.data){
+    header.innerHTML = '<div style="color:var(--muted);font-size:13px;">Could not load profile. The profiles table may need a public SELECT policy in Supabase.</div>';
+    return;
+  }
 
   // Try loading race_logs — may be empty if RLS blocks it, that's ok
   const { data: logsData } = await sb.from('race_logs')
