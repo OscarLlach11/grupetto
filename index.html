@@ -4190,6 +4190,7 @@ async function openUserPage(userId){
 
   if(profRes.error) console.error('openUserPage profile error:', profRes.error);
   if(logsRes.error) console.error('openUserPage logs error:', logsRes.error);
+  if(logsRes.error?.code === '42501') console.warn('race_logs RLS is blocking reads — run: create policy "race logs are viewable by everyone" on race_logs for select using (true);');
 
   const p = profRes.data || {};
   const logs = logsRes.data || [];
@@ -4234,8 +4235,14 @@ async function openUserPage(userId){
   const rts = all.filter(([,w])=>w.rating).map(([,w])=>w.rating);
   const avg = rts.length ? (rts.reduce((a,b)=>a+b,0)/rts.length).toFixed(1) : '—';
   document.getElementById('upage-stat-grid').innerHTML = [
-    [all.length,'Races'],[liveCount,'Live'],[avg,'Avg ★'],[followerCount,'Followers'],
-  ].map(([n,l])=>`<div class="profile-stat-cell"><div class="profile-stat-n">${n}</div><div class="profile-stat-l">${l}</div></div>`).join('');
+    [all.length, 'Races',    ()=>openUserLog(userId, p.display_name, logs, 'all')],
+    [liveCount,  'Live',     ()=>openUserLog(userId, p.display_name, logs, 'live')],
+    [avg,        'Avg ★',    null],
+    [followerCount,'Followers', null],
+  ].map(([n,l,fn])=> fn
+    ? `<div class="profile-stat-cell clickable" onclick="_upageStatClick(${_upageStatFns.push(fn)-1})"><div class="profile-stat-n">${n}</div><div class="profile-stat-l">${l}</div></div>`
+    : `<div class="profile-stat-cell"><div class="profile-stat-n">${n}</div><div class="profile-stat-l">${l}</div></div>`
+  ).join('');
 
   // ── Rating distribution ──────────────────────────────────────────────
   const distEl = document.getElementById('upage-rating-dist');
@@ -4267,15 +4274,24 @@ async function openUserPage(userId){
   }).join('') : '<div style="color:var(--muted);font-size:11px;">No races logged yet.</div>';
 
   // ── Favourite riders ────────────────────────────────────────────────
-  const favRiders = Array.isArray(p.fav_riders) ? p.fav_riders.filter(Boolean) : [];
+  // fav_riders stored as [{name, imageUrl}] objects or plain strings
+  const rawRiders = Array.isArray(p.fav_riders) ? p.fav_riders.filter(Boolean) : [];
+  const favRiders = rawRiders.map(r => typeof r === 'object' ? (r.name || '') : r).filter(Boolean);
+  const favRiderImgs = Object.fromEntries(rawRiders.map(r => {
+    const name = typeof r === 'object' ? r.name : r;
+    const img  = typeof r === 'object' ? r.imageUrl : null;
+    return [name, img];
+  }));
   const ridersGrid = document.getElementById('upage-fav-riders-grid');
   if(favRiders.length){
+    // Try to get better/more recent images from startlists
     const { data: riderRows } = await sb.from('startlists').select('rider_name,image_url,year').in('rider_name', favRiders).order('year',{ascending:false});
     const imgMap={};
     (riderRows||[]).forEach(r=>{ if(!imgMap[r.rider_name]||(r.image_url&&r.image_url!=='none'&&(!imgMap[r.rider_name].image_url||imgMap[r.rider_name].image_url==='none'))) imgMap[r.rider_name]=r; });
     ridersGrid.innerHTML = favRiders.map(name=>{
       const col=riderColor(name), ini2=riderInitials(name);
-      const imgSrc=imgMap[name]?.image_url, hasImg=imgSrc&&imgSrc!=='none';
+      const imgSrc = (imgMap[name]?.image_url && imgMap[name].image_url!=='none') ? imgMap[name].image_url : favRiderImgs[name];
+      const hasImg = imgSrc && imgSrc !== 'none';
       return `<div class="fav-rider-slot filled" onclick="navToRider('${name.replace(/'/g,"\\'")}')">
         ${hasImg?`<img class="fav-rider-photo" src="${imgSrc}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`:'' }
         <div class="fav-rider-photo-placeholder" style="display:${hasImg?'none':'flex'};background:${col};"><div class="fav-rider-icon" style="background:${col};color:#fff;">${ini2}</div></div>
@@ -4329,6 +4345,49 @@ async function openUserPage(userId){
   }).join('') : '<div style="color:var(--muted);font-size:12px;">No reviews yet.</div>';
 }
 
+
+// ── User log overlay (called from clickable stats on other user's profile) ──
+const _upageStatFns = [];
+function _upageStatClick(i){ if(_upageStatFns[i]) _upageStatFns[i](); }
+
+function openUserLog(userId, displayName, logs, filter){
+  // Build modal showing this user's log filtered by 'all' or 'live'
+  const filtered = filter === 'live' ? logs.filter(l=>l.watched_live) : logs;
+  const title = filter === 'live'
+    ? `${displayName||'User'}'s Live Races`
+    : `${displayName||'User'}'s Race Log`;
+
+  const rows = [...filtered]
+    .sort((a,b) => new Date(b.created_at) - new Date(a.created_at))
+    .map(log => {
+      const race = RACES.find(r=>r.id===log.slug);
+      const name = race?.name || log.slug;
+      const stars = log.rating ? `★ ${parseFloat(log.rating).toFixed(1)}` : '';
+      const date  = log.date_watched ? log.date_watched.slice(0,10) : '';
+      return `<div class="lbi" style="cursor:pointer;" onclick="openRacePage('${log.slug}')">
+        <div class="lbsw" style="background:${race?.gradient||'var(--border)'}"></div>
+        <div class="lbinfo">
+          <div class="lbname">${name} <span style="color:var(--muted);font-size:13px;">${log.year||''}</span></div>
+          <div class="lbsub">${[date, log.watched_live?'🔴 Live':'', stars].filter(Boolean).join(' · ')}</div>
+        </div>
+        ${log.rating ? `<div><div class="lbsc">${parseFloat(log.rating).toFixed(1)}</div><div class="lbsc-s">/ 5.0</div></div>` : ''}
+      </div>`;
+    }).join('');
+
+  // Reuse the search modal as a lightweight overlay
+  const mo = document.getElementById('search-mo');
+  const inner = document.getElementById('search-results');
+  document.getElementById('search-modal-input').style.display = 'none';
+  inner.innerHTML = `
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:3px;color:var(--gold);margin-bottom:16px;">${title}</div>
+    ${rows || '<div style="color:var(--muted);font-size:13px;">No races found.</div>'}`;
+  openMO('search-mo');
+
+  // Restore search input when closed
+  mo.addEventListener('click', function restore(e){
+    if(e.target===mo){ document.getElementById('search-modal-input').style.display=''; mo.removeEventListener('click',restore); }
+  }, {once:true});
+}
 
 function sgBadgesHTML(id){
   const race = RACES.find(r => r.id === id);
