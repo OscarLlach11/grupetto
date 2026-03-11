@@ -714,12 +714,20 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 .fc-name{font-size:13px;font-weight:500;transition:color .15s;}
 .fc-handle{font-size:11px;color:var(--muted);}
 /* Following feed on discover */
-.feed-card{display:flex;gap:14px;padding:14px 0;border-bottom:1px solid var(--border);cursor:pointer;}
-.feed-card:hover .feed-race-name{color:var(--gold);}
-.feed-avatar{width:32px;height:32px;border-radius:50%;background:var(--card-bg);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;font-size:12px;color:var(--white);flex-shrink:0;overflow:hidden;}
+.feed-grid{display:flex;gap:12px;overflow-x:auto;padding-bottom:8px;scrollbar-width:none;}
+.feed-grid::-webkit-scrollbar{display:none;}
+.feed-item{flex-shrink:0;width:130px;cursor:pointer;}
+.feed-item:hover .feed-poster{border-color:var(--gold-dim);}
+.feed-poster{width:130px;height:170px;border:2px solid transparent;transition:border-color .15s;position:relative;overflow:hidden;}
+.feed-poster-bg{width:100%;height:100%;display:flex;align-items:center;justify-content:center;padding:12px;}
+.feed-poster-title{font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:2px;line-height:1.15;color:rgba(255,255,255,.9);text-align:center;text-shadow:0 1px 4px rgba(0,0,0,.6);}
+.feed-poster-stage{position:absolute;top:8px;left:8px;font-size:8px;letter-spacing:1.5px;text-transform:uppercase;background:rgba(0,0,0,.6);color:var(--gold);padding:2px 5px;}
+.feed-user{display:flex;align-items:center;gap:6px;margin-top:6px;}
+.feed-avatar{width:20px;height:20px;border-radius:50%;background:var(--card-bg);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;font-size:8px;color:var(--white);flex-shrink:0;overflow:hidden;}
 .feed-avatar img{width:100%;height:100%;object-fit:cover;}
-.feed-race-name{font-size:13px;font-weight:500;transition:color .15s;}
-.feed-meta{font-size:11px;color:var(--muted);margin-top:2px;}
+.feed-username{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.feed-stars{margin-top:3px;display:flex;align-items:center;gap:4px;}
+.feed-date{font-size:9px;color:var(--muted);margin-top:1px;}
 </style>
 </head>
 <body>
@@ -757,9 +765,9 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
   </div>
 
   <!-- FOLLOWING FEED — shown only when signed in and following someone -->
-  <div id="following-feed-section" style="display:none;padding:0 40px 32px;border-bottom:1px solid var(--border);margin-bottom:0;">
+  <div id="following-feed-section" style="display:none;padding:16px 40px 24px;border-bottom:1px solid var(--border);">
     <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:14px;">Following — Recent Logs</div>
-    <div id="following-feed-list"></div>
+    <div id="following-feed-list" class="feed-grid"></div>
   </div>
 
   <!-- DISCOVER SUB-TABS -->
@@ -2061,6 +2069,10 @@ async function fetchRaceResults(slug, year){
 
 // Helper: get the logged stage entry for a given race/year/stageNum
 function getUserStageLog(raceId, year, stageNum){
+  // New: standalone top-level entry
+  const standalone = userLog[stageLogKey(raceId, year, stageNum)]?.watches?.[0];
+  if(standalone) return standalone;
+  // Legacy: nested inside race watch entry
   const watches = userLog[raceId]?.watches || [];
   for(const w of watches){
     if(w.year === year && w.stages?.[stageNum]) return w.stages[stageNum];
@@ -2265,6 +2277,16 @@ function openStageLogModal(){
   openMO('log-mo');
 }
 
+function stageLogKey(raceId, year, stageNum){
+  return `stage::${raceId}::${year}::${stageNum}`;
+}
+
+function getUserStageLogEntry(raceId, year, stageNum){
+  const key = stageLogKey(raceId, year, stageNum);
+  const entry = userLog[key];
+  return entry?.watches?.[0] || null;
+}
+
 function saveStagePageLog(){
   if(!_spStage) return;
   const s = _spStage;
@@ -2274,24 +2296,29 @@ function saveStagePageLog(){
   const live   = document.getElementById('sp-live').classList.contains('on');
   const rating = _spRating;
 
-  // Find or create the watch entry for this race/year
-  if(!userLog[_spRaceId]) userLog[_spRaceId]={watches:[]};
+  // Save as a standalone top-level entry so it appears in My Log independently
+  const key = stageLogKey(_spRaceId, _spYear, s.num);
+  if(!userLog[key]) userLog[key] = { watches: [], _stageRef: { raceId: _spRaceId, year: _spYear, stageNum: s.num, stageLabel: s.label||String(s.num) } };
+  const entry = { year: _spYear, date, live, rating, review, ts: Date.now(),
+    _stage: { raceId: _spRaceId, year: _spYear, stageNum: s.num, stageLabel: s.label||String(s.num) } };
+  if(userLog[key].watches.length) userLog[key].watches[0] = entry;
+  else userLog[key].watches.push(entry);
+
+  // Also keep it in the race watch entry for stage-level tracking on the race page
+  if(!userLog[_spRaceId]) userLog[_spRaceId] = {watches:[]};
   let w = userLog[_spRaceId].watches.find(x=>x.year===_spYear);
   if(!w){
-    w={year:_spYear,date,live:false,rating:0,review:'',stages:{},ts:Date.now()};
+    w = {year:_spYear, date, live:false, rating:0, review:'', stages:{}, ts:Date.now()};
     userLog[_spRaceId].watches.push(w);
   }
   if(!w.stages) w.stages={};
-  w.stages[s.num]={rating,review,date,live};
+  w.stages[s.num] = {rating, review, date, live};
 
   persist();
   closeMO('log-mo');
   toast(`${s.num===0?'Prologue':`Stage ${s.label||s.num}`} logged ✓`);
-
-  // Restore modal to normal state
+  renderAll();
   _restoreLogModal();
-
-  // Re-render stage page to show updated log
   openStagePage(_spRaceId, _spYear, s.num);
 }
 
@@ -2727,6 +2754,27 @@ function renderLogPage(){
   if(!all.length){list.innerHTML='<div class="empty">No races logged yet.</div>';return;}
   if(!entries.length){list.innerHTML='<div class="empty" style="padding:40px;">No entries match these filters.</div>';return;}
   list.innerHTML=entries.map(([id,w])=>{
+    const isStageEntry = id.startsWith('stage::');
+    if(isStageEntry){
+      const ref = w._stage || userLog[id]?._stageRef || {};
+      const race = RACES.find(x=>x.id===ref.raceId);
+      const stLabel = ref.stageNum===0 ? 'Prologue' : `Stage ${ref.stageLabel||ref.stageNum}`;
+      return `<div class="lpe" onclick="openStagePage('${ref.raceId}',${ref.year},${ref.stageNum})">
+        <div class="lpe-sw" style="background:${race?.gradient||'var(--border)'}"></div>
+        <div class="lpe-info">
+          <div class="lpe-race">${race?.name||ref.raceId}</div>
+          <div class="lpe-ed">${ref.year} · ${stLabel}</div>
+          <div class="lpe-meta">${race?`${race.flag} ${race.country} · `:''}Stage</div>
+          <div style="margin-bottom:4px;">${starsHTML(w.rating||0,11)}</div>
+          ${w.review?`<div class="lpe-rev">"${w.review}"</div>`:''}
+        </div>
+        <div class="lpe-right">
+          ${w.date?`<div class="lpe-date">${fmtDate(w.date)}</div>`:''}
+          ${w.live?`<div class="live-badge">LIVE</div>`:''}
+          <button class="le-del" onclick="event.stopPropagation();confirmDeleteEntryFromLog('${id}',${w.ts||0})">Delete</button>
+        </div>
+      </div>`;
+    }
     const r=RACES.find(x=>x.id===id); if(!r) return '';
     const yrLabel=w.from?`${w.from}–${w.to}`:w.year;
     const stCnt=Object.keys(w.stages||{}).length;
@@ -4534,12 +4582,12 @@ async function loadFollowingFeed(){
   if(!_followingIds.size) await loadFollowingIds();
   if(!_followingIds.size){ section.style.display='none'; return; }
 
-  // Get last 5 race_logs from people I follow
+  // Get last 10 race_logs from people I follow
   const { data: logs } = await sb.from('race_logs')
     .select('user_id, slug, year, rating, date_watched, created_at')
     .in('user_id', [..._followingIds])
     .order('created_at', {ascending: false})
-    .limit(5);
+    .limit(10);
 
   if(!logs?.length){ section.style.display='none'; return; }
 
@@ -4552,22 +4600,27 @@ async function loadFollowingFeed(){
     const p = profMap[log.user_id] || {};
     const race = RACES.find(r => r.id === log.slug);
     const raceName = race?.name || log.slug;
+    const gradient = race?.gradient || 'linear-gradient(135deg,#1a1a1a,#333)';
     const ini = (p.display_name||'?').split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
     const avatarHTML = p.avatar_url
-      ? `<img src="${p.avatar_url}" style="width:100%;height:100%;object-fit:cover;">`
+      ? `<img src="${p.avatar_url}">`
       : ini;
-    const stars = log.rating ? `★ ${log.rating}` : '';
-    const date = log.date_watched ? log.date_watched.slice(0,10) : '';
-    return `<div class="feed-card" onclick="openRacePage('${log.slug}')">
-      <div class="feed-avatar">${avatarHTML}</div>
-      <div style="flex:1;">
-        <div style="font-size:12px;color:var(--muted);margin-bottom:3px;">
-          <span style="color:var(--white);cursor:pointer;" onclick="event.stopPropagation();openUserPage('${log.user_id}')">${p.display_name||'Cyclist'}</span>
-          logged
+    const date = log.date_watched ? log.date_watched.slice(0,10) : (log.created_at||'').slice(0,10);
+    const dateLabel = date ? fmtDate(date) : '';
+
+    return `<div class="feed-item" onclick="openRacePage('${log.slug}')">
+      <div class="feed-poster">
+        <div class="feed-poster-bg" style="background:${gradient}">
+          <div class="feed-poster-title">${raceName}</div>
         </div>
-        <div class="feed-race-name">${raceName} ${log.year}</div>
-        <div class="feed-meta">${[stars, date].filter(Boolean).join(' · ')}</div>
+        <div style="position:absolute;bottom:0;left:0;right:0;padding:6px 8px;background:linear-gradient(transparent,rgba(0,0,0,.7));font-size:10px;letter-spacing:1px;color:rgba(255,255,255,.7);">${log.year}</div>
       </div>
+      <div class="feed-user">
+        <div class="feed-avatar" onclick="event.stopPropagation();openUserPage('${log.user_id}')">${avatarHTML}</div>
+        <span class="feed-username" onclick="event.stopPropagation();openUserPage('${log.user_id}')">${p.display_name||'Cyclist'}</span>
+      </div>
+      <div class="feed-stars">${log.rating ? starsHTML(log.rating, 9) : ''}</div>
+      <div class="feed-date">${dateLabel}</div>
     </div>`;
   }).join('');
 
