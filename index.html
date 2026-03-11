@@ -3065,12 +3065,29 @@ async function renderRiders(forceRefresh){
 
   grid.innerHTML = '<div style="color:var(--muted);font-size:12px;grid-column:1/-1;">Loading…</div>';
 
-  // Two queries: (1) best image row per rider, (2) most recent row per rider for current team
-  // Supabase doesn't support GROUP BY directly, so we fetch all rows ordered desc and deduplicate in JS.
-  // Add a generous limit to avoid the default 1000-row Supabase cap silently truncating results.
+  // app_config stores names as "Firstname Lastname" but startlists uses "Lastname Firstname" (PCS format).
+  // Build a set of both variants so the query matches regardless of which format was stored.
+  const dbNameVariants = [...new Set(FEATURED_RIDERS.flatMap(n => {
+    const parts = n.trim().split(' ').filter(Boolean);
+    if(parts.length < 2) return [n];
+    const reversed = parts[parts.length-1] + ' ' + parts.slice(0, -1).join(' ');
+    return [n, reversed];
+  }))];
+
+  // Also build a lookup so we can map DB rider_name back to the FEATURED_RIDERS display name
+  const dbToFeatured = {};
+  FEATURED_RIDERS.forEach(n => {
+    const parts = n.trim().split(' ').filter(Boolean);
+    dbToFeatured[n.toLowerCase()] = n;
+    if(parts.length >= 2){
+      const reversed = (parts[parts.length-1] + ' ' + parts.slice(0, -1).join(' ')).toLowerCase();
+      dbToFeatured[reversed] = n;
+    }
+  });
+
   const { data, error } = await sb.from('startlists')
     .select('rider_name,team_name,nationality,image_url,year')
-    .in('rider_name', FEATURED_RIDERS)
+    .in('rider_name', dbNameVariants)
     .order('year', {ascending: false})
     .limit(2000);
 
@@ -3079,24 +3096,26 @@ async function renderRiders(forceRefresh){
     return;
   }
 
+  // Normalise each row's rider_name to the canonical FEATURED_RIDERS name
+  data.forEach(r => { r._canonical = dbToFeatured[r.rider_name.toLowerCase()] || r.rider_name; });
+
   // Deduplicate: track latest year separately from best image row
-  const seenBest    = new Map();  // name → best row (image preferred)
-  const seenYear    = new Map();  // name → latest year seen
-  const seenLatest  = new Map();  // name → row from the most recent year (for team name)
+  const seenBest    = new Map();  // canonical name → best row (image preferred)
+  const seenYear    = new Map();  // canonical name → latest year seen
+  const seenLatest  = new Map();  // canonical name → row from the most recent year (for team name)
   data.forEach(r => {
-    // Track latest year + most recent row (for current team name)
-    if(!seenYear.has(r.rider_name) || r.year > seenYear.get(r.rider_name)){
-      seenYear.set(r.rider_name, r.year);
-      seenLatest.set(r.rider_name, r);
+    const key = r._canonical;
+    if(!seenYear.has(key) || r.year > seenYear.get(key)){
+      seenYear.set(key, r.year);
+      seenLatest.set(key, r);
     }
-    // Track best row for image (prefer row with an image, then prefer newer year)
-    const prev = seenBest.get(r.rider_name);
-    if(!prev) { seenBest.set(r.rider_name, r); return; }
+    const prev = seenBest.get(key);
+    if(!prev) { seenBest.set(key, r); return; }
     const rHasImg  = r.image_url && r.image_url !== 'none';
     const pvHasImg = prev.image_url && prev.image_url !== 'none';
-    if(rHasImg && !pvHasImg) { seenBest.set(r.rider_name, r); return; }
+    if(rHasImg && !pvHasImg) { seenBest.set(key, r); return; }
     if(!rHasImg && pvHasImg) return;
-    if(r.year > prev.year) seenBest.set(r.rider_name, r);
+    if(r.year > prev.year) seenBest.set(key, r);
   });
 
   console.log('[riders] raw rows:', data.length, '| seenYear:', Object.fromEntries(seenYear));
