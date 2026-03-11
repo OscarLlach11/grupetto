@@ -334,9 +334,9 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 .nav-cta{background:var(--gold)!important;color:var(--black)!important;padding:8px 16px;font-weight:500!important;font-size:10px!important;}
 /* PAGES */
 .page{display:none;animation:fadeUp .25s ease;}.page.active{display:block;}
-#page-rider, #page-race, #page-review, #page-followers{display:none;flex-direction:column;height:calc(100vh - 57px);overflow:hidden;}
-#page-rider.active, #page-race.active, #page-review.active{display:flex;}
-#page-rider .rider-scroll-body, #page-race .race-scroll-body, #page-review .race-scroll-body{flex:1;overflow-y:auto;}
+#page-rider, #page-race, #page-review, #page-stage, #page-followers{display:none;flex-direction:column;height:calc(100vh - 57px);overflow:hidden;}
+#page-rider.active, #page-race.active, #page-review.active, #page-stage.active{display:flex;}
+#page-rider .rider-scroll-body, #page-race .race-scroll-body, #page-review .race-scroll-body, #page-stage .race-scroll-body{flex:1;overflow-y:auto;}
 #page-followers.active{display:block;height:calc(100vh - 57px);overflow-y:auto;}
 #page-user{display:none;}
 #page-user.active{display:block;}
@@ -1081,6 +1081,19 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
   </div>
 </div>
 
+<!-- STAGE PAGE -->
+<div id="page-stage" class="page">
+  <div style="background:var(--bg);padding:12px 24px;border-bottom:1px solid var(--border);flex-shrink:0;">
+    <button class="bs" style="font-size:10px;" onclick="history.back()">← Back</button>
+  </div>
+  <div class="race-scroll-body">
+    <div class="race-sub-layout">
+      <div class="rsp-main" id="stage-main"></div>
+      <div class="rsp-sidebar" id="stage-sidebar"></div>
+    </div>
+  </div>
+</div>
+
 <!-- RIDER PAGE -->
 <div id="page-rider" class="page">
   <div style="position:sticky;top:0;z-index:10;background:var(--bg);padding:12px 24px;border-bottom:1px solid var(--border);flex-shrink:0;">
@@ -1250,6 +1263,8 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 //  RACE DATA — loaded from Supabase at boot
 // ════════════════════════════════════════════════════════
 let RACES = [];            // populated by loadAppData()
+// STAGES_CACHE[slug][year] = [{num, name, date, type, distance_km, departure, arrival, profile_img}]
+const STAGES_CACHE = {};
 let RACE_DATES = {};       // { race_id: { year: 'YYYY-MM-DD' } }
 let FEATURED_RIDERS = [];  // populated by loadAppData()
 
@@ -1323,8 +1338,11 @@ function getStageCount(id){
   return RACES.find(r => r.id === id)?.stageCount || null;
 }
 
-// ── buildStages: same logic, now uses DB-sourced data ─────────────────────
+// ── buildStages: use real DB data if available, fall back to synthetic ────
 function buildStages(id, year){
+  // Check DB cache first
+  if(STAGES_CACHE[id]?.[year]?.length) return STAGES_CACHE[id][year];
+  // Synthetic fallback (used while DB data loads or for races not yet scraped)
   const cnt = getStageCount(id); if(!cnt) return null;
   const finalDate = getRaceFinalDate(id, year); if(!finalDate) return null;
   const isGT = cnt === 21;
@@ -1337,10 +1355,39 @@ function buildStages(id, year){
   while(stageNum < cnt){
     if(isGT && (calDay === 9 || calDay === 16)){ d.setDate(d.getDate()+1); calDay++; continue; }
     stageNum++;
-    stages.push({ num: stageNum, date: d.toISOString().split('T')[0], name: `Stage ${stageNum}${stageNum===cnt?' (Final)':''}` });
+    stages.push({ num: stageNum, date: d.toISOString().split('T')[0], name: `Stage ${stageNum}${stageNum===cnt?' (Final)':''}`, type:'flat', distance_km:null, departure:'', arrival:'' });
     d.setDate(d.getDate()+1);
     calDay++;
   }
+  return stages;
+}
+
+// ── loadStages: fetch real stage data from stage_results table ────────────
+async function loadStages(id, year){
+  if(STAGES_CACHE[id]?.[year]) return STAGES_CACHE[id][year];
+  const { data, error } = await sb.from('stage_results')
+    .select('stage_num,stage_label,stage_date,stage_type,distance_km,departure,arrival,profile_score,top10,gc_top5,winner,winner_team,avg_speed')
+    .eq('race_slug', id).eq('year', year)
+    .order('stage_num', {ascending:true});
+  if(error || !data?.length) return null;
+  const stages = data.map(s => ({
+    num:         s.stage_num,
+    label:       s.stage_label || String(s.stage_num),
+    name:        s.stage_num === 0 ? 'Prologue' : `Stage ${s.stage_label || s.stage_num}`,
+    date:        s.stage_date || '',
+    type:        s.stage_type || 'hilly',
+    distance_km: s.distance_km,
+    departure:   s.departure || '',
+    arrival:     s.arrival || '',
+    profileScore:s.profile_score,
+    top10:       s.top10 || [],
+    gcTop5:      s.gc_top5 || [],
+    winner:      s.winner || '',
+    winnerTeam:  s.winner_team || '',
+    avgSpeed:    s.avg_speed,
+  }));
+  if(!STAGES_CACHE[id]) STAGES_CACHE[id] = {};
+  STAGES_CACHE[id][year] = stages;
   return stages;
 }
 
@@ -1810,25 +1857,111 @@ async function openRacePage(id, preferYear){
 async function renderRSPResults(id, year){
   const el = document.getElementById('rsp-results'); if(!el) return;
   el.innerHTML = `<div style="font-size:11px;color:var(--muted);">Loading…</div>`;
-  const result = await fetchRaceResults(id, year);
+
+  const race = RACES.find(r=>r.id===id);
+  const isStageRace = race && (race.type === 'Grand Tour' || race.type === 'Stage Race');
+
+  const [result, stages] = await Promise.all([
+    fetchRaceResults(id, year),
+    isStageRace ? loadStages(id, year) : Promise.resolve(null),
+  ]);
 
   const top10 = result?.top10;
   let html = '';
 
+  // ── Overall GC / race result ─────────────────────────────────────────────
   if(top10 && Array.isArray(top10) && top10.length){
-    html += `<div style="font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:2px;color:var(--ml);margin-bottom:10px;">${year} Top 10</div><div>`;
-    top10.forEach((name, i) => {
+    html += `<div style="font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:2px;color:var(--ml);margin-bottom:10px;">${year} Final Result</div><div>`;
+    top10.forEach((entry, i) => {
+      const name = typeof entry === 'string' ? entry : (entry.rider || entry.rider_name || '');
+      const time = typeof entry === 'object' ? (entry.time||entry.gap||'') : '';
       html += `<div class="top10-row">
         <span class="t10-pos">${i+1}</span>
         <span class="t10-name" data-rider="${encodeURIComponent(name)}" style="cursor:pointer;" onclick="navToRider(decodeURIComponent(this.dataset.rider))" onmouseover="this.style.color='var(--gold)'" onmouseout="this.style.color=''">${formatRiderName(name)}</span>
+        ${time?`<span style="font-size:10px;color:var(--muted);margin-left:auto;">${time}</span>`:''}
       </div>`;
     });
     html += `</div>`;
   } else {
-    html = `<div style="font-size:12px;color:var(--muted);font-style:italic;line-height:1.8;">No results for ${year}.<br>
-      <a href="https://www.procyclingstats.com/race/${pcsSlug}/${year}" target="_blank" style="color:var(--gold-dim);">View on PCS ↗</a></div>`;
+    html += `<div style="font-size:12px;color:var(--muted);font-style:italic;line-height:1.8;">No results for ${year}.<br>
+      <a href="https://www.procyclingstats.com/race/${id}/${year}" target="_blank" style="color:var(--gold-dim);">View on PCS ↗</a></div>`;
   }
+
+  // ── Per-stage results (stage races only) ─────────────────────────────────
+  if(isStageRace && stages && stages.length){
+    const TYPE_ICON = {mountain:'⛰',tt:'⏱',ttt:'⏱⏱',cobbled:'◫',sprint:'━',hilly:'∧'};
+    const TYPE_COL  = {mountain:'#c0392b',tt:'#1a3a8c',ttt:'#1a3a8c',cobbled:'#7b5e2a',sprint:'#1a5c2a',hilly:'#555'};
+
+    html += `<div style="margin-top:24px;font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:2px;color:var(--ml);margin-bottom:10px;">Stage Results</div>`;
+
+    stages.forEach(s => {
+      const userStage = getUserStageLog(id, year, s.num);
+      const isLogged = !!userStage;
+      const icon  = TYPE_ICON[s.type] || '';
+      const col   = TYPE_COL[s.type]  || '#555';
+      const dist  = s.distance_km ? `${s.distance_km} km` : '';
+      const route = s.departure && s.arrival ? `${s.departure} → ${s.arrival}` : '';
+      const dateStr = s.date ? fmtDate(s.date) : '';
+      const winner = s.winner ? formatRiderName(s.winner) : '';
+      const label  = s.num === 0 ? 'P' : (s.label || s.num);
+
+      html += `<div style="border:1px solid var(--border);margin-bottom:5px;cursor:pointer;transition:border-color .15s;"
+                    onmouseover="this.style.borderColor='var(--gold-dim)'" onmouseout="this.style.borderColor='var(--border)'"
+                    onclick="openStagePage('${id}',${year},${s.num})">
+        <div style="display:flex;align-items:stretch;">
+          <div style="width:3px;background:${col};flex-shrink:0;"></div>
+          <div style="flex:1;padding:8px 10px;min-width:0;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span style="font-family:'Bebas Neue',sans-serif;font-size:13px;color:var(--gold);min-width:20px;">${label}</span>
+              <div style="flex:1;min-width:0;">
+                <div style="font-size:11px;font-weight:500;display:flex;align-items:center;gap:6px;">
+                  <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${route || dateStr}</span>
+                  ${icon?`<span style="font-size:10px;color:${col};">${icon}</span>`:''}
+                  ${dist?`<span style="font-size:10px;color:var(--muted);">${dist}</span>`:''}
+                </div>
+                ${winner?`<div style="font-size:10px;color:var(--muted);margin-top:1px;">★ ${winner}</div>`:''}
+              </div>
+              ${isLogged?`<span style="font-size:8px;color:var(--gold-dim);border:1px solid var(--gold-dim);padding:1px 4px;flex-shrink:0;">LOGGED</span>`:''}
+              <span style="font-size:10px;color:var(--muted);flex-shrink:0;">›</span>
+            </div>
+          </div>
+        </div>
+      </div>`;
+    });
+  } else if(isStageRace){
+    html += `<div style="margin-top:20px;font-size:11px;color:var(--muted);font-style:italic;">Stage data loading — check back once the scraper completes.</div>`;
+  }
+
   el.innerHTML = html;
+}
+
+// ── fetchStageResults: get per-stage results for a race/year ───────────────
+const _stageResultsCache = {};
+async function fetchStageResults(slug, year){
+  const key = `${slug}-${year}`;
+  if(_stageResultsCache[key]) return _stageResultsCache[key];
+  const { data, error } = await sb.from('stage_results')
+    .select('stage_num,stage_label,stage_date,stage_type,distance_km,departure,arrival,top10,gc_top5,winner,winner_team,avg_speed,profile_score')
+    .eq('race_slug', slug).eq('year', year)
+    .order('stage_num', {ascending:true});
+  if(error || !data?.length) return [];
+  const results = data.map(r => ({
+    stage_num:   r.stage_num,
+    stage_label: r.stage_label || String(r.stage_num),
+    stage_date:  r.stage_date,
+    stage_type:  r.stage_type,
+    distance_km: r.distance_km,
+    departure:   r.departure,
+    arrival:     r.arrival,
+    top10:       Array.isArray(r.top10) ? r.top10 : [],
+    gc_top5:     Array.isArray(r.gc_top5) ? r.gc_top5 : [],
+    winner:      r.winner,
+    winner_team: r.winner_team,
+    avg_speed:   r.avg_speed,
+    profile_score: r.profile_score,
+  }));
+  _stageResultsCache[key] = results;
+  return results;
 }
 
 
@@ -1923,6 +2056,257 @@ async function fetchRaceResults(slug, year){
 }
 
 // ════════════════════════════════════════════════════════
+//  STAGE PAGE
+// ════════════════════════════════════════════════════════
+
+// Helper: get the logged stage entry for a given race/year/stageNum
+function getUserStageLog(raceId, year, stageNum){
+  const watches = userLog[raceId]?.watches || [];
+  for(const w of watches){
+    if(w.year === year && w.stages?.[stageNum]) return w.stages[stageNum];
+  }
+  return null;
+}
+
+// State for stage page log modal
+let _spRaceId=null, _spYear=null, _spStage=null, _spRating=0;
+
+async function openStagePage(raceId, year, stageNum){
+  _spRaceId=raceId; _spYear=year; _spStage=null;
+
+  history.pushState(null,'',`#/stage/${raceId}/${year}/${stageNum}`);
+
+  const race = RACES.find(x=>x.id===raceId);
+  const TYPE_ICON = {mountain:'⛰',tt:'⏱',ttt:'⏱⏱',cobbled:'◫',sprint:'━',hilly:'∧'};
+  const TYPE_COL  = {mountain:'#c0392b',tt:'#1a3a8c',ttt:'#1a3a8c',cobbled:'#7b5e2a',sprint:'#1a5c2a',hilly:'#444'};
+  const TYPE_LABEL= {mountain:'Mountain',tt:'Time Trial',ttt:'Team Time Trial',cobbled:'Cobbled',sprint:'Sprint',hilly:'Hilly'};
+
+  // Show page immediately with loading state
+  document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));
+  document.getElementById('page-stage').classList.add('active');
+  document.querySelectorAll('.nav-a').forEach(x=>x.classList.remove('active'));
+  document.getElementById('stage-main').innerHTML = `<div style="padding:40px;color:var(--muted);">Loading…</div>`;
+  document.getElementById('stage-sidebar').innerHTML = '';
+
+  // Load stage data
+  let stages = await loadStages(raceId, year);
+  if(!stages) stages = [];
+  _spStage = stages.find(s=>s.num===stageNum) || null;
+  const s = _spStage;
+
+  if(!s){ document.getElementById('stage-main').innerHTML=`<div style="padding:40px;color:var(--muted);">Stage not found.</div>`; return; }
+
+  const label   = s.num===0 ? 'Prologue' : `Stage ${s.label||s.num}`;
+  const typeCol  = TYPE_COL[s.type]  || '#444';
+  const typeIcon = TYPE_ICON[s.type] || '';
+  const typeLabel= TYPE_LABEL[s.type]|| s.type||'';
+  const route    = s.departure && s.arrival ? `${s.departure} → ${s.arrival}` : '';
+  const userLog_ = getUserStageLog(raceId, year, stageNum);
+  const isLogged = !!userLog_;
+
+  // Prev/next navigation
+  const idx = stages.findIndex(x=>x.num===stageNum);
+  const prev = idx>0 ? stages[idx-1] : null;
+  const next = idx<stages.length-1 ? stages[idx+1] : null;
+
+  // ── Main column ──────────────────────────────────────────────────────────
+  let mainHTML = `
+    <div class="rsp-banner" style="background:${race?.gradient||'linear-gradient(135deg,#1a1a1a,#333)'}">
+      <div style="position:relative;z-index:1;">
+        <div style="font-size:11px;letter-spacing:3px;color:rgba(255,255,255,.6);margin-bottom:4px;text-transform:uppercase;">${race?.name||raceId} · ${year}</div>
+        <div class="rsp-ttl">${label}</div>
+        ${route?`<span class="rsp-sub">${route}</span>`:''}
+      </div>
+    </div>
+
+    <!-- Type / Distance / Speed strip -->
+    <div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:24px;">
+      <div style="flex:1;padding:14px 16px;border-right:1px solid var(--border);">
+        <div style="font-size:9px;letter-spacing:2px;color:var(--muted);margin-bottom:4px;">TYPE</div>
+        <div style="font-size:14px;font-weight:600;color:${typeCol};">${typeIcon} ${typeLabel}</div>
+      </div>
+      ${s.distance_km?`<div style="flex:1;padding:14px 16px;border-right:1px solid var(--border);">
+        <div style="font-size:9px;letter-spacing:2px;color:var(--muted);margin-bottom:4px;">DISTANCE</div>
+        <div style="font-size:14px;font-weight:600;">${s.distance_km} km</div>
+      </div>`:''}
+      ${s.avgSpeed?`<div style="flex:1;padding:14px 16px;">
+        <div style="font-size:9px;letter-spacing:2px;color:var(--muted);margin-bottom:4px;">AVG SPEED</div>
+        <div style="font-size:14px;font-weight:600;">${s.avgSpeed} km/h</div>
+      </div>`:''}
+      ${s.date?`<div style="flex:1;padding:14px 16px;${s.avgSpeed?'':''}">
+        <div style="font-size:9px;letter-spacing:2px;color:var(--muted);margin-bottom:4px;">DATE</div>
+        <div style="font-size:13px;font-weight:600;">${fmtDate(s.date)}</div>
+      </div>`:''}
+    </div>
+
+    <!-- Log button -->
+    <div style="display:flex;gap:10px;margin-bottom:28px;">
+      <button class="bp" onclick="openStageLogModal()">${isLogged?'Edit My Log':'+ Log This Stage'}</button>
+      <button class="bs" onclick="openRacePage('${raceId}',${year})">← Race Page</button>
+    </div>`;
+
+  // User's log for this stage
+  if(isLogged){
+    mainHTML+=`<div class="rsp-section"><div class="rsp-st">Your Log</div>
+      <div class="log-entry-card">
+        <div class="lec-head">
+          <div>
+            <div class="lec-year">${label}</div>
+            <div class="stars" style="margin:4px 0;">${starsHTML(userLog_.rating||0,13)}</div>
+            ${userLog_.date?`<div style="font-size:10px;color:var(--muted);margin-top:2px;">${fmtDate(userLog_.date)}</div>`:''}
+          </div>
+          <div class="lec-date">${userLog_.live?'<span style="font-size:8px;color:var(--live);border:1px solid var(--live);padding:1px 5px;">LIVE</span>':''}</div>
+        </div>
+        ${userLog_.review?`<div class="lec-review">"${userLog_.review}"</div>`:''}
+        <div class="lec-actions">
+          <button class="bs" style="font-size:9px;padding:5px 10px;" onclick="openStageLogModal()">Edit</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // Prev / Next navigation
+  mainHTML+=`<div style="display:flex;gap:8px;margin-top:16px;">
+    ${prev?`<button class="bs" style="flex:1;text-align:left;" onclick="openStagePage('${raceId}',${year},${prev.num})">‹ ${prev.num===0?'Prologue':'Stage '+(prev.label||prev.num)}</button>`:'<div style="flex:1;"></div>'}
+    ${next?`<button class="bs" style="flex:1;text-align:right;" onclick="openStagePage('${raceId}',${year},${next.num})">Stage ${next.label||next.num} ›</button>`:'<div style="flex:1;"></div>'}
+  </div>`;
+
+  document.getElementById('stage-main').innerHTML = mainHTML;
+
+  // ── Sidebar: top 10 ──────────────────────────────────────────────────────
+  let sbHTML = '';
+
+  if(s.winner){
+    sbHTML += `<div class="sb-title">Stage Winner</div>
+      <div style="font-family:'DM Serif Display',serif;font-size:17px;margin-bottom:2px;color:var(--gold);">${formatRiderName(s.winner)}</div>
+      ${s.winnerTeam?`<div style="font-size:11px;color:var(--muted);margin-bottom:20px;">${s.winnerTeam}</div>`:'<div style="margin-bottom:20px;"></div>'}`;
+  }
+
+  if(s.top10 && s.top10.length){
+    sbHTML += `<div class="sb-title" style="margin-top:4px;">Top 10</div><div>`;
+    s.top10.forEach((entry,i)=>{
+      const nm  = typeof entry==='string'?entry:(entry.rider||entry.rider_name||'');
+      const tm  = typeof entry==='object'?(entry.time||entry.gap||''):'';
+      const gap = typeof entry==='object'?(entry.gap||''):'';
+      sbHTML+=`<div class="top10-row">
+        <span class="t10-pos">${i+1}</span>
+        <span class="t10-name" style="cursor:pointer;" onclick="navToRider('${nm}')" onmouseover="this.style.color='var(--gold)'" onmouseout="this.style.color=''">${formatRiderName(nm)}</span>
+        ${(i===0?tm:gap)?`<span style="font-size:10px;color:var(--muted);margin-left:auto;">${i===0?tm:gap}</span>`:''}
+      </div>`;
+    });
+    sbHTML += `</div>`;
+  }
+
+  if(s.gcTop5 && s.gcTop5.length){
+    sbHTML += `<div class="sb-title" style="margin-top:20px;">GC After Stage</div><div>`;
+    s.gcTop5.forEach((entry,i)=>{
+      const nm = typeof entry==='string'?entry:(entry.rider||entry.rider_name||'');
+      const tm = typeof entry==='object'?(entry.time||''):'';
+      sbHTML+=`<div class="top10-row">
+        <span class="t10-pos">${i+1}</span>
+        <span class="t10-name" style="cursor:pointer;" onclick="navToRider('${nm}')" onmouseover="this.style.color='var(--gold)'" onmouseout="this.style.color=''">${formatRiderName(nm)}</span>
+        ${tm?`<span style="font-size:10px;color:var(--muted);margin-left:auto;">${tm}</span>`:''}
+      </div>`;
+    });
+    sbHTML += `</div>`;
+  }
+
+  if(!sbHTML) sbHTML=`<div style="font-size:11px;color:var(--muted);">No result data yet.</div>`;
+  document.getElementById('stage-sidebar').innerHTML = sbHTML;
+}
+
+// ── Stage Log Modal (reuses the race log modal elements) ──────────────────
+function openStageLogModal(){
+  if(!_spStage || !_spRaceId) return;
+  const s = _spStage;
+  const race = RACES.find(x=>x.id===_spRaceId);
+  const saved = getUserStageLog(_spRaceId, _spYear, s.num);
+  _spRating = saved?.rating || 0;
+
+  const label = s.num===0?'Prologue':`Stage ${s.label||s.num}`;
+
+  // Hijack the existing log modal for a single-stage entry
+  document.getElementById('log-mbanner').style.background = race?.gradient||'linear-gradient(135deg,#1a1a1a,#333)';
+  document.getElementById('log-mtitle').textContent = label;
+  document.getElementById('log-msub').textContent = `${race?.name||_spRaceId} · ${_spYear}`;
+  document.getElementById('log-mdesc').textContent = [
+    s.distance_km ? `${s.distance_km} km` : '',
+    s.departure && s.arrival ? `${s.departure} → ${s.arrival}` : '',
+  ].filter(Boolean).join('  ·  ');
+  document.getElementById('log-minfo').innerHTML = '';
+  document.getElementById('log-sgs').innerHTML = '';
+
+  // Hide year/date/live header row and extra buttons (not needed for single stage)
+  document.getElementById('lm-year').closest('div[style*="border-bottom"]').style.display='none';
+  document.getElementById('lm-wl-btn').style.display='none';
+  document.getElementById('lm-del-btn').style.display='none';
+  document.getElementById('add-rewatch-btn').style.display='none';
+
+  document.getElementById('log-form-body').innerHTML=`
+    <div style="margin-bottom:14px;">
+      <span class="slabel">Rating</span>
+      ${buildHSHTML('sp-hs','stage',s.num,_spRating)}
+    </div>
+    <span class="slabel">Notes</span>
+    <textarea class="rta" id="sp-review" placeholder="How was this stage?">${saved?.review||''}</textarea>
+    <div class="frow" style="margin-top:12px;">
+      <div><label class="flbl">Date Watched</label><input type="date" class="dinp" id="sp-date" value="${saved?.date||s.date||''}" max="${TODAY}"></div>
+      <div><div style="height:18px;"></div>
+        <div class="ltog ${saved?.live?'on':''}" id="sp-live" onclick="this.classList.toggle('on');if(this.classList.contains('on'))document.getElementById('sp-date').value='${s.date||''}'">
+          <div class="ldot"></div><span>Watched Live</span>
+        </div>
+      </div>
+    </div>`;
+
+  // Override save button to call saveStagePageLog
+  document.querySelector('#log-mo .bp[onclick="saveLog()"]').onclick = saveStagePageLog;
+
+  attachHSEvents('sp-hs');
+  openMO('log-mo');
+}
+
+function saveStagePageLog(){
+  if(!_spStage) return;
+  const s = _spStage;
+  const date = document.getElementById('sp-date').value;
+  if(!date||date>TODAY){ toast('Cannot log a future date'); return; }
+  const review = document.getElementById('sp-review').value.trim();
+  const live   = document.getElementById('sp-live').classList.contains('on');
+  const rating = _spRating;
+
+  // Find or create the watch entry for this race/year
+  if(!userLog[_spRaceId]) userLog[_spRaceId]={watches:[]};
+  let w = userLog[_spRaceId].watches.find(x=>x.year===_spYear);
+  if(!w){
+    w={year:_spYear,date,live:false,rating:0,review:'',stages:{},ts:Date.now()};
+    userLog[_spRaceId].watches.push(w);
+  }
+  if(!w.stages) w.stages={};
+  w.stages[s.num]={rating,review,date,live};
+
+  persist();
+  closeMO('log-mo');
+  toast(`${s.num===0?'Prologue':`Stage ${s.label||s.num}`} logged ✓`);
+
+  // Restore modal to normal state
+  _restoreLogModal();
+
+  // Re-render stage page to show updated log
+  openStagePage(_spRaceId, _spYear, s.num);
+}
+
+function _restoreLogModal(){
+  // Restore hidden elements
+  const hdrDiv = document.getElementById('lm-year').closest('div[style*="border-bottom"]');
+  if(hdrDiv) hdrDiv.style.display='';
+  document.getElementById('lm-wl-btn').style.display='';
+  document.getElementById('add-rewatch-btn').style.display='';
+  // Restore save button
+  const btn = document.querySelector('#log-mo .bp');
+  if(btn) btn.onclick = saveLog;
+}
+
+// ════════════════════════════════════════════════════════
 //  SEARCH MODAL
 // ════════════════════════════════════════════════════════
 function openSearchModal(){
@@ -1952,7 +2336,7 @@ function renderSearchResults(q){
 // ════════════════════════════════════════════════════════
 //  LOG MODAL
 // ════════════════════════════════════════════════════════
-function openLogModal(id, watchIdx=null){
+async function openLogModal(id, watchIdx=null){
   const r=RACES.find(x=>x.id===id); if(!r) return;
   curId=id; curWatchIdx=watchIdx; formRating=0; stRatings={}; wholeLive=false;
 
@@ -1991,7 +2375,7 @@ function openLogModal(id, watchIdx=null){
     document.getElementById('lm-live').classList.remove('on');
   }
 
-  renderLogFormBody();
+  await renderLogFormBody();
   openMO('log-mo');
 }
 
@@ -2003,7 +2387,7 @@ async function onYearChange(){
     const fd=getRaceFinalDate(curId,y);
     if(fd) document.getElementById('lm-date').value=fd;
   }
-  renderLogFormBody();
+  await renderLogFormBody();
 }
 
 async function toggleLive(){
@@ -2036,7 +2420,7 @@ async function toggleLive(){
   }
 }
 
-function renderLogFormBody(){
+async function renderLogFormBody(){
   const id=curId;
   const r=RACES.find(x=>x.id===id);
   const year=parseInt(document.getElementById('lm-year').value);
@@ -2056,9 +2440,11 @@ function renderLogFormBody(){
   html+=`<span class="slabel">Review</span>
   <textarea class="rta" id="lm-review" placeholder="What made this edition memorable?">${w?.review||''}</textarea>`;
 
-  // Stages
+  // Stages — try real DB data first
   if(cnt){
-    const stages=buildStages(id,year);
+    // Try to load from DB; fall back to synthetic
+    let stages = await loadStages(id, year);
+    if(!stages) stages = buildStages(id, year);
     const savedStages=w?.stages||{};
     const loggedCount=Object.keys(savedStages).length;
     const autoWatched=loggedCount>=cnt;
@@ -2077,11 +2463,14 @@ function renderLogFormBody(){
         const saved=savedStages[s.num];
         const isLogged=!!saved;
         const isFut=s.date>TODAY;
+        const typeIcon = {flat:'━',hills:'∧',mountain:'⛰',itt:'⏱',ttt:'⏱⏱',cobbled:'◫'}[s.type]||'';
+        const distStr = s.distance_km ? `${s.distance_km}km` : '';
+        const routeStr = (s.departure && s.arrival) ? `${s.departure} → ${s.arrival}` : '';
         html+=`<div class="srow ${isLogged?'slogged':''} ${isFut?'sfut':''}" id="srow-${i}" onclick="${isFut?'':`toggleStageForm(${i})`}">
-          <span class="snum">${s.num}</span>
+          <span class="snum">${s.num===0?'P':s.num}</span>
           <div class="sinfo">
-            <div class="sname">${s.name}</div>
-            <div class="sdate">${fmtDate(s.date)}${isFut?' · future':''}</div>
+            <div class="sname">${s.name}${typeIcon?` <span style="font-size:10px;color:var(--muted);margin-left:4px;">${typeIcon}</span>`:''}${distStr?` <span style="font-size:10px;color:var(--muted);">${distStr}</span>`:''}</div>
+            <div class="sdate">${routeStr||fmtDate(s.date)}${isFut?' · future':''}</div>
           </div>
           <div class="stars">${starsHTML(stRatings[s.num]||saved?.rating||0,9)}</div>
           <button class="slbtn ${isLogged?'logged':''}" ${isFut?'disabled':''} onclick="event.stopPropagation();${isFut?'':`toggleStageForm(${i})`}">${isFut?'Future':isLogged?'Edit':'Log'}</button>
@@ -2140,7 +2529,7 @@ function toggleSfLive(idx,stageDate){
   if(el.classList.contains('on')) document.getElementById(`sf-date-${idx}`).value=stageDate;
 }
 
-function saveStageForm(idx){
+async function saveStageForm(idx){
   const year=parseInt(document.getElementById('lm-year').value);
   const stages=buildStages(curId,year);
   const s=stages[idx];
@@ -2168,16 +2557,16 @@ function saveStageForm(idx){
   }
   persist();
   document.getElementById(`sf-${idx}`).style.display='none';
-  renderLogFormBody();
+  await renderLogFormBody();
   toast(`Stage ${s.num} saved`);
 }
 
-function addRewatch(){
+async function addRewatch(){
   curWatchIdx=null; formRating=0; stRatings={};
   document.getElementById('lm-date').value=TODAY;
   document.getElementById('lm-live').classList.remove('on');
   wholeLive=false;
-  renderLogFormBody();
+  await renderLogFormBody();
   toast('New watch — fill in and save');
 }
 
@@ -2706,8 +3095,16 @@ function renderStats(){
   const topGCWinner=Object.entries(gcWins).sort((a,b)=>b[1]-a[1])[0];
   const topStageWinner=Object.entries(stageWins).sort((a,b)=>b[1]-a[1])[0];
 
-  // Stage count
-  const totalStages=Object.values(userLog).flatMap(rl=>(rl.watches||[]).flatMap(w=>Object.keys(w.stages||{}))).length;
+
+  // Stage count + stage ratings
+
+  // Stage count + stage ratings
+  const stageEntries = allStageEntries();
+  const totalStages = stageEntries.length;
+  const stageLiveCount = stageEntries.filter(e=>e.stageLog.live).length;
+  const stageRated = stageEntries.filter(e=>e.stageLog.rating).length;
+  const stageRatings = stageEntries.filter(e=>e.stageLog.rating).map(e=>e.stageLog.rating);
+  const avgStageRating = stageRatings.length ? (stageRatings.reduce((a,b)=>a+b,0)/stageRatings.length).toFixed(1) : null;
 
   const el=document.getElementById('stats-content');
   el.innerHTML=`<div class="stats-grid">
@@ -2717,8 +3114,15 @@ function renderStats(){
       <div class="stat-big-sub">Races Logged</div>
       <div style="margin-top:16px;" class="stat-row"><span class="stat-row-label">Watched Live</span><span class="stat-row-val">${liveCount} <span style="font-size:12px;color:var(--muted);">(${total?Math.round(liveCount/total*100):0}%)</span></span></div>
       <div class="stat-row"><span class="stat-row-label">Avg Rating</span><span class="stat-row-val">${avgRating||'—'}</span></div>
-      <div class="stat-row"><span class="stat-row-label">Stages Logged</span><span class="stat-row-val">${totalStages}</span></div>
       <div class="stat-row"><span class="stat-row-label">Distinct Races</span><span class="stat-row-val">${new Set(all.map(([id])=>id)).size}</span></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-card-title">Stages</div>
+      <div class="stat-big">${totalStages}</div>
+      <div class="stat-big-sub">Stages Logged</div>
+      <div style="margin-top:16px;" class="stat-row"><span class="stat-row-label">Watched Live</span><span class="stat-row-val">${stageLiveCount} <span style="font-size:12px;color:var(--muted);">(${totalStages?Math.round(stageLiveCount/totalStages*100):0}%)</span></span></div>
+      <div class="stat-row"><span class="stat-row-label">Rated</span><span class="stat-row-val">${stageRated}</span></div>
+      <div class="stat-row"><span class="stat-row-label">Avg Stage Rating</span><span class="stat-row-val">${avgStageRating||'—'}</span></div>
     </div>
     <div class="stat-card">
       <div class="stat-card-title">By Race Type</div>
@@ -2914,7 +3318,7 @@ function confirmClearAll(){
 //  MODAL HELPERS
 // ════════════════════════════════════════════════════════
 function openMO(id){document.getElementById(id).classList.add('open');}
-function closeMO(id){document.getElementById(id).classList.remove('open');if(id==='log-mo') curId=null;}
+function closeMO(id){document.getElementById(id).classList.remove('open');if(id==='log-mo'){curId=null;_restoreLogModal();}}
 function handleMOClick(e,id){if(e.target===document.getElementById(id)) closeMO(id);}
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeMO('log-mo');closeMO('search-mo');closeMO('auth-mo');closeMO('rider-picker-mo');closeMO('race-picker-mo');closeMO('edit-profile-mo');closeConfirm();}});
 
@@ -2929,6 +3333,18 @@ function allEntries(){
     (rl.watches||[]).forEach(w=>out.push([id,w]));
   });
   return out.sort((a,b)=>(b[1].ts||0)-(a[1].ts||0));
+}
+// Returns flat list of all logged stages: [{raceId, year, stageNum, stageLog}]
+function allStageEntries(){
+  const out=[];
+  Object.entries(userLog).forEach(([raceId,rl])=>{
+    (rl.watches||[]).forEach(w=>{
+      Object.entries(w.stages||{}).forEach(([num,sl])=>{
+        out.push({raceId, year:w.year, stageNum:parseInt(num), stageLog:sl});
+      });
+    });
+  });
+  return out;
 }
 function fmtDate(d){if(!d) return '';return new Date(d+'T12:00:00').toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});}
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2200);}
@@ -2974,7 +3390,7 @@ function renderProfile(){
   const liveCount = all.filter(([,w])=>w.live).length;
   const rts = all.filter(([,w])=>w.rating).map(([,w])=>w.rating);
   const avg = rts.length ? (rts.reduce((a,b)=>a+b,0)/rts.length).toFixed(1) : '—';
-  const stTotal = Object.values(userLog).flatMap(rl=>(rl.watches||[]).flatMap(w=>Object.keys(w.stages||{}))).length;
+  const stTotal = allStageEntries().length;
   document.getElementById('profile-stat-grid').innerHTML = [
     [all.length,'Races'],
     [liveCount,'Live'],
@@ -3470,6 +3886,9 @@ function handleRoute(hash){
     const slug = parts[1];
     const year = parts[2] ? parseInt(parts[2]) : null;
     openRacePage(slug, year);
+  } else if(parts[0] === 'stage' && parts[1] && parts[2] && parts[3]) {
+    // #/stage/{raceId}/{year}/{stageNum}
+    openStagePage(parts[1], parseInt(parts[2]), parseInt(parts[3]));
   } else if(parts[0] === 'rider' && parts[1]) {
     openRiderPageBySlug(parts[1]);
   } else if(parts[0] === 'review' && parts[1] && parts[2] && parts[3]) {
