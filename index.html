@@ -1459,8 +1459,44 @@ let watchlist = JSON.parse(localStorage.getItem('g3-wl')    || '[]');
 // Cache of race results from Supabase: { [slug]: { [year]: { top10, stageWins } } }
 let raceResultsCache = JSON.parse(localStorage.getItem('g3-results-cache') || '{}');
 
+// Migration v3: purge stage:: keys from g3-log into g3-stage-log, and remove
+// any race entries that were auto-created solely by stage logging (no rating/review/live set)
+if(localStorage.getItem('g3-log-migrated') !== '3') {
+  const stageLogMigrated = JSON.parse(localStorage.getItem('g3-stage-log') || '{}');
+  Object.keys(userLog).filter(k => k.startsWith('stage::')).forEach(key => {
+    // Parse stage::raceId::year::stageNum
+    const parts = key.split('::');
+    if(parts.length === 4) {
+      const [, raceId, year, stageNum] = parts;
+      const watch = userLog[key]?.watches?.[0];
+      if(watch) {
+        if(!stageLogMigrated[raceId]) stageLogMigrated[raceId] = {};
+        if(!stageLogMigrated[raceId][year]) stageLogMigrated[raceId][year] = {};
+        stageLogMigrated[raceId][year][stageNum] = {
+          rating: watch.rating||0, review: watch.review||'',
+          date: watch.date||'', live: watch.live||false,
+          ts: watch.ts||Date.now(),
+          stageLabel: watch._stage?.stageLabel || stageNum
+        };
+      }
+    }
+    delete userLog[key];
+  });
+  // Also remove race watch entries that were created empty by stage logging
+  // (rating=0, review='', live=false, and only exist because saveStagePageLog created them)
+  Object.keys(userLog).forEach(raceId => {
+    const rl = userLog[raceId];
+    if(!rl?.watches) return;
+    rl.watches = rl.watches.filter(w => w.rating || w.review || w.live || w.rewatches?.length);
+    if(!rl.watches.length) delete userLog[raceId];
+  });
+  localStorage.setItem('g3-stage-log', JSON.stringify(stageLogMigrated));
+  localStorage.setItem('g3-log', JSON.stringify(userLog));
+  localStorage.setItem('g3-log-migrated', '3');
+}
+
 async function loadRaceResultsForLog(){
-  const slugsNeeded = Object.keys(userLog);
+  const slugsNeeded = Object.keys(userLog).filter(k => !k.startsWith('stage::'));
   if(!slugsNeeded.length) return;
 
   const slugsToFetch = slugsNeeded.filter(slug => !_resultsCache[slug]);
@@ -2069,15 +2105,7 @@ async function fetchRaceResults(slug, year){
 
 // Helper: get the logged stage entry for a given race/year/stageNum
 function getUserStageLog(raceId, year, stageNum){
-  // New: standalone top-level entry
-  const standalone = userLog[stageLogKey(raceId, year, stageNum)]?.watches?.[0];
-  if(standalone) return standalone;
-  // Legacy: nested inside race watch entry
-  const watches = userLog[raceId]?.watches || [];
-  for(const w of watches){
-    if(w.year === year && w.stages?.[stageNum]) return w.stages[stageNum];
-  }
-  return null;
+  return stageLog[raceId]?.[year]?.[stageNum] || null;
 }
 
 // State for stage page log modal
@@ -2277,14 +2305,13 @@ function openStageLogModal(){
   openMO('log-mo');
 }
 
-function stageLogKey(raceId, year, stageNum){
-  return `stage::${raceId}::${year}::${stageNum}`;
-}
+// ── Separate stage log store — never touches userLog ─────────────────────
+// stageLog[raceId][year][stageNum] = {rating, review, date, live, ts}
+let stageLog = JSON.parse(localStorage.getItem('g3-stage-log') || '{}');
+function persistStageLog(){ localStorage.setItem('g3-stage-log', JSON.stringify(stageLog)); }
 
 function getUserStageLogEntry(raceId, year, stageNum){
-  const key = stageLogKey(raceId, year, stageNum);
-  const entry = userLog[key];
-  return entry?.watches?.[0] || null;
+  return stageLog[raceId]?.[year]?.[stageNum] || null;
 }
 
 function saveStagePageLog(){
@@ -2296,23 +2323,12 @@ function saveStagePageLog(){
   const live   = document.getElementById('sp-live').classList.contains('on');
   const rating = _spRating;
 
-  // Save as a standalone top-level entry so it appears in My Log independently
-  const key = stageLogKey(_spRaceId, _spYear, s.num);
-  if(!userLog[key]) userLog[key] = { watches: [], _stageRef: { raceId: _spRaceId, year: _spYear, stageNum: s.num, stageLabel: s.label||String(s.num) } };
-  const entry = { year: _spYear, date, live, rating, review, ts: Date.now(),
-    _stage: { raceId: _spRaceId, year: _spYear, stageNum: s.num, stageLabel: s.label||String(s.num) } };
-  if(userLog[key].watches.length) userLog[key].watches[0] = entry;
-  else userLog[key].watches.push(entry);
-
-  // Also keep it in the race watch entry for stage-level tracking on the race page
-  if(!userLog[_spRaceId]) userLog[_spRaceId] = {watches:[]};
-  let w = userLog[_spRaceId].watches.find(x=>x.year===_spYear);
-  if(!w){
-    w = {year:_spYear, date, live:false, rating:0, review:'', stages:{}, ts:Date.now()};
-    userLog[_spRaceId].watches.push(w);
-  }
-  if(!w.stages) w.stages={};
-  w.stages[s.num] = {rating, review, date, live};
+  // Save into the separate stageLog store — never touches userLog
+  if(!stageLog[_spRaceId]) stageLog[_spRaceId] = {};
+  if(!stageLog[_spRaceId][_spYear]) stageLog[_spRaceId][_spYear] = {};
+  stageLog[_spRaceId][_spYear][s.num] = { rating, review, date, live, ts: Date.now(),
+    stageLabel: s.label || String(s.num) };
+  persistStageLog();
 
   persist();
   closeMO('log-mo');
@@ -2699,17 +2715,40 @@ function hsUpdateDisplay(wrap, v){
 // ════════════════════════════════════════════════════════
 //  SIDEBAR
 // ════════════════════════════════════════════════════════
+function deleteStageLog(raceId, year, stageNum){
+  if(!stageLog[raceId]?.[year]?.[stageNum]) return;
+  delete stageLog[raceId][year][stageNum];
+  if(!Object.keys(stageLog[raceId][year]).length) delete stageLog[raceId][year];
+  if(!Object.keys(stageLog[raceId]||{}).length) delete stageLog[raceId];
+  persistStageLog();
+  renderAll();
+  toast('Stage log deleted');
+}
+
 function renderSidebar(){
   const el=document.getElementById('sidebar-log');
-  const all=allEntries().slice(0,8);
+  // Merge races and stages, sort by ts, take top 8
+  const races = allEntries().map(([id,w])=>({type:'race',id,w,ts:w.ts||0}));
+  const stages = allStageEntries().map(e=>({type:'stage',...e,ts:e.stageLog.ts||0}));
+  const all = [...races,...stages].sort((a,b)=>b.ts-a.ts).slice(0,8);
   if(!all.length){el.innerHTML='<div class="empty-log">Log some races to see activity here.</div>';return;}
-  el.innerHTML=all.map(([id,w])=>{
-    const r=RACES.find(x=>x.id===id); if(!r) return '';
-    return `<div class="sle" onclick="openRacePage('${id}')">
+  el.innerHTML=all.map(item=>{
+    if(item.type==='stage'){
+      const race=RACES.find(x=>x.id===item.raceId);
+      const stLabel=item.stageNum===0?'Prologue':`Stage ${item.stageLog.stageLabel||item.stageNum}`;
+      return `<div class="sle" onclick="openStagePage('${item.raceId}',${item.year},${item.stageNum})">
+        <div class="sle-name">${race?.name||item.raceId}</div>
+        <div class="sle-yr">${item.year} · ${stLabel}</div>
+        <div class="sle-d">${item.stageLog.date?fmtDate(item.stageLog.date):''}</div>
+        <div class="stars">${starsHTML(item.stageLog.rating||0,9)}</div>
+      </div>`;
+    }
+    const r=RACES.find(x=>x.id===item.id); if(!r) return '';
+    return `<div class="sle" onclick="openRacePage('${item.id}')">
       <div class="sle-name">${r.name}</div>
-      <div class="sle-yr">${w.from?`${w.from}–${w.to}`:w.year} Edition</div>
-      <div class="sle-d">${w.date?fmtDate(w.date):''}</div>
-      <div class="stars">${starsHTML(w.rating||0,9)}</div>
+      <div class="sle-yr">${item.w.from?`${item.w.from}–${item.w.to}`:item.w.year} Edition</div>
+      <div class="sle-d">${item.w.date?fmtDate(item.w.date):''}</div>
+      <div class="stars">${starsHTML(item.w.rating||0,9)}</div>
     </div>`;
   }).join('');
 }
@@ -2718,64 +2757,85 @@ function renderSidebar(){
 //  LOG PAGE
 // ════════════════════════════════════════════════════════
 function renderLogPage(){
-  const all=allEntries();
-  document.getElementById('log-cnt').textContent=all.length;
-  document.getElementById('log-live').textContent=all.filter(([,w])=>w.live).length;
-  document.getElementById('log-races').textContent=new Set(all.map(([id])=>id)).size;
-  const rts=all.filter(([,w])=>w.rating).map(([,w])=>w.rating);
-  document.getElementById('log-avg').textContent=rts.length?(rts.reduce((a,b)=>a+b,0)/rts.length).toFixed(1):'—';
+  const allRaces = allEntries();   // [[raceId, watchObj], ...]
+  const allStages = allStageEntries(); // [{raceId, year, stageNum, stageLog}, ...]
 
-  // Apply log filters
-  let entries = all.filter(([id,w])=>{
-    const r=RACES.find(x=>x.id===id); if(!r) return false;
-    if(logFilter.rating){
-      const rounded=(Math.round((w.rating||0)*2)/2);
-      if(rounded!==logFilter.rating) return false;
-    }
-    if(logFilter.country){
-      const key=`${r.flag||''} ${r.country}`.trim();
-      if(key!==logFilter.country) return false;
-    }
+  // Stats header — races only
+  document.getElementById('log-cnt').textContent = allRaces.length;
+  document.getElementById('log-live').textContent = allRaces.filter(([,w])=>w.live).length;
+  document.getElementById('log-races').textContent = new Set(allRaces.map(([id])=>id)).size;
+  const rts = allRaces.filter(([,w])=>w.rating).map(([,w])=>w.rating);
+  document.getElementById('log-avg').textContent = rts.length?(rts.reduce((a,b)=>a+b,0)/rts.length).toFixed(1):'—';
+
+  // Build unified list: races as {type:'race', id, w} + stages as {type:'stage', ...}
+  let raceItems = allRaces
+    .filter(([id])=>RACES.find(x=>x.id===id))
+    .map(([id,w])=>({type:'race', id, w, ts:w.ts||0}));
+
+  let stageItems = allStages.map(e=>({
+    type:'stage', raceId:e.raceId, year:e.year, stageNum:e.stageNum,
+    sl:e.stageLog, ts:e.stageLog.ts||0
+  }));
+
+  // Apply filters — stages use same live/rating filters; country/type filter only for races
+  raceItems = raceItems.filter(({id,w})=>{
+    const r=RACES.find(x=>x.id===id);
+    if(logFilter.rating){ const rounded=(Math.round((w.rating||0)*2)/2); if(rounded!==logFilter.rating) return false; }
+    if(logFilter.country){ const key=`${r.flag||''} ${r.country}`.trim(); if(key!==logFilter.country) return false; }
     if(logFilter.type && r.type!==logFilter.type) return false;
     if(logFilter.live==='live' && !w.live) return false;
     if(logFilter.live==='replay' && w.live) return false;
     return true;
   });
+  stageItems = stageItems.filter(({sl})=>{
+    if(logFilter.rating){ const rounded=(Math.round((sl.rating||0)*2)/2); if(rounded!==logFilter.rating) return false; }
+    if(logFilter.live==='live' && !sl.live) return false;
+    if(logFilter.live==='replay' && sl.live) return false;
+    return true;
+  });
+
+  let combined = [...raceItems, ...stageItems];
 
   // Sort
-  if(logFilter.sort==='rating') entries=entries.sort((a,b)=>(b[1].rating||0)-(a[1].rating||0));
-  else if(logFilter.sort==='name') entries=entries.sort((a,b)=>{const ra=RACES.find(x=>x.id===a[0]),rb=RACES.find(x=>x.id===b[0]);return (ra?.name||'').localeCompare(rb?.name||'');});
-  else if(logFilter.sort==='year') entries=entries.sort((a,b)=>(b[1].year||0)-(a[1].year||0));
-  else entries=entries.sort((a,b)=>(b[1].ts||0)-(a[1].ts||0)); // date (default)
+  if(logFilter.sort==='rating') combined.sort((a,b)=>((b.w||b.sl).rating||0)-((a.w||a.sl).rating||0));
+  else if(logFilter.sort==='year') combined.sort((a,b)=>((b.w||b.sl).year||b.year||0)-((a.w||a.sl).year||a.year||0));
+  else if(logFilter.sort==='name') combined.sort((a,b)=>{
+    const na=a.type==='race'?(RACES.find(x=>x.id===a.id)?.name||''):(RACES.find(x=>x.id===a.raceId)?.name||'');
+    const nb=b.type==='race'?(RACES.find(x=>x.id===b.id)?.name||''):(RACES.find(x=>x.id===b.raceId)?.name||'');
+    return na.localeCompare(nb);
+  });
+  else combined.sort((a,b)=>b.ts-a.ts); // recent first
 
   updateLogFilterUI();
 
   const list=document.getElementById('log-list');
-  if(!all.length){list.innerHTML='<div class="empty">No races logged yet.</div>';return;}
-  if(!entries.length){list.innerHTML='<div class="empty" style="padding:40px;">No entries match these filters.</div>';return;}
-  list.innerHTML=entries.map(([id,w])=>{
-    const isStageEntry = id.startsWith('stage::');
-    if(isStageEntry){
-      const ref = w._stage || userLog[id]?._stageRef || {};
-      const race = RACES.find(x=>x.id===ref.raceId);
-      const stLabel = ref.stageNum===0 ? 'Prologue' : `Stage ${ref.stageLabel||ref.stageNum}`;
-      return `<div class="lpe" onclick="openStagePage('${ref.raceId}',${ref.year},${ref.stageNum})">
+  const totalAll = allRaces.length + allStages.length;
+  if(!totalAll){list.innerHTML='<div class="empty">No races logged yet.</div>';return;}
+  if(!combined.length){list.innerHTML='<div class="empty" style="padding:40px;">No entries match these filters.</div>';return;}
+
+  list.innerHTML = combined.map(item=>{
+    if(item.type==='stage'){
+      const {raceId,year,stageNum,sl} = item;
+      const race = RACES.find(x=>x.id===raceId);
+      const stLabel = stageNum===0 ? 'Prologue' : `Stage ${sl.stageLabel||stageNum}`;
+      return `<div class="lpe" onclick="openStagePage('${raceId}',${year},${stageNum})">
         <div class="lpe-sw" style="background:${race?.gradient||'var(--border)'}"></div>
         <div class="lpe-info">
-          <div class="lpe-race">${race?.name||ref.raceId}</div>
-          <div class="lpe-ed">${ref.year} · ${stLabel}</div>
+          <div class="lpe-race">${race?.name||raceId}</div>
+          <div class="lpe-ed">${year} · ${stLabel}</div>
           <div class="lpe-meta">${race?`${race.flag} ${race.country} · `:''}Stage</div>
-          <div style="margin-bottom:4px;">${starsHTML(w.rating||0,11)}</div>
-          ${w.review?`<div class="lpe-rev">"${w.review}"</div>`:''}
+          <div style="margin-bottom:4px;">${starsHTML(sl.rating||0,11)}</div>
+          ${sl.review?`<div class="lpe-rev">"${sl.review}"</div>`:''}
         </div>
         <div class="lpe-right">
-          ${w.date?`<div class="lpe-date">${fmtDate(w.date)}</div>`:''}
-          ${w.live?`<div class="live-badge">LIVE</div>`:''}
-          <button class="le-del" onclick="event.stopPropagation();confirmDeleteEntryFromLog('${id}',${w.ts||0})">Delete</button>
+          ${sl.date?`<div class="lpe-date">${fmtDate(sl.date)}</div>`:''}
+          ${sl.live?`<div class="live-badge">LIVE</div>`:''}
+          <button class="le-del" onclick="event.stopPropagation();deleteStageLog('${raceId}',${year},${stageNum})">Delete</button>
         </div>
       </div>`;
     }
-    const r=RACES.find(x=>x.id===id); if(!r) return '';
+    const {id,w} = item;
+    const r=RACES.find(x=>x.id===id);
     const yrLabel=w.from?`${w.from}–${w.to}`:w.year;
     const stCnt=Object.keys(w.stages||{}).length;
     return `<div class="lpe" onclick="openRacePage('${id}')">
@@ -2869,6 +2929,7 @@ function getRiderData(){
   const stageRaceTypes = new Set(['Grand Tour','Stage Race']);
 
   Object.entries(userLog).forEach(([id,rl])=>{
+    if(id.startsWith('stage::')) return;
     const watchList = Array.isArray(rl) ? rl : (rl.watches||[]);
     const raceObj = RACES.find(r=>r.id===id);
     watchList.forEach(w=>{
@@ -3378,6 +3439,7 @@ function hasLog(id){const rl=userLog[id];return !!(rl&&(rl.watches||[]).length);
 function allEntries(){
   const out=[];
   Object.entries(userLog).forEach(([id,rl])=>{
+    if(id.startsWith('stage::')) return; // legacy cleanup — ignore any old stage:: keys
     (rl.watches||[]).forEach(w=>out.push([id,w]));
   });
   return out.sort((a,b)=>(b[1].ts||0)-(a[1].ts||0));
@@ -3385,10 +3447,10 @@ function allEntries(){
 // Returns flat list of all logged stages: [{raceId, year, stageNum, stageLog}]
 function allStageEntries(){
   const out=[];
-  Object.entries(userLog).forEach(([raceId,rl])=>{
-    (rl.watches||[]).forEach(w=>{
-      Object.entries(w.stages||{}).forEach(([num,sl])=>{
-        out.push({raceId, year:w.year, stageNum:parseInt(num), stageLog:sl});
+  Object.entries(stageLog).forEach(([raceId,years])=>{
+    Object.entries(years).forEach(([year,stages])=>{
+      Object.entries(stages).forEach(([num,sl])=>{
+        out.push({raceId, year:parseInt(year), stageNum:parseInt(num), stageLog:sl});
       });
     });
   });
