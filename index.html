@@ -3067,13 +3067,34 @@ async function renderRiders(forceRefresh){
   grid.innerHTML = '<div style="color:var(--muted);font-size:12px;grid-column:1/-1;">Loading…</div>';
 
   // FEATURED_RIDERS are stored in DB format already ("Pogačar Tadej" = lastname firstname)
-  const { data, error } = await sb.from('startlists')
-    .select('rider_name,team_name,nationality,image_url,year')
-    .in('rider_name', FEATURED_RIDERS)
-    .order('year', {ascending: false})
-    .limit(2000);
+  console.log('[riders] FEATURED_RIDERS:', JSON.stringify(FEATURED_RIDERS));
 
-  if(error) console.warn('[riders] query error:', error.message, error.code);
+  // Use ilike per rider — same approach as renderRiderPage which works reliably.
+  // .in() with special characters (č, ã, etc.) can silently fail in some Supabase versions.
+  const allRows = [];
+  await Promise.all(FEATURED_RIDERS.map(async name => {
+    // Try exact match first, then wildcard on last word (the "firstname" in PCS format)
+    const parts = name.trim().split(' ').filter(Boolean);
+    const searchTerm = parts.length >= 2 ? `%${parts[parts.length - 1]}%` : `%${name}%`;
+    const { data: rows, error: err } = await sb.from('startlists')
+      .select('rider_name,team_name,nationality,image_url,year')
+      .ilike('rider_name', searchTerm)
+      .order('year', {ascending: false})
+      .limit(50);
+    if(err){ console.warn('[riders] ilike error for', name, err.message); return; }
+    // Filter to rows that match this specific rider (avoid false positives from wildcard)
+    const matched = (rows||[]).filter(r => r.rider_name.toLowerCase() === name.toLowerCase());
+    if(matched.length){
+      matched.forEach(r => allRows.push(r));
+    } else if(rows?.length){
+      // Fallback: take all rows from this query (wildcard matched a unique rider)
+      rows.forEach(r => allRows.push(r));
+    }
+  }));
+
+  const data = allRows;
+  const error = null;
+  console.log('[riders] total rows fetched:', data.length);
 
   if(error || !data){
     grid.innerHTML = '<div style="color:var(--muted);font-size:12px;grid-column:1/-1;">Could not load riders.</div>';
