@@ -3065,29 +3065,10 @@ async function renderRiders(forceRefresh){
 
   grid.innerHTML = '<div style="color:var(--muted);font-size:12px;grid-column:1/-1;">Loading…</div>';
 
-  // app_config stores names as "Firstname Lastname" but startlists uses "Lastname Firstname" (PCS format).
-  // Build a set of both variants so the query matches regardless of which format was stored.
-  const dbNameVariants = [...new Set(FEATURED_RIDERS.flatMap(n => {
-    const parts = n.trim().split(' ').filter(Boolean);
-    if(parts.length < 2) return [n];
-    const reversed = parts[parts.length-1] + ' ' + parts.slice(0, -1).join(' ');
-    return [n, reversed];
-  }))];
-
-  // Also build a lookup so we can map DB rider_name back to the FEATURED_RIDERS display name
-  const dbToFeatured = {};
-  FEATURED_RIDERS.forEach(n => {
-    const parts = n.trim().split(' ').filter(Boolean);
-    dbToFeatured[n.toLowerCase()] = n;
-    if(parts.length >= 2){
-      const reversed = (parts[parts.length-1] + ' ' + parts.slice(0, -1).join(' ')).toLowerCase();
-      dbToFeatured[reversed] = n;
-    }
-  });
-
+  // FEATURED_RIDERS are stored in DB format already ("Pogačar Tadej" = lastname firstname)
   const { data, error } = await sb.from('startlists')
     .select('rider_name,team_name,nationality,image_url,year')
-    .in('rider_name', dbNameVariants)
+    .in('rider_name', FEATURED_RIDERS)
     .order('year', {ascending: false})
     .limit(2000);
 
@@ -3096,15 +3077,12 @@ async function renderRiders(forceRefresh){
     return;
   }
 
-  // Normalise each row's rider_name to the canonical FEATURED_RIDERS name
-  data.forEach(r => { r._canonical = dbToFeatured[r.rider_name.toLowerCase()] || r.rider_name; });
-
   // Deduplicate: track latest year separately from best image row
-  const seenBest    = new Map();  // canonical name → best row (image preferred)
-  const seenYear    = new Map();  // canonical name → latest year seen
-  const seenLatest  = new Map();  // canonical name → row from the most recent year (for team name)
+  const seenBest    = new Map();  // rider_name → best row (image preferred)
+  const seenYear    = new Map();  // rider_name → latest year seen
+  const seenLatest  = new Map();  // rider_name → most recent row (for current team name)
   data.forEach(r => {
-    const key = r._canonical;
+    const key = r.rider_name;
     if(!seenYear.has(key) || r.year > seenYear.get(key)){
       seenYear.set(key, r.year);
       seenLatest.set(key, r);
