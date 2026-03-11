@@ -3073,21 +3073,32 @@ async function renderRiders(forceRefresh){
   // .in() with special characters (č, ã, etc.) can silently fail in some Supabase versions.
   const allRows = [];
   await Promise.all(FEATURED_RIDERS.map(async name => {
-    // Try exact match first, then wildcard on last word (the "firstname" in PCS format)
-    const parts = name.trim().split(' ').filter(Boolean);
-    const searchTerm = parts.length >= 2 ? `%${parts[parts.length - 1]}%` : `%${name}%`;
+    // Use ilike on the full name — handles case differences without false positives
     const { data: rows, error: err } = await sb.from('startlists')
       .select('rider_name,team_name,nationality,image_url,year')
-      .ilike('rider_name', searchTerm)
+      .ilike('rider_name', name)
       .order('year', {ascending: false})
       .limit(50);
     if(err){ console.warn('[riders] ilike error for', name, err.message); return; }
-    // Filter to rows that match this specific rider (avoid false positives from wildcard)
-    const matched = (rows||[]).filter(r => r.rider_name.toLowerCase() === name.toLowerCase());
-    if(matched.length){
-      matched.forEach(r => allRows.push(r));
-    } else if(rows?.length){
-      // Fallback: take all rows from this query (wildcard matched a unique rider)
+    if(!rows?.length){
+      // Fallback: wildcard on full name in case of minor spelling difference
+      const { data: fuzzy } = await sb.from('startlists')
+        .select('rider_name,team_name,nationality,image_url,year')
+        .ilike('rider_name', `%${name}%`)
+        .order('year', {ascending: false})
+        .limit(10);
+      if(!fuzzy?.length){
+        // Last resort: search by first name only to find the actual DB spelling
+        const parts = name.trim().split(' ');
+        const { data: byFirst } = await sb.from('startlists')
+          .select('rider_name,team_name,nationality,image_url,year')
+          .ilike('rider_name', `%${parts[parts.length-1]}%`)
+          .order('year', {ascending: false})
+          .limit(5);
+        console.warn('[riders] no match for', name, '— closest by first name:', byFirst?.map(r=>r.rider_name));
+      }
+      (fuzzy||[]).forEach(r => allRows.push(r));
+    } else {
       rows.forEach(r => allRows.push(r));
     }
   }));
