@@ -3102,11 +3102,12 @@ async function renderRiders(forceRefresh){
   }
 
   // Deduplicate: track latest year separately from best image row
-  const seenBest    = new Map();  // rider_name → best row (image preferred)
-  const seenYear    = new Map();  // rider_name → latest year seen
-  const seenLatest  = new Map();  // rider_name → most recent row (for current team name)
+  // Key everything lowercase to handle DB casing differences (e.g. "POGAČAR Tadej" vs "Pogačar Tadej")
+  const seenBest    = new Map();  // lower(rider_name) → best row (image preferred)
+  const seenYear    = new Map();  // lower(rider_name) → latest year seen
+  const seenLatest  = new Map();  // lower(rider_name) → most recent row (for current team name)
   data.forEach(r => {
-    const key = r.rider_name;
+    const key = r.rider_name.toLowerCase();
     if(!seenYear.has(key) || r.year > seenYear.get(key)){
       seenYear.set(key, r.year);
       seenLatest.set(key, r);
@@ -3124,10 +3125,10 @@ async function renderRiders(forceRefresh){
 
   // Maintain the original FEATURED_RIDERS order, falling back to placeholder if missing
   const riders = FEATURED_RIDERS.map(name => {
-    const best   = seenBest.get(name)   || {rider_name: name, image_url: null, year: null};
-    const latest = seenLatest.get(name) || best;
-    const lastYr = seenYear.get(name)   || best.year;
-    // Use image from best row, but team name + year from the most recent row
+    const key    = name.toLowerCase();
+    const best   = seenBest.get(key)   || {rider_name: name, image_url: null, year: null};
+    const latest = seenLatest.get(key) || best;
+    const lastYr = seenYear.get(key)   || best.year;
     return { ...best, team_name: latest.team_name, nationality: latest.nationality, last_year: lastYr };
   });
 
