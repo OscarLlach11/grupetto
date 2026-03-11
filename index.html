@@ -3032,7 +3032,8 @@ function renderRiderCard(rider){
   // Team display: "Retired" only if not in any startlist in the past 3 years
   const CUR_YEAR = new Date().getFullYear();
   const lastYear = rider.last_year || rider.year || 0;
-  const teamLabel = (!lastYear || CUR_YEAR - lastYear > 3) ? 'Retired' : (rider.team_name || '');
+  // Only show "Retired" if not seen in a startlist in the past 2 seasons
+  const teamLabel = (!lastYear || CUR_YEAR - lastYear > 2) ? 'Retired' : (rider.team_name || '');
   const thumb = imgSrc
     ? `<img src="${imgSrc}" style="width:100%;height:100%;object-fit:cover;object-position:center top;"
          onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
@@ -3058,7 +3059,7 @@ async function renderRiders(forceRefresh){
   // If we already have cached data and aren't doing a search, use it immediately
   if(_featuredRidersCache && !forceRefresh){
     if(label) label.textContent = 'Featured Riders';
-    grid.innerHTML = _featuredRidersCache.map(r => renderRiderCard({...r, last_year: r.year})).join('');
+    grid.innerHTML = _featuredRidersCache.map(r => renderRiderCard(r)).join('');
     return;
   }
 
@@ -3076,12 +3077,16 @@ async function renderRiders(forceRefresh){
   }
 
   // Deduplicate: track latest year separately from best image row
-  const seenBest = new Map();  // name → best row (has image preferred)
-  const seenYear = new Map();  // name → latest year seen
+  const seenBest    = new Map();  // name → best row (image preferred)
+  const seenYear    = new Map();  // name → latest year seen
+  const seenLatest  = new Map();  // name → row from the most recent year (for team name)
   data.forEach(r => {
-    // Track latest year regardless of image
-    if(!seenYear.has(r.rider_name) || r.year > seenYear.get(r.rider_name)) seenYear.set(r.rider_name, r.year);
-    // Track best row for image
+    // Track latest year + most recent row (for current team name)
+    if(!seenYear.has(r.rider_name) || r.year > seenYear.get(r.rider_name)){
+      seenYear.set(r.rider_name, r.year);
+      seenLatest.set(r.rider_name, r);
+    }
+    // Track best row for image (prefer row with an image, then prefer newer year)
     const prev = seenBest.get(r.rider_name);
     if(!prev) { seenBest.set(r.rider_name, r); return; }
     const rHasImg  = r.image_url && r.image_url !== 'none';
@@ -3092,13 +3097,16 @@ async function renderRiders(forceRefresh){
   });
   // Maintain the original FEATURED_RIDERS order, falling back to placeholder if missing
   const riders = FEATURED_RIDERS.map(name => {
-    const r = seenBest.get(name) || {rider_name: name, image_url: null, year: null};
-    return {...r, last_year: seenYear.get(name) || r.year};
+    const best   = seenBest.get(name)   || {rider_name: name, image_url: null, year: null};
+    const latest = seenLatest.get(name) || best;
+    const lastYr = seenYear.get(name)   || best.year;
+    // Use image from best row, but team name + year from the most recent row
+    return { ...best, team_name: latest.team_name, nationality: latest.nationality, last_year: lastYr };
   });
   _featuredRidersCache = riders;
 
   if(label) label.textContent = 'Featured Riders';
-  grid.innerHTML = riders.map(r => renderRiderCard({...r, last_year: r.year})).join('');
+  grid.innerHTML = riders.map(r => renderRiderCard(r)).join('');
 }
 
 async function executeRiderSearch(){
@@ -3118,11 +3126,15 @@ async function executeRiderSearch(){
     grid.innerHTML = '<div style="color:var(--muted);font-size:12px;grid-column:1/-1;">No riders found.</div>';
     return;
   }
-  // Deduplicate by rider_name — prefer rows with image, track last_year separately
-  const seenBest = new Map();
-  const seenYear = new Map();
+  // Deduplicate by rider_name — prefer rows with image, track last_year + current team separately
+  const seenBest   = new Map();
+  const seenYear   = new Map();
+  const seenLatest = new Map();
   data.forEach(r => {
-    if(!seenYear.has(r.rider_name) || r.year > seenYear.get(r.rider_name)) seenYear.set(r.rider_name, r.year);
+    if(!seenYear.has(r.rider_name) || r.year > seenYear.get(r.rider_name)){
+      seenYear.set(r.rider_name, r.year);
+      seenLatest.set(r.rider_name, r);
+    }
     const prev = seenBest.get(r.rider_name);
     if(!prev) { seenBest.set(r.rider_name, r); return; }
     const rHasImg  = r.image_url && r.image_url !== 'none';
@@ -3131,7 +3143,11 @@ async function executeRiderSearch(){
     if(!rHasImg && pvHasImg) return;
     if(r.year > prev.year) seenBest.set(r.rider_name, r);
   });
-  const unique = Array.from(seenBest.values()).map(r => ({...r, last_year: seenYear.get(r.rider_name) || r.year}));
+  const unique = Array.from(seenBest.values()).map(r => {
+    const latest = seenLatest.get(r.rider_name) || r;
+    return { ...r, team_name: latest.team_name, nationality: latest.nationality,
+             last_year: seenYear.get(r.rider_name) || r.year };
+  });
   if(label) label.textContent = `${unique.length} result${unique.length!==1?'s':''}`;
   grid.innerHTML = unique.map(r => renderRiderCard(r)).join('');
 }
