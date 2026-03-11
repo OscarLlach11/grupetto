@@ -42,6 +42,7 @@
     renderAll();
     updateStats();
     loadFollowingFeed();
+    renderRiders(true); // refresh with auth so startlists RLS passes
     if(window._pendingRoute){ handleRoute(window._pendingRoute); window._pendingRoute=null; }
   }
 
@@ -3071,6 +3072,8 @@ async function renderRiders(forceRefresh){
     .in('rider_name', FEATURED_RIDERS)
     .order('year', {ascending: false})
     .limit(2000);
+
+  if(error) console.warn('[riders] query error:', error.message, error.code);
 
   if(error || !data){
     grid.innerHTML = '<div style="color:var(--muted);font-size:12px;grid-column:1/-1;">Could not load riders.</div>';
