@@ -37,12 +37,15 @@
   async function onSignedIn() {
     renderNavUser();
     await loadUserData();
-    await loadRaceResultsForLog();
-    await loadFollowingIds();
+    // These two are independent — run in parallel
+    await Promise.all([
+      loadRaceResultsForLog(),
+      loadFollowingIds(),
+    ]);
     renderAll();
     updateStats();
     loadFollowingFeed();
-    renderRiders(true); // refresh with auth so startlists RLS passes
+    renderRiders(true);
     if(window._pendingRoute){ handleRoute(window._pendingRoute); window._pendingRoute=null; }
   }
 
@@ -133,13 +136,14 @@
     if (!currentUser) return;
     const uid = currentUser.id;
 
-    // Profile
-    const { data: prof } = await sb
-      .from('profiles')
-      .select('*')
-      .eq('user_id', uid)
-      .maybeSingle();
+    // Run all three queries in parallel — saves ~400-600ms on sign-in
+    const [profRes, wlRes, logsRes] = await Promise.all([
+      sb.from('profiles').select('*').eq('user_id', uid).maybeSingle(),
+      sb.from('watchlist').select('slug').eq('user_id', uid),
+      sb.from('race_logs').select(`*, stage_logs(*)`).eq('user_id', uid).order('created_at', { ascending: false }),
+    ]);
 
+    const prof = profRes.data;
     if (prof) {
       profile = {
         name:      prof.display_name || 'Cyclist',
@@ -152,24 +156,13 @@
           stageNum: prof.fav_race_stage,
         } : null,
       };
-      persistProfile(); // sync to localStorage so reload shows correct data immediately
+      persistProfile();
     }
 
-    // Watchlist
-    const { data: wl } = await sb
-      .from('watchlist')
-      .select('slug')
-      .eq('user_id', uid);
-    watchlist = (wl || []).map(r => r.slug);
+    watchlist = ((wlRes.data) || []).map(r => r.slug);
 
-    // Race logs + stage logs
-    const { data: logs } = await sb
-      .from('race_logs')
-      .select(`*, stage_logs(*)`)
-      .eq('user_id', uid)
-      .order('created_at', { ascending: false });
-
-    if (logs && logs.length > 0) {
+    const logs = logsRes.data || [];
+    if (logs.length > 0) {
       userLog = {};
       logs.forEach(log => {
         if (!userLog[log.slug]) userLog[log.slug] = { watches: [] };
@@ -193,9 +186,8 @@
           ts:     new Date(log.created_at).getTime(),
         });
       });
-      persist(); // sync back to localStorage
+      persist();
     }
-    // else: keep whatever is in localStorage already
   }
 
   // ── Save race log ─────────────────────────────────────────────────────────
@@ -354,6 +346,13 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 .hero h1 em{font-style:italic;font-family:'DM Serif Display',serif;color:var(--gold);}
 .hero-sub{max-width:500px;font-size:13px;color:var(--ml);line-height:1.6;margin-bottom:16px;}
 .hstats{display:flex;gap:28px;flex-wrap:wrap;} .hstat-n{font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:1px;} .hstat-l{font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);}
+/* SKELETON LOADERS */
+@keyframes shimmer{0%{background-position:-400px 0}100%{background-position:400px 0}}
+@keyframes pulse{0%,100%{opacity:.3}50%{opacity:1}}
+.skeleton{background:linear-gradient(90deg,var(--card-bg) 25%,#1e1e1e 50%,var(--card-bg) 75%);background-size:800px 100%;animation:shimmer 1.4s infinite linear;}
+.skeleton-text{height:12px;border-radius:3px;margin-bottom:8px;}
+.skeleton-title{height:18px;border-radius:3px;margin-bottom:12px;}
+
 /* LAYOUT */
 .main-layout{display:grid;grid-template-columns:1fr 280px;}
 .main-content{border-right:1px solid var(--border);min-width:0;}
@@ -1287,58 +1286,68 @@ const SG_CLASS  = {cobbled:'sg-cobbled',gravel:'sg-gravel',mountain:'sg-mountain
 // ── Bootstrap: load all static data from Supabase before rendering ────────
 async function loadAppData(){
   try {
-    // Explicit column list — avoids fetching unused cols, future-proof against schema changes
     const RACE_COLS = 'slug,race_name,race_type,first_year,last_year,tv_year,tier,country,flag,distance,gradient,swatch,description,subgenres,stage_count';
 
-    const [racesRes, datesRes, configRes] = await Promise.all([
-      sb.from('races').select(RACE_COLS).order('tier').order('race_type').order('race_name').limit(500),
-      sb.from('race_dates').select('race_id,year,race_date').limit(5000),
-      sb.from('app_config').select('key,value'),
-    ]);
-
-    if(racesRes.error) console.warn('races error:', racesRes.error.message);
-    if(datesRes.error) console.warn('race_dates error:', datesRes.error.message);
-    if(configRes.error) console.warn('app_config error:', configRes.error.message);
-
-    if(racesRes.data?.length){
-      RACES = racesRes.data.map(r => ({
-        id:          r.slug,
-        name:        r.race_name || '',
-        tier:        r.tier || 'Pro',
-        country:     r.country || '',
-        flag:        r.flag || '',
-        type:        r.race_type || '',
-        firstYear:   r.first_year,
-        tvYear:      r.tv_year,
-        distance:    r.distance || '',
-        gradient:    r.gradient || 'linear-gradient(135deg,#1a1a1a,#333)',
-        swatch:      r.swatch || '#333',
-        description: r.description || '',
-        subgenres:   r.subgenres || [],
-        stageCount:  r.stage_count || null,
-      }));
-      console.log(`Loaded ${RACES.length} races from Supabase`);
-    } else {
-      console.warn('No races returned from Supabase:', racesRes.error?.message);
-    }
-
-    if(datesRes.data?.length){
-      datesRes.data.forEach(row => {
-        if(!RACE_DATES[row.race_id]) RACE_DATES[row.race_id] = {};
-        RACE_DATES[row.race_id][row.year] = row.race_date;
+    // ── Stale-while-revalidate: serve cache instantly, refresh in background ──
+    const cached = cacheGet('app-data');
+    if(cached){
+      applyAppData(cached);
+      console.log('[cache] app-data served from cache, revalidating in background…');
+      // Revalidate silently in background — update cache + live data without blocking
+      fetchAppData(RACE_COLS).then(fresh => {
+        if(fresh){ cacheSet('app-data', fresh, 60); applyAppData(fresh); }
       });
-      console.log(`Loaded ${datesRes.data.length} race dates for ${Object.keys(RACE_DATES).length} races`);
+      return;
     }
 
-    if(configRes.data?.length){
-      configRes.data.forEach(row => {
-        if(row.key === 'featured_riders') FEATURED_RIDERS = row.value;
-      });
-      console.log(`Featured riders: ${FEATURED_RIDERS.length}`);
-    }
+    // No cache — fetch and block until ready
+    const fresh = await fetchAppData(RACE_COLS);
+    if(fresh){ cacheSet('app-data', fresh, 60); applyAppData(fresh); }
+
   } catch(e) {
     console.error('loadAppData failed:', e);
   }
+}
+
+async function fetchAppData(RACE_COLS){
+  const [racesRes, datesRes, configRes] = await Promise.all([
+    sb.from('races').select(RACE_COLS).order('tier').order('race_type').order('race_name').limit(500),
+    sb.from('race_dates').select('race_id,year,race_date').limit(5000),
+    sb.from('app_config').select('key,value'),
+  ]);
+  if(racesRes.error) console.warn('races error:', racesRes.error.message);
+  if(datesRes.error) console.warn('race_dates error:', datesRes.error.message);
+  if(configRes.error) console.warn('app_config error:', configRes.error.message);
+  if(!racesRes.data?.length) return null;
+  return { races: racesRes.data, dates: datesRes.data||[], config: configRes.data||[] };
+}
+
+function applyAppData({ races, dates, config }){
+  if(races?.length){
+    RACES = races.map(r => ({
+      id:          r.slug,
+      name:        r.race_name || '',
+      tier:        r.tier || 'Pro',
+      country:     r.country || '',
+      flag:        r.flag || '',
+      type:        r.race_type || '',
+      firstYear:   r.first_year,
+      tvYear:      r.tv_year,
+      distance:    r.distance || '',
+      gradient:    r.gradient || 'linear-gradient(135deg,#1a1a1a,#333)',
+      swatch:      r.swatch || '#333',
+      description: r.description || '',
+      subgenres:   r.subgenres || [],
+      stageCount:  r.stage_count || null,
+    }));
+  }
+  dates.forEach(row => {
+    if(!RACE_DATES[row.race_id]) RACE_DATES[row.race_id] = {};
+    RACE_DATES[row.race_id][row.year] = row.race_date;
+  });
+  config.forEach(row => {
+    if(row.key === 'featured_riders') FEATURED_RIDERS = row.value;
+  });
 }
 
 // ── getRaceFinalDate: reads from RACE_DATES (populated from Supabase) ─────
@@ -1537,8 +1546,17 @@ let wholeLive=false;
 //  INIT
 // ════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', async () => {
+  // Show loading overlay while bootstrapping
+  const overlay = document.createElement('div');
+  overlay.id = 'app-loading';
+  overlay.innerHTML = `<div style="text-align:center;">
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:6px;color:var(--gold);margin-bottom:12px;">GRUPETTO</div>
+    <div style="display:flex;gap:6px;justify-content:center;">${Array(3).fill(0).map((_,i)=>`<div style="width:6px;height:6px;border-radius:50%;background:var(--gold);opacity:.3;animation:pulse 1.2s ${i*0.2}s ease-in-out infinite;"></div>`).join('')}</div>
+  </div>`;
+  overlay.style.cssText = 'position:fixed;inset:0;background:var(--black);z-index:9000;display:flex;align-items:center;justify-content:center;transition:opacity .3s;';
+  document.body.appendChild(overlay);
+
   // Load all static data FIRST — RACES must be populated before any rendering
-  document.getElementById('stat-races').textContent = '…';
   await loadAppData();
   document.getElementById('stat-races').textContent = RACES.length;
 
@@ -1558,8 +1576,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     showPage(validPages.includes(savedPage) ? savedPage : 'discover');
   }
 
-  // Preload featured riders in background
-  renderRiders();
+  // Fade out overlay
+  overlay.style.opacity = '0';
+  setTimeout(() => overlay.remove(), 320);
+
+  // Preload featured riders in background after page is visible
+  setTimeout(() => renderRiders(), 100);
 });
 
 // ════════════════════════════════════════════════════════
@@ -1883,7 +1905,11 @@ async function openRacePage(id, preferYear){
 
   // Sidebar: year selector + results — build first with loading state
   document.getElementById('rsp-sidebar').innerHTML=`<div class="sb-title">Race Results</div>
-    <div style="font-size:11px;color:var(--muted);">Loading years…</div>`;
+    <div class="skeleton" style="width:100%;height:32px;border-radius:3px;margin-bottom:16px;"></div>
+    ${Array(5).fill(`<div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:center;">
+      <div class="skeleton" style="width:20px;height:14px;border-radius:2px;flex-shrink:0;"></div>
+      <div class="skeleton" style="flex:1;height:12px;border-radius:2px;"></div>
+    </div>`).join('')}`;
 
   showPage('race');
 
@@ -1905,7 +1931,10 @@ async function openRacePage(id, preferYear){
 
 async function renderRSPResults(id, year){
   const el = document.getElementById('rsp-results'); if(!el) return;
-  el.innerHTML = `<div style="font-size:11px;color:var(--muted);">Loading…</div>`;
+  el.innerHTML = Array(5).fill(`<div style="padding:9px 0;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:center;">
+    <div class="skeleton" style="width:18px;height:12px;border-radius:2px;flex-shrink:0;"></div>
+    <div class="skeleton" style="flex:1;height:11px;border-radius:2px;"></div>
+  </div>`).join('');
 
   const race = RACES.find(r=>r.id===id);
   const isStageRace = race && (race.type === 'Grand Tour' || race.type === 'Stage Race');
@@ -2314,6 +2343,27 @@ function openStageLogModal(){
 // stageLog[raceId][year][stageNum] = {rating, review, date, live, ts}
 let stageLog = JSON.parse(localStorage.getItem('g3-stage-log') || '{}');
 function persistStageLog(){ localStorage.setItem('g3-stage-log', JSON.stringify(stageLog)); }
+
+// ── TTL Cache — stale-while-revalidate for expensive Supabase queries ─────
+// Usage: cacheSet('key', data, ttlMinutes)  /  cacheGet('key') → data or null
+const CACHE_PREFIX = 'g3-cache:';
+function cacheSet(key, data, ttlMinutes = 30){
+  try {
+    localStorage.setItem(CACHE_PREFIX + key, JSON.stringify({
+      data, expires: Date.now() + ttlMinutes * 60 * 1000
+    }));
+  } catch(e) {} // storage full — fail silently
+}
+function cacheGet(key){
+  try {
+    const raw = localStorage.getItem(CACHE_PREFIX + key);
+    if(!raw) return null;
+    const { data, expires } = JSON.parse(raw);
+    if(Date.now() > expires) return null; // expired
+    return data;
+  } catch(e) { return null; }
+}
+function cacheClear(key){ localStorage.removeItem(CACHE_PREFIX + key); }
 
 function getUserStageLogEntry(raceId, year, stageNum){
   return stageLog[raceId]?.[year]?.[stageNum] || null;
@@ -3053,31 +3103,61 @@ function renderRiderCard(rider){
   </div>`;
 }
 
-// Cache for featured riders so they don't reload every time
+// Cache for featured riders — in-memory for session, localStorage for cross-session
 let _featuredRidersCache = null;
+
+const RIDER_SKELETON = `<div style="border:1px solid var(--border);overflow:hidden;pointer-events:none;">
+  <div class="skeleton" style="width:100%;aspect-ratio:2/3;"></div>
+  <div style="padding:6px 8px;background:var(--card-bg);">
+    <div class="skeleton skeleton-text" style="width:80%;"></div>
+    <div class="skeleton skeleton-text" style="width:55%;margin-bottom:0;"></div>
+  </div>
+</div>`;
 
 async function renderRiders(forceRefresh){
   const grid = document.getElementById('riders-grid');
   const label = document.querySelector('#riders-list > div:first-child');
   if(!grid) return;
 
-  // If we already have cached data and aren't doing a search, use it immediately
+  // 1. In-memory cache — instant
   if(_featuredRidersCache && !forceRefresh){
     if(label) label.textContent = 'Featured Riders';
     grid.innerHTML = _featuredRidersCache.map(r => renderRiderCard(r)).join('');
     return;
   }
 
-  grid.innerHTML = '<div style="color:var(--muted);font-size:12px;grid-column:1/-1;">Loading…</div>';
+  // 2. localStorage cache — fast, stale-while-revalidate
+  const lsCached = cacheGet('featured-riders');
+  if(lsCached && !forceRefresh){
+    _featuredRidersCache = lsCached;
+    if(label) label.textContent = 'Featured Riders';
+    grid.innerHTML = lsCached.map(r => renderRiderCard(r)).join('');
+    // Revalidate silently in background
+    _fetchFeaturedRiders().then(fresh => {
+      if(fresh){
+        _featuredRidersCache = fresh;
+        cacheSet('featured-riders', fresh, 120);
+        grid.innerHTML = fresh.map(r => renderRiderCard(r)).join('');
+      }
+    });
+    return;
+  }
 
-  // FEATURED_RIDERS are stored in DB format already ("Pogačar Tadej" = lastname firstname)
-  console.log('[riders] FEATURED_RIDERS:', JSON.stringify(FEATURED_RIDERS));
+  // 3. No cache — show skeletons, then fetch
+  grid.innerHTML = Array(FEATURED_RIDERS.length || 10).fill(RIDER_SKELETON).join('');
 
-  // Use ilike per rider — same approach as renderRiderPage which works reliably.
-  // .in() with special characters (č, ã, etc.) can silently fail in some Supabase versions.
+  const riders = await _fetchFeaturedRiders();
+  if(!riders){ grid.innerHTML = '<div style="color:var(--muted);font-size:12px;grid-column:1/-1;">Could not load riders.</div>'; return; }
+
+  _featuredRidersCache = riders;
+  cacheSet('featured-riders', riders, 120);
+  if(label) label.textContent = 'Featured Riders';
+  grid.innerHTML = riders.map(r => renderRiderCard(r)).join('');
+}
+
+async function _fetchFeaturedRiders(){
   const allRows = [];
   await Promise.all(FEATURED_RIDERS.map(async name => {
-    // Use ilike on the full name — handles case differences without false positives
     const { data: rows, error: err } = await sb.from('startlists')
       .select('rider_name,team_name,nationality,image_url,year')
       .ilike('rider_name', name)
@@ -3085,14 +3165,12 @@ async function renderRiders(forceRefresh){
       .limit(50);
     if(err){ console.warn('[riders] ilike error for', name, err.message); return; }
     if(!rows?.length){
-      // Fallback: wildcard on full name in case of minor spelling difference
       const { data: fuzzy } = await sb.from('startlists')
         .select('rider_name,team_name,nationality,image_url,year')
         .ilike('rider_name', `%${name}%`)
         .order('year', {ascending: false})
         .limit(10);
       if(!fuzzy?.length){
-        // Last resort: search by first name only to find the actual DB spelling
         const parts = name.trim().split(' ');
         const { data: byFirst } = await sb.from('startlists')
           .select('rider_name,team_name,nationality,image_url,year')
@@ -3107,21 +3185,12 @@ async function renderRiders(forceRefresh){
     }
   }));
 
-  const data = allRows;
-  const error = null;
-  console.log('[riders] total rows fetched:', data.length);
+  if(!allRows.length) return null;
 
-  if(error || !data){
-    grid.innerHTML = '<div style="color:var(--muted);font-size:12px;grid-column:1/-1;">Could not load riders.</div>';
-    return;
-  }
-
-  // Deduplicate: track latest year separately from best image row
-  // Key everything lowercase to handle DB casing differences (e.g. "POGAČAR Tadej" vs "Pogačar Tadej")
-  const seenBest    = new Map();  // lower(rider_name) → best row (image preferred)
-  const seenYear    = new Map();  // lower(rider_name) → latest year seen
-  const seenLatest  = new Map();  // lower(rider_name) → most recent row (for current team name)
-  data.forEach(r => {
+  const seenBest   = new Map();
+  const seenYear   = new Map();
+  const seenLatest = new Map();
+  allRows.forEach(r => {
     const key = r.rider_name.toLowerCase();
     if(!seenYear.has(key) || r.year > seenYear.get(key)){
       seenYear.set(key, r.year);
@@ -3136,22 +3205,13 @@ async function renderRiders(forceRefresh){
     if(r.year > prev.year) seenBest.set(key, r);
   });
 
-  console.log('[riders] raw rows:', data.length, '| seenYear:', Object.fromEntries(seenYear));
-
-  // Maintain the original FEATURED_RIDERS order, falling back to placeholder if missing
-  const riders = FEATURED_RIDERS.map(name => {
+  return FEATURED_RIDERS.map(name => {
     const key    = name.toLowerCase();
     const best   = seenBest.get(key)   || {rider_name: name, image_url: null, year: null};
     const latest = seenLatest.get(key) || best;
     const lastYr = seenYear.get(key)   || best.year;
     return { ...best, team_name: latest.team_name, nationality: latest.nationality, last_year: lastYr };
   });
-
-  console.log('[riders] final:', riders.map(r => `${r.rider_name}: last_year=${r.last_year} team=${r.team_name}`));
-  _featuredRidersCache = riders;
-
-  if(label) label.textContent = 'Featured Riders';
-  grid.innerHTML = riders.map(r => renderRiderCard(r)).join('');
 }
 
 async function executeRiderSearch(){
@@ -4399,59 +4459,77 @@ async function renderRiderPage(inputName){
 // ════════════════════════════════════════════════════════
 //  MEMBERS PAGE
 // ════════════════════════════════════════════════════════
-let _membersCache = null; // cache top members so page re-renders are instant
+let _membersCache = null; // in-memory cache
 
 async function renderMembersPage(){
-  // Reset search state
   document.getElementById('members-search-input').value = '';
   document.getElementById('members-search-results').style.display = 'none';
   document.getElementById('members-grid').style.display = 'grid';
   document.getElementById('members-section-label').textContent = 'Popular This Week';
 
+  const grid = document.getElementById('members-grid');
+
+  // 1. In-memory cache — instant
   if(_membersCache){
     renderMemberCards(_membersCache);
     return;
   }
 
-  const grid = document.getElementById('members-grid');
-  grid.innerHTML = '<div style="color:var(--muted);font-size:12px;grid-column:1/-1;">Loading…</div>';
-
-  // Always load all profiles (up to 20), then sort by follower count if we can get it
-  const { data: profiles, error: profErr } = await sb.from('profiles')
-    .select('user_id,display_name,handle,avatar_url,fav_riders')
-    .not('display_name', 'is', null)
-    .limit(20);
-
-  if(profErr) console.error('profiles fetch error:', profErr.message, profErr.code);
-  console.log('[members] profiles fetched:', profiles?.length, '| error:', profErr?.message);
-
-  if(!profiles?.length){
-    grid.innerHTML = '<div style="color:var(--muted);font-size:12px;grid-column:1/-1;">No members found. Make sure the profiles table has a public SELECT policy in Supabase.</div>';
+  // 2. localStorage cache — fast, stale-while-revalidate
+  const lsCached = cacheGet('members');
+  if(lsCached){
+    _membersCache = lsCached;
+    renderMemberCards(lsCached);
+    // Revalidate silently in background
+    _fetchMembers().then(async fresh => {
+      if(fresh){
+        const enriched = await enrichMembersWithRiderImages(fresh);
+        _membersCache = enriched;
+        cacheSet('members', enriched, 15);
+        renderMemberCards(enriched);
+      }
+    });
     return;
   }
 
-  // Try to get follower counts to sort by — not critical if it fails
-  const { data: followCounts, error: followErr } = await sb.from('follows')
-    .select('following_id')
-    .limit(5000);
+  // 3. No cache — show skeletons, then fetch
+  grid.innerHTML = Array(5).fill(0).map(()=>`
+    <div class="member-card" style="pointer-events:none;">
+      <div class="skeleton" style="width:96px;height:96px;border-radius:50%;margin:0 auto 14px;"></div>
+      <div class="skeleton" style="width:70%;height:14px;margin:0 auto 8px;border-radius:3px;"></div>
+      <div class="skeleton" style="width:50%;height:10px;margin:0 auto 18px;border-radius:3px;"></div>
+      <div class="skeleton" style="width:100%;height:30px;border-radius:3px;margin-bottom:14px;"></div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;">
+        ${Array(4).fill('<div class="skeleton" style="aspect-ratio:2/3;border-radius:2px;"></div>').join('')}
+      </div>
+    </div>`).join('');
 
-  if(followErr) console.error('follows fetch error:', followErr);
+  const sorted = await _fetchMembers();
+  if(!sorted){
+    grid.innerHTML = '<div style="color:var(--muted);font-size:12px;grid-column:1/-1;">No members found. Make sure the profiles table has a public SELECT policy in Supabase.</div>';
+    return;
+  }
+  _membersCache = await enrichMembersWithRiderImages(sorted);
+  cacheSet('members', _membersCache, 15);
+  renderMemberCards(_membersCache);
+}
 
-  let sorted;
+async function _fetchMembers(){
+  const [{ data: profiles, error: profErr }, { data: followCounts }] = await Promise.all([
+    sb.from('profiles').select('user_id,display_name,handle,avatar_url,fav_riders').not('display_name', 'is', null).limit(20),
+    sb.from('follows').select('following_id').limit(5000),
+  ]);
+  if(profErr) console.error('profiles fetch error:', profErr.message, profErr.code);
+  if(!profiles?.length) return null;
   if(followCounts?.length){
     const counts = {};
     followCounts.forEach(r => { counts[r.following_id] = (counts[r.following_id]||0) + 1; });
-    sorted = profiles
+    return profiles
       .map(p => ({ ...p, followerCount: counts[p.user_id] || 0 }))
       .sort((a, b) => b.followerCount - a.followerCount)
       .slice(0, 5);
-  } else {
-    // No follow data — just show first 5 profiles
-    sorted = profiles.slice(0, 5).map(p => ({ ...p, followerCount: null }));
   }
-
-  _membersCache = await enrichMembersWithRiderImages(sorted);
-  renderMemberCards(_membersCache);
+  return profiles.slice(0, 5).map(p => ({ ...p, followerCount: null }));
 }
 
 async function enrichMembersWithRiderImages(members){
@@ -4771,13 +4849,30 @@ async function openUserPage(userId){
   document.querySelectorAll('.nav-a').forEach(x=>x.classList.remove('active'));
   history.pushState(null,'',`#/user/${userId}`);
 
-  // Show loading state
-  document.getElementById('upage-name').textContent = '…';
-  document.getElementById('upage-handle').textContent = '';
-  document.getElementById('upage-stat-grid').innerHTML = '';
-  document.getElementById('upage-fav-riders-grid').innerHTML = '';
+  // Show skeleton loading state
+  document.getElementById('upage-name').innerHTML = '<div class="skeleton" style="width:160px;height:20px;border-radius:3px;display:inline-block;"></div>';
+  document.getElementById('upage-handle').innerHTML = '<div class="skeleton" style="width:90px;height:12px;border-radius:3px;display:inline-block;margin-top:4px;"></div>';
+  document.getElementById('upage-stat-grid').innerHTML = Array(4).fill(`
+    <div style="text-align:center;">
+      <div class="skeleton" style="width:36px;height:24px;border-radius:3px;margin:0 auto 6px;"></div>
+      <div class="skeleton" style="width:48px;height:10px;border-radius:3px;margin:0 auto;"></div>
+    </div>`).join('');
+  document.getElementById('upage-fav-riders-grid').innerHTML = Array(4).fill(`
+    <div style="border:1px solid var(--border);overflow:hidden;pointer-events:none;">
+      <div class="skeleton" style="width:100%;aspect-ratio:2/3;"></div>
+      <div style="padding:4px 6px;background:var(--card-bg);">
+        <div class="skeleton skeleton-text" style="width:85%;"></div>
+      </div>
+    </div>`).join('');
   document.getElementById('upage-fav-race-display').innerHTML = '';
-  document.getElementById('upage-recent-activity').innerHTML = '<div style="color:var(--muted);font-size:12px;">Loading…</div>';
+  document.getElementById('upage-recent-activity').innerHTML = Array(3).fill(`
+    <div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;gap:12px;align-items:center;">
+      <div class="skeleton" style="width:36px;height:36px;flex-shrink:0;border-radius:2px;"></div>
+      <div style="flex:1;">
+        <div class="skeleton skeleton-title" style="width:60%;"></div>
+        <div class="skeleton skeleton-text" style="width:35%;"></div>
+      </div>
+    </div>`).join('');
   document.getElementById('upage-recent-reviews').innerHTML = '';
   document.getElementById('upage-countries').innerHTML = '';
   document.getElementById('upage-rating-dist').innerHTML = '';
