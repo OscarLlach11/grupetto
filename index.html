@@ -1339,6 +1339,7 @@ function applyAppData({ races, dates, config }){
       description: r.description || '',
       subgenres:   r.subgenres || [],
       stageCount:  r.stage_count || null,
+      logoUrl:     r.logo_url || null,
     }));
   }
   dates.forEach(row => {
@@ -1831,7 +1832,10 @@ function renderGrid(){
     const bestR=rl?Math.max(0,...(rl.watches||[]).map(w=>w.rating||0)):0;
     const inWL=watchlist.includes(r.id);
     return `<div class="rc" style="animation-delay:${Math.min(i*.025,.5)}s" onclick="openRacePage('${r.id}')">
-      <div class="rc-img" style="background:${r.gradient}"><span class="rc-cat">${r.type.toUpperCase()}</span>${isWT(r)?'<span class="rc-wt">WT</span>':''}</div>
+      <div class="rc-img" style="background:${r.gradient};position:relative;overflow:hidden;">
+        <span class="rc-cat">${r.type.toUpperCase()}</span>${isWT(r)?'<span class="rc-wt">WT</span>':''}
+        ${r.logoUrl ? `<img src="${r.logoUrl}" alt="${r.name}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;padding:10px 8px 20px;" onerror="this.remove()">` : ''}
+      </div>
       <div class="rc-body">
         <div class="rc-ctry">${r.flag} ${r.country}</div>
         <div class="rc-name">${r.name}</div>
@@ -1862,7 +1866,8 @@ async function openRacePage(id, preferYear){
 
   // Main column
   let mainHTML=`
-    <div class="rsp-banner" style="background:${r.gradient}">
+    <div class="rsp-banner" style="background:${r.gradient};position:relative;overflow:hidden;">
+      ${r.logoUrl ? `<img src="${r.logoUrl}" alt="${r.name}" style="position:absolute;right:16px;top:50%;transform:translateY(-50%);height:70%;max-width:40%;object-fit:contain;opacity:.9;" onerror="this.remove()">` : ''}
       <div style="position:relative;z-index:1;">
         <div class="rsp-ttl">${r.name}</div>
         <span class="rsp-sub">${r.type} · ${r.flag} ${r.country} · Est. ${r.firstYear}</span>
@@ -4810,6 +4815,7 @@ async function loadFollowingFeed(){
     const race = RACES.find(r => r.id === log.slug);
     const raceName = race?.name || log.slug;
     const gradient = race?.gradient || 'linear-gradient(135deg,#1a1a1a,#333)';
+    const logoUrl = race?.logoUrl || null;
     const ini = (p.display_name||'?').split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
     const avatarHTML = p.avatar_url
       ? `<img src="${p.avatar_url}">`
@@ -4817,12 +4823,20 @@ async function loadFollowingFeed(){
     const date = log.date_watched ? log.date_watched.slice(0,10) : (log.created_at||'').slice(0,10);
     const dateLabel = date ? fmtDate(date) : '';
 
+    const posterInner = logoUrl
+      ? `<div class="feed-poster-bg" style="background:${gradient};align-items:flex-end;padding:0;">
+           <img src="${logoUrl}" alt="${raceName}"
+             style="width:100%;height:100%;object-fit:contain;padding:16px 12px 28px;"
+             onerror="this.parentElement.innerHTML='<div class=\\'feed-poster-bg\\' style=\\'background:${gradient.replace(/'/g,'\\\\\'')}\\'><div class=\\'feed-poster-title\\'>${raceName}</div></div>'">
+         </div>`
+      : `<div class="feed-poster-bg" style="background:${gradient}">
+           <div class="feed-poster-title">${raceName}</div>
+         </div>`;
+
     return `<div class="feed-item" onclick="openRacePage('${log.slug}')">
       <div class="feed-poster">
-        <div class="feed-poster-bg" style="background:${gradient}">
-          <div class="feed-poster-title">${raceName}</div>
-        </div>
-        <div style="position:absolute;bottom:0;left:0;right:0;padding:6px 8px;background:linear-gradient(transparent,rgba(0,0,0,.7));font-size:10px;letter-spacing:1px;color:rgba(255,255,255,.7);">${log.year}</div>
+        ${posterInner}
+        <div style="position:absolute;bottom:0;left:0;right:0;padding:6px 8px;background:linear-gradient(transparent,rgba(0,0,0,.75));font-size:10px;letter-spacing:1px;color:rgba(255,255,255,.8);">${log.year}</div>
       </div>
       <div class="feed-user">
         <div class="feed-avatar" onclick="event.stopPropagation();openUserPage('${log.user_id}')">${avatarHTML}</div>
