@@ -347,13 +347,13 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 #page-user.active{display:block;}
 @keyframes fadeUp{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
 /* HERO */
-.hero{padding:64px 40px 44px;position:relative;overflow:hidden;border-bottom:1px solid var(--border);}
-.hero-bg{position:absolute;top:-10px;right:-10px;font-family:'Bebas Neue',sans-serif;font-size:200px;color:var(--white);opacity:.018;line-height:1;pointer-events:none;user-select:none;}
-.eyebrow{font-size:10px;letter-spacing:5px;text-transform:uppercase;color:var(--gold);margin-bottom:12px;}
-.hero h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(52px,8vw,100px);line-height:.88;margin-bottom:18px;}
+.hero{padding:28px 40px 24px;position:relative;overflow:hidden;border-bottom:1px solid var(--border);}
+.hero-bg{position:absolute;top:-10px;right:-10px;font-family:'Bebas Neue',sans-serif;font-size:160px;color:var(--white);opacity:.018;line-height:1;pointer-events:none;user-select:none;}
+.eyebrow{font-size:10px;letter-spacing:5px;text-transform:uppercase;color:var(--gold);margin-bottom:8px;}
+.hero h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(32px,4.5vw,58px);line-height:1;margin-bottom:8px;white-space:nowrap;}
 .hero h1 em{font-style:italic;font-family:'DM Serif Display',serif;color:var(--gold);}
-.hero-sub{max-width:400px;font-size:14px;color:var(--ml);line-height:1.75;margin-bottom:28px;}
-.hstats{display:flex;gap:36px;flex-wrap:wrap;} .hstat-n{font-family:'Bebas Neue',sans-serif;font-size:32px;letter-spacing:1px;} .hstat-l{font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);}
+.hero-sub{max-width:500px;font-size:13px;color:var(--ml);line-height:1.6;margin-bottom:16px;}
+.hstats{display:flex;gap:28px;flex-wrap:wrap;} .hstat-n{font-family:'Bebas Neue',sans-serif;font-size:26px;letter-spacing:1px;} .hstat-l{font-size:10px;letter-spacing:3px;text-transform:uppercase;color:var(--muted);}
 /* LAYOUT */
 .main-layout{display:grid;grid-template-columns:1fr 280px;}
 .main-content{border-right:1px solid var(--border);min-width:0;}
@@ -760,7 +760,7 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
   <div class="hero">
     <div class="hero-bg">VÉLO</div>
     <div class="eyebrow">— The Cycling Race Diary</div>
-    <h1>Every<br><em>édition.</em><br>Logged.</h1>
+    <h1>Every <em>édition.</em> Logged.</h1>
     <p class="hero-sub">Rate stage by stage. Track every breakaway since 1980.</p>
     <div class="hstats">
       <div><div class="hstat-n" id="stat-watched">0</div><div class="hstat-l">Races Logged</div></div>
@@ -836,7 +836,7 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
   <div class="hero" style="padding-bottom:32px;">
     <div class="hero-bg">LOG</div>
     <div class="eyebrow">— Your Cycling Diary</div>
-    <h1>My<br><em>Journal</em></h1>
+    <h1>My <em>Journal</em></h1>
     <div class="hstats" style="margin-top:16px;">
       <div><div class="hstat-n" id="log-cnt">0</div><div class="hstat-l">Races</div></div>
       <div><div class="hstat-n" id="log-avg">—</div><div class="hstat-l">Avg Rating</div></div>
@@ -918,7 +918,7 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
   <div class="hero" style="padding-bottom:32px;">
     <div class="hero-bg">PELOTON</div>
     <div class="eyebrow">— The Community</div>
-    <h1>Find<br><em>fellow</em><br>fans.</h1>
+    <h1>Find <em>fellow</em> fans.</h1>
   </div>
 
   <!-- Search bar -->
@@ -948,7 +948,7 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
   <div class="hero" style="padding-bottom:32px;">
     <div class="hero-bg">TOP</div>
     <div class="eyebrow">— Personal Rankings</div>
-    <h1>Greatest<br><em>races</em><br>ever.</h1>
+    <h1>Greatest <em>races</em> ever.</h1>
   </div>
   <div style="padding:24px 40px 12px;font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:3px;">Rankings</div>
   <div id="leaderboard"></div>
@@ -959,7 +959,7 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
   <div class="hero" style="padding-bottom:32px;">
     <div class="hero-bg">STATS</div>
     <div class="eyebrow">— Your Numbers</div>
-    <h1>My<br><em>Stats</em></h1>
+    <h1>My <em>Stats</em></h1>
   </div>
   <div id="stats-content" style="padding:28px 40px;"></div>
   <!-- Expandable stat panels -->
