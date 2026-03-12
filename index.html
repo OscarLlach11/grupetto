@@ -49,6 +49,7 @@
   function onSignedOut() {
     userLog    = {};
     watchlist  = [];
+    stageLog   = {};
     profile    = {
       name: 'Cyclist',
       handle: 'velocipedist',
@@ -57,6 +58,9 @@
     };
     renderNavGuest();
     renderAll();
+    renderProfile();
+    // If the user was on the profile page, redirect to discover
+    if(aPg === 'profile') showPage('discover');
     if(window._pendingRoute){ handleRoute(window._pendingRoute); window._pendingRoute=null; }
   }
 
@@ -4418,7 +4422,8 @@ async function renderMembersPage(){
     .not('display_name', 'is', null)
     .limit(20);
 
-  if(profErr) console.error('profiles fetch error:', profErr);
+  if(profErr) console.error('profiles fetch error:', profErr.message, profErr.code);
+  console.log('[members] profiles fetched:', profiles?.length, '| error:', profErr?.message);
 
   if(!profiles?.length){
     grid.innerHTML = '<div style="color:var(--muted);font-size:12px;grid-column:1/-1;">No members found. Make sure the profiles table has a public SELECT policy in Supabase.</div>';
@@ -4450,29 +4455,36 @@ async function renderMembersPage(){
 }
 
 async function enrichMembersWithRiderImages(members){
-  // For each member, fetch the best image_url for their fav_riders
-  const allRiderNames = [...new Set(members.flatMap(m => (m.fav_riders||[]).filter(Boolean)))];
+  // fav_riders can be objects {name, url, imageUrl} or plain strings
+  const getRiderName = r => (r && typeof r === 'object') ? (r.name||'') : (r||'');
+
+  const allRiderNames = [...new Set(
+    members.flatMap(m => (m.fav_riders||[]).map(getRiderName).filter(Boolean))
+  )];
   if(!allRiderNames.length) return members;
 
-  const { data: riderRows } = await sb.from('startlists')
-    .select('rider_name,image_url,year')
-    .in('rider_name', allRiderNames)
-    .order('year', {ascending:false});
-
-  // Build best image map (prefer rows with image)
+  // Use ilike per rider — .in() silently fails with accented characters
   const riderImgMap = {};
-  (riderRows||[]).forEach(r => {
-    const hasImg = r.image_url && r.image_url !== 'none';
-    const prev = riderImgMap[r.rider_name];
-    if(!prev || (hasImg && (!prev.image_url || prev.image_url==='none')))
-      riderImgMap[r.rider_name] = r;
-  });
+  await Promise.all(allRiderNames.map(async name => {
+    const { data: rows } = await sb.from('startlists')
+      .select('rider_name,image_url,year')
+      .ilike('rider_name', name)
+      .order('year', {ascending:false})
+      .limit(20);
+    (rows||[]).forEach(r => {
+      const hasImg = r.image_url && r.image_url !== 'none';
+      const key = r.rider_name.toLowerCase();
+      const prev = riderImgMap[key];
+      if(!prev || (hasImg && (!prev.image_url || prev.image_url === 'none')))
+        riderImgMap[key] = r;
+    });
+  }));
 
   return members.map(m => ({
     ...m,
-    ridersWithImages: (m.fav_riders||[]).filter(Boolean).map(name => ({
+    ridersWithImages: (m.fav_riders||[]).map(getRiderName).filter(Boolean).map(name => ({
       name,
-      image_url: riderImgMap[name]?.image_url || null,
+      image_url: riderImgMap[name.toLowerCase()]?.image_url || null,
     }))
   }));
 }
