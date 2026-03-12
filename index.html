@@ -1286,7 +1286,7 @@ const SG_CLASS  = {cobbled:'sg-cobbled',gravel:'sg-gravel',mountain:'sg-mountain
 // ── Bootstrap: load all static data from Supabase before rendering ────────
 async function loadAppData(){
   try {
-    const RACE_COLS = 'slug,race_name,race_type,first_year,last_year,tv_year,tier,country,flag,distance,gradient,swatch,description,subgenres,stage_count';
+    const RACE_COLS = 'slug,race_name,race_type,first_year,last_year,tv_year,tier,country,flag,distance,gradient,swatch,description,subgenres,stage_count,logo_url';
 
     // ── Stale-while-revalidate: serve cache instantly, refresh in background ──
     const cached = cacheGet('app-data');
