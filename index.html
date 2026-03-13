@@ -3123,6 +3123,33 @@ function renderRiderCard(rider){
 // Cache for featured riders — in-memory for session, localStorage for cross-session
 let _featuredRidersCache = null;
 
+// ── Rider page data preload cache ────────────────────────────────────────────
+// Maps lowercase rider_name (DB format) → Promise<rows[]>
+// Preloaded for featured riders and fav riders so clicking is instant.
+const _riderPageCache = new Map();
+
+async function _preloadRiderData(dbName){
+  const key = dbName.toLowerCase();
+  if(_riderPageCache.has(key)) return; // already loading or loaded
+  const promise = (async () => {
+    const { data } = await sb.from('startlists')
+      .select('*')
+      .ilike('rider_name', dbName)
+      .order('year', { ascending: false })
+      .limit(200);
+    return data && data.length ? data : null;
+  })();
+  _riderPageCache.set(key, promise);
+}
+
+function _preloadRiderNames(names){
+  // names: array of DB-format strings (may be null/undefined — filtered out)
+  (names || []).filter(Boolean).forEach(n => {
+    const name = (n && typeof n === 'object') ? (n.name || '') : (n || '');
+    if(name) _preloadRiderData(name);
+  });
+}
+
 const RIDER_SKELETON = `<div style="border:1px solid var(--border);overflow:hidden;pointer-events:none;">
   <div class="skeleton" style="width:100%;aspect-ratio:2/3;"></div>
   <div style="padding:6px 8px;background:var(--card-bg);">
@@ -3140,6 +3167,7 @@ async function renderRiders(forceRefresh){
   if(_featuredRidersCache && !forceRefresh){
     if(label) label.textContent = 'Featured Riders';
     grid.innerHTML = _featuredRidersCache.map(r => renderRiderCard(r)).join('');
+    _preloadRiderNames(_featuredRidersCache.map(r => r.rider_name || r.name));
     return;
   }
 
@@ -3149,12 +3177,15 @@ async function renderRiders(forceRefresh){
     _featuredRidersCache = lsCached;
     if(label) label.textContent = 'Featured Riders';
     grid.innerHTML = lsCached.map(r => renderRiderCard(r)).join('');
+    // Preload rider page data immediately
+    _preloadRiderNames(lsCached.map(r => r.rider_name || r.name));
     // Revalidate silently in background
     _fetchFeaturedRiders().then(fresh => {
       if(fresh){
         _featuredRidersCache = fresh;
         cacheSet('featured-riders', fresh, 120);
         grid.innerHTML = fresh.map(r => renderRiderCard(r)).join('');
+        _preloadRiderNames(fresh.map(r => r.rider_name || r.name));
       }
     });
     return;
@@ -3170,6 +3201,8 @@ async function renderRiders(forceRefresh){
   cacheSet('featured-riders', riders, 120);
   if(label) label.textContent = 'Featured Riders';
   grid.innerHTML = riders.map(r => renderRiderCard(r)).join('');
+  // Preload full rider data for all displayed featured riders
+  _preloadRiderNames(riders.map(r => r.rider_name || r.name));
 }
 
 async function _fetchFeaturedRiders(){
@@ -3771,6 +3804,8 @@ function renderProfile(){
       <div style="font-size:22px;color:var(--border);">—</div>
     </div>`;
   }).join('');
+  // Preload rider page data for all set fav riders
+  _preloadRiderNames(profile.favRiders);
 
   // ── Favourite race ────────────────────────────────────────────────────
   const favRaceEl = document.getElementById('fav-race-display');
@@ -4355,44 +4390,60 @@ async function renderRiderPage(inputName){
   document.querySelectorAll('.nav-a').forEach(x=>x.classList.remove('active'));
 
   const el = document.getElementById('rider-page-inner');
-  el.innerHTML = `<div style="padding:60px;text-align:center;color:var(--muted);">Loading rider data…</div>`;
 
-  // Try the name as-is (DB format: "Contador Alberto"), then reversed, then partial wildcard
-  const namesToTry = [inputName];
-  const parts = inputName.trim().split(' ').filter(Boolean);
-  if(parts.length >= 2){
-    const reversed = parts[parts.length-1] + ' ' + parts.slice(0,parts.length-1).join(' ');
-    if(reversed !== inputName) namesToTry.push(reversed);
-    // Also try wildcard on last name (most reliable)
-    namesToTry.push(`%${parts[parts.length-1]}%`);
-    namesToTry.push(`%${parts[0]}%`);
-  }
-
-  console.log('renderRiderPage: searching for', namesToTry);
+  // ── Check preload cache first ─────────────────────────────────────────
+  const cacheKey = inputName.toLowerCase();
+  const cachedPromise = _riderPageCache.get(cacheKey);
   let rows = null;
-  for(const name of namesToTry){
-    const { data, error } = await sb.from('startlists')
-      .select('*')
-      .ilike('rider_name', name)
-      .order('year', { ascending: false })
-      .limit(200);
-    if(error) console.error('startlists error:', error, 'for name:', name);
-    console.log('startlists query', name, '→', data?.length, 'rows', error?.message);
-    if(data && data.length){
-      // If wildcard returned multiple riders, filter to best match
-      if(name.includes('%') && data.length > 1){
-        const exact = data.filter(r => r.rider_name.toLowerCase() === inputName.toLowerCase() ||
-          r.rider_name.toLowerCase() === (parts[parts.length-1]+' '+parts.slice(0,parts.length-1).join(' ')).toLowerCase());
-        rows = exact.length ? exact : [data[0]]; // take first if no exact match
-        // Filter all rows to just this rider
-        const matchName = rows[0].rider_name;
-        rows = data.filter(r => r.rider_name === matchName);
-      } else {
-        rows = data;
-      }
-      break;
+
+  if(cachedPromise){
+    // If the promise is already resolved this is instant; otherwise await it
+    // Show loading only if it's still pending
+    let resolved = false;
+    const timeoutId = setTimeout(() => {
+      if(!resolved) el.innerHTML = `<div style="padding:60px;text-align:center;color:var(--muted);">Loading rider data…</div>`;
+    }, 80); // only show spinner if taking > 80ms
+    rows = await cachedPromise;
+    resolved = true;
+    clearTimeout(timeoutId);
+  } else {
+    // Not preloaded — show spinner and fetch normally
+    el.innerHTML = `<div style="padding:60px;text-align:center;color:var(--muted);">Loading rider data…</div>`;
+
+    // Try the name as-is (DB format: "Contador Alberto"), then reversed, then partial wildcard
+    const namesToTry = [inputName];
+    const parts = inputName.trim().split(' ').filter(Boolean);
+    if(parts.length >= 2){
+      const reversed = parts[parts.length-1] + ' ' + parts.slice(0,parts.length-1).join(' ');
+      if(reversed !== inputName) namesToTry.push(reversed);
+      namesToTry.push(`%${parts[parts.length-1]}%`);
+      namesToTry.push(`%${parts[0]}%`);
     }
-  }
+
+    console.log('renderRiderPage: searching for', namesToTry);
+    for(const name of namesToTry){
+      const { data, error } = await sb.from('startlists')
+        .select('*')
+        .ilike('rider_name', name)
+        .order('year', { ascending: false })
+        .limit(200);
+      if(error) console.error('startlists error:', error, 'for name:', name);
+      console.log('startlists query', name, '→', data?.length, 'rows', error?.message);
+      if(data && data.length){
+        if(name.includes('%') && data.length > 1){
+          const parts2 = inputName.trim().split(' ').filter(Boolean);
+          const exact = data.filter(r => r.rider_name.toLowerCase() === inputName.toLowerCase() ||
+            r.rider_name.toLowerCase() === (parts2[parts2.length-1]+' '+parts2.slice(0,parts2.length-1).join(' ')).toLowerCase());
+          rows = exact.length ? exact : [data[0]];
+          const matchName = rows[0].rider_name;
+          rows = data.filter(r => r.rider_name === matchName);
+        } else {
+          rows = data;
+        }
+        break;
+      }
+    }
+  } // end else (not preloaded)
 
   // rawName = DB format for display reversal
   const rawName = rows ? rows[0].rider_name : inputName;
