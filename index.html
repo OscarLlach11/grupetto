@@ -2475,6 +2475,8 @@ async function saveStageLogToSupabase(raceId, year, stageNum) {
   const row = {
     log_id:       logId,
     user_id:      currentUser.id,
+    race_slug:    raceId,
+    year:         year,
     stage_num:    stageNum,
     rating:       entry.rating || null,
     review:       entry.review || null,
@@ -2979,9 +2981,10 @@ async function renderLeaderboard(){
       .gt('rating', 0)
       .limit(5000),
     sb.from('stage_logs')
-      .select('stage_num, rating, log_id, race_logs!inner(slug, year)')
+      .select('stage_num, rating, race_slug, year')
       .not('rating', 'is', null)
       .gt('rating', 0)
+      .not('race_slug', 'is', null)
       .limit(5000),
   ]);
 
@@ -2999,11 +3002,9 @@ async function renderLeaderboard(){
 
   // Aggregate stage logs
   (stageLogsRes.data || []).forEach(sl => {
-    const slug = sl.race_logs?.slug;
-    const year = sl.race_logs?.year;
-    if(!slug || !year) return;
-    const key = `${slug}|${year}|stage${sl.stage_num}`;
-    if(!map[key]) map[key] = { slug, year, stageNum: sl.stage_num, ratings: [] };
+    if(!sl.race_slug || !sl.year) return;
+    const key = `${sl.race_slug}|${sl.year}|stage${sl.stage_num}`;
+    if(!map[key]) map[key] = { slug: sl.race_slug, year: sl.year, stageNum: sl.stage_num, ratings: [] };
     map[key].ratings.push(parseFloat(sl.rating));
   });
 
@@ -4952,9 +4953,10 @@ async function loadFollowingFeed(){
       .order('created_at', {ascending: false})
       .limit(20),
     sb.from('stage_logs')
-      .select('id, user_id, stage_num, rating, date_watched, created_at, race_logs!inner(slug, year)')
+      .select('id, user_id, stage_num, rating, date_watched, created_at, race_slug, year')
       .in('user_id', followArr)
       .not('rating', 'is', null).gt('rating', 0)
+      .not('race_slug', 'is', null)
       .order('created_at', {ascending: false})
       .limit(20),
   ]);
@@ -4966,8 +4968,8 @@ async function loadFollowingFeed(){
       rating:log.rating, date:log.date_watched||log.created_at, ts:new Date(log.created_at).getTime() });
   });
   (stageLogs||[]).forEach(sl => {
-    const slug = sl.race_logs?.slug;
-    const year = sl.race_logs?.year;
+    const slug = sl.race_slug;
+    const year = sl.year;
     if(!slug||!year) return;
     items.push({ type:'stage', user_id:sl.user_id, slug, year, stageNum:sl.stage_num,
       rating:sl.rating, date:sl.date_watched||sl.created_at, ts:new Date(sl.created_at).getTime() });
