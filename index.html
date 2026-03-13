@@ -1902,14 +1902,11 @@ async function openRacePage(id, preferYear){
   if(watches.length){
     mainHTML+=`<div class="rsp-section"><div class="rsp-st">Your Logs</div>`;
     watches.forEach((w,i)=>{
-      const stTotal=Object.keys(w.stages||{}).length;
-      const stRated=Object.values(w.stages||{}).filter(s=>s.rating).length;
       mainHTML+=`<div class="log-entry-card">
         <div class="lec-head">
           <div>
             <div class="lec-year">${w.year} Edition</div>
             <div class="stars" style="margin:4px 0;">${starsHTML(w.rating||0,13)}</div>
-            ${stTotal?`<div style="font-size:10px;color:var(--ml);margin-top:2px;">${stTotal} stage${stTotal!==1?'s':''} logged${stRated?`, ${stRated} rated`:''}</div>`:''}
           </div>
           <div class="lec-date">${w.date?fmtDate(w.date):''}<br>${w.live?'<span style="font-size:8px;color:var(--live);border:1px solid var(--live);padding:1px 5px;">LIVE</span>':''}</div>
         </div>
@@ -1923,6 +1920,50 @@ async function openRacePage(id, preferYear){
 
     mainHTML+=`</div>`;
   }
+
+  // Your Stage Logs section — independent from race logs
+  const raceStageEntries = allStageEntries().filter(e => e.raceId === id);
+  if(raceStageEntries.length){
+    // Group by year
+    const byYear = {};
+    raceStageEntries.forEach(e => {
+      if(!byYear[e.year]) byYear[e.year] = [];
+      byYear[e.year].push(e);
+    });
+    const sortedYears = Object.keys(byYear).map(Number).sort((a,b)=>b-a);
+
+    mainHTML += `<div class="rsp-section" style="margin-top:8px;"><div class="rsp-st">Your Stage Logs</div>`;
+    sortedYears.forEach(year => {
+      const entries = byYear[year].sort((a,b)=>a.stageNum-b.stageNum);
+      mainHTML += `<div style="margin-bottom:16px;">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:12px;letter-spacing:2px;color:var(--muted);margin-bottom:6px;">${year} Edition</div>`;
+      entries.forEach(e => {
+        const sl = e.stageLog;
+        const stLabel = e.stageNum === 0 ? 'Prologue' : `Stage ${sl.stageLabel || e.stageNum}`;
+        const r = RACES.find(x=>x.id===id);
+        mainHTML += `<div class="log-entry-card" style="cursor:pointer;" onclick="openStagePage('${id}',${year},${e.stageNum})">
+          <div class="lec-head">
+            <div>
+              <div class="lec-year" style="font-size:13px;">${stLabel}</div>
+              <div class="stars" style="margin:3px 0;">${starsHTML(sl.rating||0,11)}</div>
+              ${sl.date?`<div style="font-size:10px;color:var(--ml);margin-top:2px;">${fmtDate(sl.date)}${sl.live?' · <span style="color:var(--live);">LIVE</span>':''}</div>`:''}
+            </div>
+            <div class="lec-date" style="font-size:10px;color:var(--muted);">
+              ${sl.ts ? fmtDate(new Date(sl.ts).toISOString().slice(0,10)) : ''}
+            </div>
+          </div>
+          ${sl.review?`<div class="lec-review">"${sl.review}"</div>`:''}
+          <div class="lec-actions">
+            <button class="bs" style="font-size:9px;padding:5px 10px;" onclick="event.stopPropagation();openStagePage('${id}',${year},${e.stageNum})">Edit</button>
+            <button class="bdanger" onclick="event.stopPropagation();deleteStageLog('${id}',${year},${e.stageNum})">Delete</button>
+          </div>
+        </div>`;
+      });
+      mainHTML += `</div>`;
+    });
+    mainHTML += `</div>`;
+  }
+
   document.getElementById('rsp-main').innerHTML=mainHTML;
 
   // Sidebar: year selector + results — build first with loading state
@@ -3835,20 +3876,39 @@ function renderProfile(){
     </div>`;
   }
 
-  // ── Recent Activity (5 most recent) ──────────────────────────────────
-  const recent = all.map(([id,w])=>({id,w,ts:w.ts||0})).sort((a,b)=>b.ts-a.ts).slice(0,5);
+  // ── Recent Activity (5 most recent — race logs + stage logs combined) ──
+  const raceItems = all.map(([id,w])=>({type:'race', id, w, ts:w.ts||0}));
+  const stageItems = allStageEntries().map(e=>({
+    type:'stage', id:e.raceId, year:e.year, stageNum:e.stageNum,
+    stageLog:e.stageLog, ts:e.stageLog.ts||0
+  }));
+  const recent = [...raceItems, ...stageItems].sort((a,b)=>b.ts-a.ts).slice(0,5);
   const raEl = document.getElementById('profile-recent-activity');
   if(recent.length){
-    raEl.innerHTML = recent.map(({id,w})=>{
-      const r=RACES.find(x=>x.id===id)||{name:id,gradient:'var(--border)',flag:'',country:''};
-      const dateStr = w.date ? fmtDate(w.date) : (w.year||'');
-      return `<div class="recent-activity-card" onclick="openRacePage('${id}')">
-        <div class="ra-swatch" style="background:${r.gradient}"></div>
-        <div>
-          <div class="ra-name">${r.name} <span style="font-weight:400;color:var(--muted);">${w.year}</span></div>
-          <div class="ra-meta">${dateStr}${w.live?' · 🔴 Live':''}${w.rating?' · ★ '+w.rating:''}</div>
-        </div>
-      </div>`;
+    raEl.innerHTML = recent.map(item=>{
+      const r=RACES.find(x=>x.id===item.id)||{name:item.id,gradient:'var(--border)',flag:'',country:''};
+      if(item.type==='stage'){
+        const sl = item.stageLog;
+        const stLabel = item.stageNum===0?'Prologue':`Stage ${sl.stageLabel||item.stageNum}`;
+        const dateStr = sl.date ? fmtDate(sl.date) : (item.year||'');
+        return `<div class="recent-activity-card" onclick="openStagePage('${item.id}',${item.year},${item.stageNum})">
+          <div class="ra-swatch" style="background:${r.gradient}"></div>
+          <div>
+            <div class="ra-name">${r.name} <span style="font-weight:400;color:var(--muted);">${item.year} · ${stLabel}</span></div>
+            <div class="ra-meta">${dateStr}${sl.live?' · 🔴 Live':''}${sl.rating?' · ★ '+sl.rating:''}</div>
+          </div>
+        </div>`;
+      } else {
+        const w = item.w;
+        const dateStr = w.date ? fmtDate(w.date) : (w.year||'');
+        return `<div class="recent-activity-card" onclick="openRacePage('${item.id}')">
+          <div class="ra-swatch" style="background:${r.gradient}"></div>
+          <div>
+            <div class="ra-name">${r.name} <span style="font-weight:400;color:var(--muted);">${w.year}</span></div>
+            <div class="ra-meta">${dateStr}${w.live?' · 🔴 Live':''}${w.rating?' · ★ '+w.rating:''}</div>
+          </div>
+        </div>`;
+      }
     }).join('');
   } else {
     raEl.innerHTML='<div style="color:var(--muted);font-size:12px;">No logged races yet.</div>';
