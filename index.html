@@ -2508,7 +2508,35 @@ window.grupettoDebug = async function() {
 
   console.groupEnd();
 };
-console.log('%c[Grupetto] Debug ready — run window.grupettoDebug() in console', 'color:#f5a623');
+
+// Force re-sync all local stage logs to Supabase (clears dbId cache so all go through fresh inserts)
+window.grupettoRepairStageLogs = async function() {
+  if (!currentUser) { console.error('Not signed in'); return; }
+  console.log('Repairing stage logs — clearing dbId cache and re-syncing all to Supabase...');
+
+  // Clear all dbIds from local store so everything goes through insert (not update)
+  const local = JSON.parse(localStorage.getItem('g3-stage-log') || '{}');
+  let count = 0;
+  Object.values(local).forEach(years =>
+    Object.values(years).forEach(stages =>
+      Object.values(stages).forEach(s => { delete s.dbId; count++; })
+    )
+  );
+  localStorage.setItem('g3-stage-log', JSON.stringify(local));
+  // Reload stageLog in memory
+  Object.assign(stageLog, local);
+
+  // Delete all existing stage_logs for this user in DB (avoid duplicates)
+  const { error: delErr } = await sb.from('stage_logs').delete().eq('user_id', currentUser.id);
+  if (delErr) { console.error('Delete failed:', delErr); return; }
+  console.log('Deleted existing stage_logs from DB. Re-inserting', count, 'entries...');
+
+  // Re-sync all
+  await syncLocalStageLogsToSupabase();
+  console.log('Done. Run window.grupettoDebug() to verify.');
+  toast('Stage logs repaired and re-synced ✓');
+};
+console.log('%c[Grupetto] Debug ready — run window.grupettoDebug() or window.grupettoRepairStageLogs() in console', 'color:#f5a623');
 
 async function syncLocalStageLogsToSupabase() {
   if (!currentUser) return;
