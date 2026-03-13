@@ -1324,9 +1324,10 @@ async function fetchAppData(RACE_COLS){
 
 function applyAppData({ races, dates, config }){
   if(races?.length){
-    // Deduplicate by race_name — keep entry with logo_url, then longest slug, then first
+    // Filter out shell rows that have no race_type AND no gradient
+    // (after DB migration these won't exist, but guards against future accidents)
     const seen = new Map();
-    races.forEach(r => {
+    races.filter(r => r.race_type || r.gradient).forEach(r => {
       const key = (r.race_name || '').toLowerCase().trim();
       const existing = seen.get(key);
       if (!existing) { seen.set(key, r); return; }
