@@ -2388,6 +2388,7 @@ function openStageLogModal(){
   const race = RACES.find(x=>x.id===_spRaceId);
   const saved = getUserStageLog(_spRaceId, _spYear, s.num);
   _spRating = saved?.rating || 0;
+  formRating = _spRating;
 
   const label = s.num===0?'Prologue':`Stage ${s.label||s.num}`;
 
@@ -2411,7 +2412,7 @@ function openStageLogModal(){
   document.getElementById('log-form-body').innerHTML=`
     <div style="margin-bottom:14px;">
       <span class="slabel">Rating</span>
-      ${buildHSHTML('sp-hs','stage',s.num,_spRating)}
+      ${buildHSHTML('sp-hs','overall',null,_spRating)}
     </div>
     <span class="slabel">Notes</span>
     <textarea class="rta" id="sp-review" placeholder="How was this stage?">${saved?.review||''}</textarea>
@@ -2530,7 +2531,7 @@ function saveStagePageLog(){
   if(!date||date>TODAY){ toast('Cannot log a future date'); return; }
   const review = document.getElementById('sp-review').value.trim();
   const live   = document.getElementById('sp-live').classList.contains('on');
-  const rating = _spRating;
+  const rating = formRating;
 
   // Save into the separate stageLog store — never touches userLog
   if(!stageLog[_spRaceId]) stageLog[_spRaceId] = {};
@@ -2970,24 +2971,40 @@ async function renderLeaderboard(){
   const lb = document.getElementById('leaderboard');
   lb.innerHTML = '<div style="padding:24px 40px;color:var(--muted);font-size:12px;">Loading community rankings…</div>';
 
-  // Fetch all rated race logs from all users
-  const { data: allLogs, error } = await sb.from('race_logs')
-    .select('slug,year,rating')
-    .not('rating', 'is', null)
-    .gt('rating', 0)
-    .limit(5000);
+  // Fetch rated race logs AND rated stage logs in parallel
+  const [logsRes, stageLogsRes] = await Promise.all([
+    sb.from('race_logs')
+      .select('slug,year,rating')
+      .not('rating', 'is', null)
+      .gt('rating', 0)
+      .limit(5000),
+    sb.from('stage_logs')
+      .select('stage_num, rating, race_logs(slug, year)')
+      .not('rating', 'is', null)
+      .gt('rating', 0)
+      .limit(5000),
+  ]);
 
-  if(error || !allLogs?.length){
-    lb.innerHTML = '<div class="empty">No community ratings yet.</div>';
-    return;
-  }
+  if(logsRes.error) console.error('leaderboard race_logs error:', logsRes.error);
+  if(stageLogsRes.error) console.error('leaderboard stage_logs error:', stageLogsRes.error);
 
-  // Aggregate: group by slug+year, compute avg and count
-  const map = {}; // key: "slug|year"
-  allLogs.forEach(log => {
+  const map = {}; // key: "slug|year" or "slug|year|stageN"
+
+  // Aggregate race logs
+  (logsRes.data || []).forEach(log => {
     const key = `${log.slug}|${log.year}`;
-    if(!map[key]) map[key] = { slug: log.slug, year: log.year, ratings: [] };
+    if(!map[key]) map[key] = { slug: log.slug, year: log.year, stageNum: null, ratings: [] };
     map[key].ratings.push(parseFloat(log.rating));
+  });
+
+  // Aggregate stage logs
+  (stageLogsRes.data || []).forEach(sl => {
+    const slug = sl.race_logs?.slug;
+    const year = sl.race_logs?.year;
+    if(!slug || !year) return;
+    const key = `${slug}|${year}|stage${sl.stage_num}`;
+    if(!map[key]) map[key] = { slug, year, stageNum: sl.stage_num, ratings: [] };
+    map[key].ratings.push(parseFloat(sl.rating));
   });
 
   // Build entries, filter by minimum rating count
@@ -2996,27 +3013,41 @@ async function renderLeaderboard(){
     .map(e => {
       const avg = e.ratings.reduce((a,b)=>a+b,0) / e.ratings.length;
       const race = RACES.find(r => r.id === e.slug);
-      return { slug: e.slug, year: e.year, avg, count: e.ratings.length, race };
+      return { slug: e.slug, year: e.year, stageNum: e.stageNum, avg, count: e.ratings.length, race };
     })
-    .filter(e => e.race) // must be a known race
+    .filter(e => e.race)
     .sort((a,b) => b.avg - a.avg || b.count - a.count);
 
   if(!entries.length){
-    lb.innerHTML = `<div class="empty">Not enough ratings yet — each race needs at least ${TOP_RACES_MIN_RATINGS} ratings to appear.</div>`;
+    lb.innerHTML = `<div class="empty">Not enough ratings yet — each race or stage needs at least ${TOP_RACES_MIN_RATINGS} ratings to appear.</div>`;
     return;
   }
 
-  lb.innerHTML = entries.map(({slug, year, avg, count, race}, i) => `
-    <div class="lbi" onclick="openRacePage('${slug}')">
+  lb.innerHTML = entries.map(({slug, year, stageNum, avg, count, race}, i) => {
+    const isStage = stageNum !== null;
+    const label = isStage
+      ? `${race.name} <span style="color:var(--muted);font-size:13px;">${year} · Stage ${stageNum}</span>`
+      : `${race.name} <span style="color:var(--muted);font-size:13px;">${year}</span>`;
+    const sublabel = isStage
+      ? `${race.flag} ${race.country} · Stage ${stageNum} · ${count} rating${count!==1?'s':''}`
+      : `${race.flag} ${race.country} · ${race.type} · ${count} rating${count!==1?'s':''}`;
+    const onclick = isStage
+      ? `openStagePage('${slug}',${year},${stageNum})`
+      : `openRacePage('${slug}')`;
+    return `
+    <div class="lbi" onclick="${onclick}">
       <div class="lbrank ${i<3?'pod':''}">${i+1}</div>
-      <div class="lbsw" style="background:${race.gradient}"></div>
+      <div class="lbsw" style="background:${race.gradient}">
+        ${isStage ? `<div style="position:absolute;bottom:2px;left:50%;transform:translateX(-50%);font-size:7px;letter-spacing:1px;color:var(--gold);font-family:'Bebas Neue',sans-serif;">S${stageNum}</div>` : ''}
+      </div>
       <div class="lbinfo">
-        <div class="lbname">${race.name} <span style="color:var(--muted);font-size:13px;">${year}</span></div>
-        <div class="lbsub">${race.flag} ${race.country} · ${race.type} · ${count} rating${count!==1?'s':''}</div>
+        <div class="lbname">${label}</div>
+        <div class="lbsub">${sublabel}</div>
         <div style="margin-top:3px;">${starsHTML(avg, 10)}</div>
       </div>
       <div><div class="lbsc">${avg.toFixed(2)}</div><div class="lbsc-s">/ 5.0</div></div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 // ════════════════════════════════════════════════════════
