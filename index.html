@@ -176,6 +176,7 @@
       userLog = {};
       stageLog = {};
       logs.forEach(log => {
+        if (!userLog[log.slug]) userLog[log.slug] = { watches: [] };
         const stages = {};
         (log.stage_logs || []).forEach(s => {
           stages[s.stage_num] = {
