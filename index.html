@@ -25,8 +25,8 @@
 
     sb.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN') {
-        // Skip if signInEmail already handled this (currentUser already set & data loaded)
-        if (currentUser && currentUser.id === session?.user?.id) return;
+        // If signInEmail already set currentUser and called onSignedIn, skip
+        if (currentUser) return;
         currentUser = session.user;
         await onSignedIn();
       } else if (event === 'SIGNED_OUT') {
@@ -127,12 +127,7 @@
 
     if (!email || !password) { toast('Please fill in all fields'); return; }
 
-    const btn = document.querySelector('#auth-form-in .bp');
-    if (btn) { btn.disabled = true; btn.textContent = 'Signing in…'; }
-
     const { data, error } = await sb.auth.signInWithPassword({ email, password });
-
-    if (btn) { btn.disabled = false; btn.textContent = 'Sign In'; }
     if (error) { toast(error.message); return; }
 
     currentUser = data.user;
