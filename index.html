@@ -2553,8 +2553,9 @@ function getUserStageLogEntry(raceId, year, stageNum){
 function saveStagePageLog(){
   if(!_spStage) return;
   const s = _spStage;
-  const date = document.getElementById('sp-date').value;
-  if(!date||date>TODAY){ toast('Cannot log a future date'); return; }
+  let date = document.getElementById('sp-date').value;
+  if(date && date>TODAY){ toast('Cannot log a future date'); return; }
+  if(!date) date = TODAY; // default to today if not set
   const review = document.getElementById('sp-review').value.trim();
   const live   = document.getElementById('sp-live').classList.contains('on');
   const rating = formRating;
@@ -4977,9 +4978,8 @@ async function loadFollowingFeed(){
       .order('created_at', {ascending: false})
       .limit(20),
     sb.from('stage_logs')
-      .select('id, user_id, stage_num, rating, date_watched, created_at, race_slug, year')
+      .select('id, user_id, stage_num, rating, review, date_watched, created_at, race_slug, year')
       .in('user_id', followArr)
-      .not('rating', 'is', null).gt('rating', 0)
       .not('race_slug', 'is', null)
       .order('created_at', {ascending: false})
       .limit(20),
