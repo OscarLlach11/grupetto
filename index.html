@@ -5101,23 +5101,36 @@ async function openUserPage(userId){
   document.getElementById('upage-rating-dist').innerHTML = '';
   document.getElementById('upage-yearly-stats').innerHTML = '';
 
-  // Load profile + logs + follower count in parallel
-  const [profRes, logsRes, followersRes] = await Promise.all([
+  // Load profile + logs + stage_logs + follower count in parallel
+  const [profRes, logsRes, stageLogsRes, followersRes] = await Promise.all([
     sb.from('profiles').select('*').eq('user_id', userId).maybeSingle(),
     sb.from('race_logs').select('id,slug,year,rating,review,date_watched,watched_live,created_at')
+      .eq('user_id', userId).order('created_at', {ascending:false}),
+    sb.from('stage_logs').select('id,race_slug,year,stage_num,rating,review,date_watched,watched_live,created_at')
       .eq('user_id', userId).order('created_at', {ascending:false}),
     sb.from('follows').select('follower_id',{count:'exact',head:true}).eq('following_id', userId),
   ]);
 
   if(profRes.error) console.error('openUserPage profile error:', profRes.error);
   if(logsRes.error) console.error('openUserPage logs error:', logsRes.error);
-  if(logsRes.error?.code === '42501') console.warn('race_logs RLS is blocking reads — run: create policy "race logs are viewable by everyone" on race_logs for select using (true);');
+  if(stageLogsRes.error) console.error('openUserPage stage_logs error:', stageLogsRes.error);
+  if(logsRes.error?.code === '42501') console.warn('race_logs RLS is blocking reads — add public SELECT policy.');
+  if(stageLogsRes.error?.code === '42501') console.warn('stage_logs RLS is blocking reads — add public SELECT policy.');
 
   const p = profRes.data || {};
-  const logs = logsRes.data || [];
+  const rawLogs = logsRes.data || [];
+  const stageLogRows = stageLogsRes.data || [];
   const followerCount = followersRes.count || 0;
 
-  // Build allEntries equivalent from this user's logs
+  // Filter out ghost race_log entries: rows auto-created as FK parents for stage logging
+  // (no rating, no review, no watched_live, but stage_logs exist for that slug+year)
+  const stageKeySet = new Set(stageLogRows.map(s => s.race_slug + '|' + s.year));
+  const logs = rawLogs.filter(log => {
+    const isGhost = !log.rating && !log.review && !log.watched_live && stageKeySet.has(log.slug + '|' + log.year);
+    return !isGhost;
+  });
+
+  // Build allEntries from real race_log entries (non-ghost)
   const all = logs.map(log => [log.slug, {
     year: log.year,
     date: log.date_watched,
@@ -5125,7 +5138,21 @@ async function openUserPage(userId){
     rating: parseFloat(log.rating)||0,
     review: log.review||'',
     ts: new Date(log.created_at).getTime(),
+    type: 'race',
   }]);
+
+  // Build stage entries for recent activity / reviews display
+  const stageEntries = stageLogRows.map(s => [s.race_slug, {
+    year: s.year,
+    date: s.date_watched,
+    live: s.watched_live,
+    rating: parseFloat(s.rating)||0,
+    review: s.review||'',
+    ts: new Date(s.created_at).getTime(),
+    type: 'stage',
+    stageNum: s.stage_num,
+  }]);
+  const allWithStages = [...all, ...stageEntries];
 
   // ── Avatar + name ────────────────────────────────────────────────────
   const ini = (p.display_name||'?').split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
@@ -5152,11 +5179,11 @@ async function openUserPage(userId){
   }
 
   // ── Stats grid ──────────────────────────────────────────────────────
-  const liveCount = all.filter(([,w])=>w.live).length;
-  const rts = all.filter(([,w])=>w.rating).map(([,w])=>w.rating);
+  const liveCount = allWithStages.filter(([,w])=>w.live).length;
+  const rts = allWithStages.filter(([,w])=>w.rating).map(([,w])=>w.rating);
   const avg = rts.length ? (rts.reduce((a,b)=>a+b,0)/rts.length).toFixed(1) : '—';
   document.getElementById('upage-stat-grid').innerHTML = [
-    [all.length, 'Races',    ()=>openUserLog(userId, p.display_name, logs, 'all')],
+    [allWithStages.length, 'Logged',  ()=>openUserLog(userId, p.display_name, logs, 'all')],
     [liveCount,  'Live',     ()=>openUserLog(userId, p.display_name, logs, 'live')],
     [avg,        'Avg ★',    null],
     [followerCount,'Followers', null],
@@ -5186,7 +5213,7 @@ async function openUserPage(userId){
 
   // ── Yearly stats ────────────────────────────────────────────────────
   const byYear={};
-  all.forEach(([,w])=>{ const yr=w.year; if(!yr) return; if(!byYear[yr]) byYear[yr]={cnt:0,live:0,rts:[]}; byYear[yr].cnt++; if(w.live) byYear[yr].live++; if(w.rating) byYear[yr].rts.push(w.rating); });
+  allWithStages.forEach(([,w])=>{ const yr=w.year; if(!yr) return; if(!byYear[yr]) byYear[yr]={cnt:0,live:0,rts:[]}; byYear[yr].cnt++; if(w.live) byYear[yr].live++; if(w.rating) byYear[yr].rts.push(w.rating); });
   const yrEl=document.getElementById('upage-yearly-stats');
   const yrKeys=Object.keys(byYear).sort((a,b)=>b-a);
   yrEl.innerHTML = yrKeys.length ? yrKeys.map(yr=>{
@@ -5235,33 +5262,37 @@ async function openUserPage(userId){
 
   // ── Countries watched ───────────────────────────────────────────────
   const countryCounts={};
-  all.forEach(([id])=>{ const r=RACES.find(x=>x.id===id); if(r&&r.country){ const key=`${r.flag||''} ${r.country}`.trim(); countryCounts[key]=(countryCounts[key]||0)+1; } });
+  allWithStages.forEach(([id])=>{ const r=RACES.find(x=>x.id===id); if(r&&r.country){ const key=`${r.flag||''} ${r.country}`.trim(); countryCounts[key]=(countryCounts[key]||0)+1; } });
   const sortedC=Object.entries(countryCounts).sort((a,b)=>b[1]-a[1]);
   document.getElementById('upage-countries').innerHTML = sortedC.length
     ? `<div style="display:flex;flex-wrap:wrap;gap:8px;">`+sortedC.map(([c,n])=>`<div style="display:flex;align-items:center;gap:6px;background:var(--card-bg);border:1px solid var(--border);padding:5px 10px;font-size:11px;letter-spacing:1px;"><span>${c}</span><span style="color:var(--muted);font-size:10px;">${n}</span></div>`).join('')+'</div>'
     : '<div style="color:var(--muted);font-size:12px;">No races logged yet.</div>';
 
-  // ── Recent activity ─────────────────────────────────────────────────
-  const recent=[...all].sort((a,b)=>b[1].ts-a[1].ts).slice(0,5);
+  // ── Recent activity (races + stages combined) ───────────────────────
+  const recent=[...allWithStages].sort((a,b)=>b[1].ts-a[1].ts).slice(0,8);
   document.getElementById('upage-recent-activity').innerHTML = recent.length ? recent.map(([id,w])=>{
     const r=RACES.find(x=>x.id===id)||{name:id,gradient:'var(--border)',flag:'',country:''};
     const dateStr=w.date?fmtDate(w.date):(w.year||'');
-    return `<div class="recent-activity-card" onclick="openRacePage('${id}')">
+    const isStage = w.type==='stage';
+    const stageLabel = isStage ? ` · Stage ${w.stageNum}` : '';
+    const onclick = isStage ? `openStagePage('${id}',${w.year},${w.stageNum})` : `openRacePage('${id}')`;
+    return `<div class="recent-activity-card" onclick="${onclick}">
       <div class="ra-swatch" style="background:${r.gradient}"></div>
-      <div><div class="ra-name">${r.name} <span style="font-weight:400;color:var(--muted);">${w.year}</span></div>
+      <div><div class="ra-name">${r.name} <span style="font-weight:400;color:var(--muted);">${w.year}${stageLabel}</span></div>
       <div class="ra-meta">${dateStr}${w.live?' · 🔴 Live':''}${w.rating?' · ★ '+w.rating:''}</div></div>
     </div>`;
   }).join('') : '<div style="color:var(--muted);font-size:12px;">No logged races yet.</div>';
 
-  // ── Recent reviews ──────────────────────────────────────────────────
-  const withReviews=all.filter(([,w])=>w.review&&w.review.trim()).sort((a,b)=>b[1].ts-a[1].ts).slice(0,5);
+  // ── Recent reviews (races + stages combined) ─────────────────────────
+  const withReviews=allWithStages.filter(([,w])=>w.review&&w.review.trim()).sort((a,b)=>b[1].ts-a[1].ts).slice(0,5);
   const handle=p.handle||'user';
   document.getElementById('upage-recent-reviews').innerHTML = withReviews.length ? withReviews.map(([id,w])=>{
     const r=RACES.find(x=>x.id===id)||{name:id};
-    return `<div class="review-card" onclick="navToReview('${handle}','${id}',${w.year},1)">
-      <div class="review-race">${r.name} ${w.year}${w.rating?` · ★ ${w.rating}`:''}</div>
+    const isStage = w.type==='stage';
+    const stageLabel = isStage ? ` · Stage ${w.stageNum}` : '';
+    return `<div class="review-card">
+      <div class="review-race">${r.name} ${w.year}${stageLabel}${w.rating?` · ★ ${w.rating}`:''}</div>
       <div class="review-text">"${w.review.slice(0,220)}${w.review.length>220?'…':''}"</div>
-      <div style="font-size:10px;color:var(--muted);margin-top:6px;letter-spacing:.5px;">View review →</div>
     </div>`;
   }).join('') : '<div style="color:var(--muted);font-size:12px;">No reviews yet.</div>';
 }
