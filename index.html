@@ -1630,6 +1630,12 @@ function showPage(p){
     document.querySelectorAll('.tier-btn').forEach((x,i)=>x.classList.toggle('active',i===0));
     if(aDiscSection==='riders') resetRiderSearch();
   }
+  // Reset sub-page scroll when leaving race/stage/rider/review pages
+  if(['race','stage','rider','review'].includes(aPg) && !['race','stage','rider','review'].includes(p)){
+    ['#page-race .race-scroll-body','#page-stage .race-scroll-body','#page-rider .rider-scroll-body','#page-review .race-scroll-body'].forEach(sel=>{
+      const el=document.querySelector(sel); if(el) el.scrollTop=0;
+    });
+  }
   document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));
   document.getElementById('page-'+p).classList.add('active');
   document.querySelectorAll('.nav-a').forEach(x=>x.classList.remove('active'));
@@ -1977,6 +1983,10 @@ async function openRacePage(id, preferYear){
 
   document.getElementById('rsp-main').innerHTML=mainHTML;
 
+  // Reset scroll position
+  const raceScrollBody = document.querySelector('#page-race .race-scroll-body');
+  if(raceScrollBody) raceScrollBody.scrollTop = 0;
+
   // Sidebar: year selector + results — build first with loading state
   document.getElementById('rsp-sidebar').innerHTML=`<div class="sb-title">Race Results</div>
     <div class="skeleton" style="width:100%;height:32px;border-radius:3px;margin-bottom:16px;"></div>
@@ -2235,6 +2245,8 @@ async function openStagePage(raceId, year, stageNum){
   document.querySelectorAll('.nav-a').forEach(x=>x.classList.remove('active'));
   document.getElementById('stage-main').innerHTML = `<div style="padding:40px;color:var(--muted);">Loading…</div>`;
   document.getElementById('stage-sidebar').innerHTML = '';
+  const stageScrollBody = document.querySelector('#page-stage .race-scroll-body');
+  if(stageScrollBody) stageScrollBody.scrollTop = 0;
 
   // Load stage data
   let stages = await loadStages(raceId, year);
@@ -3653,10 +3665,16 @@ function confirmDeleteWatch(id,idx){
   const r=RACES.find(x=>x.id===id);
   const w=userLog[id]?.watches?.[idx];
   if(!w) return;
-  showConfirm('Delete Log',`Delete your log for <strong>${r.name} ${w.year}</strong>?`,()=>{
+  showConfirm('Delete Log',`Delete your log for <strong>${r.name} ${w.year}</strong>?`,async ()=>{
+    const dbId = w.id;
     userLog[id].watches.splice(idx,1);
     if(!userLog[id].watches.length) delete userLog[id];
-    persist();openRacePage(id);renderAll();toast('Deleted');
+    persist();
+    if(dbId && currentUser){
+      const { error } = await sb.from('race_logs').delete().eq('id', dbId).eq('user_id', currentUser.id);
+      if(error) console.error('Delete from DB failed:', error);
+    }
+    openRacePage(id); renderAll(); toast('Deleted');
   });
 }
 
@@ -3667,24 +3685,24 @@ function confirmDeleteEntryFromLog(id,ts){
   if(wi===-1) return;
   showConfirm('Delete Log',`Delete this <strong>${r.name}</strong> log entry?`,async ()=>{
     const dbId = rl.watches[wi].id;
+    if(dbId && currentUser){
+      const { error } = await sb.from('race_logs').delete().eq('id', dbId).eq('user_id', currentUser.id);
+      if(error) { console.error('Delete from DB failed:', error); toast('Delete failed'); return; }
+    }
     rl.watches.splice(wi,1);
     if(!rl.watches?.length) delete userLog[id];
     persist(); renderLogPage(); renderAll(); toast('Deleted');
-    if(dbId && currentUser){
-      const { error } = await sb.from('race_logs').delete().eq('id', dbId).eq('user_id', currentUser.id);
-      if(error) console.error('Delete from DB failed:', error);
-    }
   });
 }
 function confirmDeleteRaceLogs(){
   const r=RACES.find(x=>x.id===curId); if(!r) return;
   showConfirm('Delete All Logs',`Delete all logs for <strong>${r.name}</strong>?`,async ()=>{
     const dbIds = (userLog[curId]?.watches||[]).map(w=>w.id).filter(Boolean);
-    delete userLog[curId]; persist(); closeMO('log-mo'); renderAll(); toast('All logs deleted');
     if(dbIds.length && currentUser){
       const { error } = await sb.from('race_logs').delete().in('id', dbIds).eq('user_id', currentUser.id);
-      if(error) console.error('Delete from DB failed:', error);
+      if(error) { console.error('Delete from DB failed:', error); toast('Delete failed'); return; }
     }
+    delete userLog[curId]; persist(); closeMO('log-mo'); renderAll(); toast('All logs deleted');
   });
 }
 function confirmClearAll(){
