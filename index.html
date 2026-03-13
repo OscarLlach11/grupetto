@@ -133,7 +133,7 @@
   // ── Sign out ──────────────────────────────────────────────────────────────
   async function signOut() {
     await sb.auth.signOut();
-    toast('Signed out');
+    window.location.href = window.location.pathname;
   }
 
   // ── Load all user data into local state ───────────────────────────────────
@@ -169,8 +169,8 @@
     const logs = logsRes.data || [];
     if (logs.length > 0) {
       userLog = {};
+      stageLog = {};
       logs.forEach(log => {
-        if (!userLog[log.slug]) userLog[log.slug] = { watches: [] };
         const stages = {};
         (log.stage_logs || []).forEach(s => {
           stages[s.stage_num] = {
@@ -190,8 +190,23 @@
           stages,
           ts:     new Date(log.created_at).getTime(),
         });
+        // Populate stageLog store from DB stage_logs rows
+        (log.stage_logs || []).forEach(s => {
+          if (!stageLog[log.slug]) stageLog[log.slug] = {};
+          if (!stageLog[log.slug][log.year]) stageLog[log.slug][log.year] = {};
+          stageLog[log.slug][log.year][s.stage_num] = {
+            rating:     parseFloat(s.rating) || 0,
+            review:     s.review || '',
+            date:       s.date_watched || null,
+            live:       s.watched_live || false,
+            stageLabel: String(s.stage_num),
+            ts:         s.created_at ? new Date(s.created_at).getTime() : Date.now(),
+            dbId:       s.id,
+          };
+        });
       });
       persist();
+      persistStageLog();
     }
   }
 
@@ -2403,9 +2418,71 @@ function openStageLogModal(){
 }
 
 // ── Separate stage log store — never touches userLog ─────────────────────
-// stageLog[raceId][year][stageNum] = {rating, review, date, live, ts}
+// stageLog[raceId][year][stageNum] = {rating, review, date, live, ts, stageLabel, dbId}
 let stageLog = JSON.parse(localStorage.getItem('g3-stage-log') || '{}');
 function persistStageLog(){ localStorage.setItem('g3-stage-log', JSON.stringify(stageLog)); }
+
+// ── Save a single stage log entry to Supabase ──────────────────────────────
+// Finds or creates the parent race_log row, then upserts the stage_log row.
+async function saveStageLogToSupabase(raceId, year, stageNum) {
+  if (!currentUser) return;
+  const entry = stageLog[raceId]?.[year]?.[stageNum];
+  if (!entry) return;
+
+  // 1. Find existing race_log for this slug+year, or create a minimal one
+  let logId = null;
+  const existingWatch = (userLog[raceId]?.watches || []).find(w => w.year === year);
+  if (existingWatch?.id) {
+    logId = existingWatch.id;
+  } else {
+    // Create a minimal race_log entry (no rating/review) as a parent
+    const { data, error } = await sb.from('race_logs').insert({
+      user_id:      currentUser.id,
+      slug:         raceId,
+      year:         year,
+      rating:       null,
+      review:       null,
+      watched_live: false,
+      date_watched: entry.date || null,
+    }).select().single();
+    if (error) { console.error('race_logs insert error (for stage):', error); return; }
+    logId = data.id;
+    // Store the new logId back into userLog so future stage saves reuse it
+    if (!userLog[raceId]) userLog[raceId] = { watches: [] };
+    userLog[raceId].watches.push({
+      id: logId, year, date: entry.date || null, live: false,
+      rating: 0, review: '', stages: {}, ts: Date.now(),
+    });
+    persist();
+  }
+
+  // 2. Upsert the stage_log row
+  const row = {
+    log_id:       logId,
+    user_id:      currentUser.id,
+    stage_num:    stageNum,
+    rating:       entry.rating || null,
+    review:       entry.review || null,
+    watched_live: entry.live || false,
+    date_watched: entry.date || null,
+  };
+
+  let dbId = entry.dbId || null;
+  if (dbId) {
+    const { error } = await sb.from('stage_logs').update(row).eq('id', dbId);
+    if (error) { console.error('stage_logs update error:', error); return; }
+  } else {
+    const { data, error } = await sb.from('stage_logs').insert(row).select().single();
+    if (error) { console.error('stage_logs insert error:', error); return; }
+    dbId = data.id;
+  }
+
+  // Store dbId back so future edits/deletes can reference it
+  if (stageLog[raceId]?.[year]?.[stageNum]) {
+    stageLog[raceId][year][stageNum].dbId = dbId;
+    persistStageLog();
+  }
+}
 
 // ── TTL Cache — stale-while-revalidate for expensive Supabase queries ─────
 // Usage: cacheSet('key', data, ttlMinutes)  /  cacheGet('key') → data or null
@@ -2454,6 +2531,9 @@ function saveStagePageLog(){
   renderAll();
   _restoreLogModal();
   openStagePage(_spRaceId, _spYear, s.num);
+
+  // Save to Supabase asynchronously
+  if (currentUser) saveStageLogToSupabase(_spRaceId, _spYear, s.num);
 }
 
 function _restoreLogModal(){
@@ -2719,13 +2799,21 @@ function hsUpdateDisplay(wrap, v){
 //  SIDEBAR
 // ════════════════════════════════════════════════════════
 function deleteStageLog(raceId, year, stageNum){
-  if(!stageLog[raceId]?.[year]?.[stageNum]) return;
+  const entry = stageLog[raceId]?.[year]?.[stageNum];
+  if(!entry) return;
+  const dbId = entry.dbId || null;
   delete stageLog[raceId][year][stageNum];
   if(!Object.keys(stageLog[raceId][year]).length) delete stageLog[raceId][year];
   if(!Object.keys(stageLog[raceId]||{}).length) delete stageLog[raceId];
   persistStageLog();
   renderAll();
   toast('Stage log deleted');
+  // Delete from Supabase asynchronously
+  if (currentUser && dbId) {
+    sb.from('stage_logs').delete().eq('id', dbId).then(({error}) => {
+      if (error) console.error('stage_logs delete error:', error);
+    });
+  }
 }
 
 function renderSidebar(){
