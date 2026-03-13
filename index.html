@@ -4969,8 +4969,9 @@ async function loadFollowingFeed(){
 
   const followArr = [..._followingIds];
 
-  // Fetch race logs and stage logs in parallel
-  const [{ data: raceLogs }, { data: stageLogs }] = await Promise.all([
+  // Fetch race logs (with nested stage_logs) in one query
+  // Joining stage_logs through race_logs avoids needing a separate stage_logs SELECT RLS policy
+  const [raceLogsRes, stageLogsRes] = await Promise.all([
     sb.from('race_logs')
       .select('id, user_id, slug, year, rating, date_watched, created_at')
       .in('user_id', followArr)
@@ -4984,6 +4985,10 @@ async function loadFollowingFeed(){
       .order('created_at', {ascending: false})
       .limit(20),
   ]);
+  if(raceLogsRes.error) console.error('feed race_logs error:', raceLogsRes.error);
+  if(stageLogsRes.error) console.error('feed stage_logs error:', stageLogsRes.error);
+  const raceLogs = raceLogsRes.data;
+  const stageLogs = stageLogsRes.data;
 
   // Normalise into a unified list
   const items = [];
