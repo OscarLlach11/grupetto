@@ -2979,7 +2979,7 @@ async function renderLeaderboard(){
       .gt('rating', 0)
       .limit(5000),
     sb.from('stage_logs')
-      .select('stage_num, rating, race_logs(slug, year)')
+      .select('stage_num, rating, log_id, race_logs!inner(slug, year)')
       .not('rating', 'is', null)
       .gt('rating', 0)
       .limit(5000),
@@ -4941,53 +4941,86 @@ async function loadFollowingFeed(){
   if(!_followingIds.size) await loadFollowingIds();
   if(!_followingIds.size){ section.style.display='none'; return; }
 
-  // Get last 10 race_logs from people I follow
-  const { data: logs } = await sb.from('race_logs')
-    .select('user_id, slug, year, rating, date_watched, created_at')
-    .in('user_id', [..._followingIds])
-    .order('created_at', {ascending: false})
-    .limit(10);
+  const followArr = [..._followingIds];
 
-  if(!logs?.length){ section.style.display='none'; return; }
+  // Fetch race logs and stage logs in parallel
+  const [{ data: raceLogs }, { data: stageLogs }] = await Promise.all([
+    sb.from('race_logs')
+      .select('id, user_id, slug, year, rating, date_watched, created_at')
+      .in('user_id', followArr)
+      .not('rating', 'is', null).gt('rating', 0)
+      .order('created_at', {ascending: false})
+      .limit(20),
+    sb.from('stage_logs')
+      .select('id, user_id, stage_num, rating, date_watched, created_at, race_logs!inner(slug, year)')
+      .in('user_id', followArr)
+      .not('rating', 'is', null).gt('rating', 0)
+      .order('created_at', {ascending: false})
+      .limit(20),
+  ]);
 
-  // Get profiles for these users
-  const uids = [...new Set(logs.map(l => l.user_id))];
+  // Normalise into a unified list
+  const items = [];
+  (raceLogs||[]).forEach(log => {
+    items.push({ type:'race', user_id:log.user_id, slug:log.slug, year:log.year,
+      rating:log.rating, date:log.date_watched||log.created_at, ts:new Date(log.created_at).getTime() });
+  });
+  (stageLogs||[]).forEach(sl => {
+    const slug = sl.race_logs?.slug;
+    const year = sl.race_logs?.year;
+    if(!slug||!year) return;
+    items.push({ type:'stage', user_id:sl.user_id, slug, year, stageNum:sl.stage_num,
+      rating:sl.rating, date:sl.date_watched||sl.created_at, ts:new Date(sl.created_at).getTime() });
+  });
+
+  // Sort by recency, dedupe, take top 15
+  items.sort((a,b)=>b.ts-a.ts);
+  const seen = new Set();
+  const feed = items.filter(item => {
+    const key = `${item.user_id}|${item.slug}|${item.year}|${item.stageNum||''}`;
+    if(seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 15);
+
+  if(!feed.length){ section.style.display='none'; return; }
+
+  // Get profiles
+  const uids = [...new Set(feed.map(i => i.user_id))];
   const { data: profiles } = await sb.from('profiles').select('user_id,display_name,handle,avatar_url').in('user_id', uids);
   const profMap = Object.fromEntries((profiles||[]).map(p => [p.user_id, p]));
 
-  list.innerHTML = logs.map(log => {
-    const p = profMap[log.user_id] || {};
-    const race = RACES.find(r => r.id === log.slug);
-    const raceName = race?.name || log.slug;
+  list.innerHTML = feed.map(item => {
+    const p = profMap[item.user_id] || {};
+    const race = RACES.find(r => r.id === item.slug);
+    const raceName = race?.name || item.slug;
     const gradient = race?.gradient || 'linear-gradient(135deg,#1a1a1a,#333)';
     const logoUrl = race?.logoUrl || null;
     const ini = (p.display_name||'?').split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
-    const avatarHTML = p.avatar_url
-      ? `<img src="${p.avatar_url}">`
-      : ini;
-    const date = log.date_watched ? log.date_watched.slice(0,10) : (log.created_at||'').slice(0,10);
-    const dateLabel = date ? fmtDate(date) : '';
+    const avatarHTML = p.avatar_url ? `<img src="${p.avatar_url}">` : ini;
+    const dateLabel = item.date ? fmtDate(item.date.slice(0,10)) : '';
+    const isStage = item.type === 'stage';
+    const onclick = isStage
+      ? `openStagePage('${item.slug}',${item.year},${item.stageNum})`
+      : `openRacePage('${item.slug}')`;
 
-    const posterInner = logoUrl
-      ? `<div class="feed-poster-bg" style="background:${gradient};padding:0;display:flex;align-items:center;justify-content:center;">
-           <img src="${logoUrl}" alt="${raceName}"
-             style="max-width:78%;max-height:65%;object-fit:contain;filter:drop-shadow(0 2px 8px rgba(0,0,0,.55));"
-             onerror="this.parentElement.innerHTML='<div class=\\'feed-poster-bg\\' style=\\'background:${gradient.replace(/'/g,'\\\\\'')}\\'><div class=\\'feed-poster-title\\'>${raceName}</div></div>'">
+    const posterBg = logoUrl
+      ? `<div class="feed-poster-bg" style="background:${gradient};display:flex;align-items:center;justify-content:center;">
+           <img src="${logoUrl}" alt="${raceName}" style="max-width:78%;max-height:65%;object-fit:contain;filter:drop-shadow(0 2px 8px rgba(0,0,0,.55));" onerror="this.style.display='none'">
          </div>`
-      : `<div class="feed-poster-bg" style="background:${gradient}">
-           <div class="feed-poster-title">${raceName}</div>
-         </div>`;
+      : `<div class="feed-poster-bg" style="background:${gradient}"><div class="feed-poster-title">${raceName}</div></div>`;
 
-    return `<div class="feed-item" onclick="openRacePage('${log.slug}')">
+    return `<div class="feed-item" onclick="${onclick}">
       <div class="feed-poster">
-        ${posterInner}
-        <div style="position:absolute;bottom:0;left:0;right:0;padding:6px 8px;background:linear-gradient(transparent,rgba(0,0,0,.75));font-size:10px;letter-spacing:1px;color:rgba(255,255,255,.8);">${log.year}</div>
+        ${posterBg}
+        <div style="position:absolute;bottom:0;left:0;right:0;padding:6px 8px;background:linear-gradient(transparent,rgba(0,0,0,.75));font-size:10px;letter-spacing:1px;color:rgba(255,255,255,.8);">${item.year}${isStage ? ' · S'+item.stageNum : ''}</div>
+        ${isStage ? '<div class="feed-poster-stage">STAGE</div>' : ''}
       </div>
       <div class="feed-user">
-        <div class="feed-avatar" onclick="event.stopPropagation();openUserPage('${log.user_id}')">${avatarHTML}</div>
-        <span class="feed-username" onclick="event.stopPropagation();openUserPage('${log.user_id}')">${p.display_name||'Cyclist'}</span>
+        <div class="feed-avatar" onclick="event.stopPropagation();openUserPage('${item.user_id}')">${avatarHTML}</div>
+        <span class="feed-username" onclick="event.stopPropagation();openUserPage('${item.user_id}')">${p.display_name||'Cyclist'}</span>
       </div>
-      <div class="feed-stars">${log.rating ? starsHTML(log.rating, 9) : ''}</div>
+      <div class="feed-stars">${item.rating ? starsHTML(item.rating, 9) : ''}</div>
       <div class="feed-date">${dateLabel}</div>
     </div>`;
   }).join('');
