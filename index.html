@@ -2461,6 +2461,55 @@ async function saveStageLogToSupabase(raceId, year, stageNum) {
 // ── Sync any locally-stored stage logs that haven't reached Supabase yet ──
 // Runs once on sign-in. Iterates stageLog and calls saveStageLogToSupabase
 // for any entry missing a dbId (i.e. never successfully saved to DB).
+
+// ── Debug helper — call window.grupettoDebug() from browser console ────────
+window.grupettoDebug = async function() {
+  if (!currentUser) { console.error('Not signed in'); return; }
+  const uid = currentUser.id;
+  console.group('=== GRUPETTO DEBUG ===');
+  console.log('Current user:', uid);
+
+  // 1. What's in stage_logs for this user?
+  const { data: myStages, error: e1 } = await sb.from('stage_logs')
+    .select('id, user_id, race_slug, year, stage_num, rating, log_id')
+    .eq('user_id', uid);
+  console.log('My stage_logs rows:', myStages?.length ?? 'ERROR', e1 || '');
+  console.table(myStages || []);
+
+  // 2. What's in race_logs for this user?
+  const { data: myRaces, error: e2 } = await sb.from('race_logs')
+    .select('id, user_id, slug, year, rating, review, watched_live')
+    .eq('user_id', uid);
+  console.log('My race_logs rows:', myRaces?.length ?? 'ERROR', e2 || '');
+  console.table(myRaces || []);
+
+  // 3. Who am I following?
+  const { data: following } = await sb.from('follows').select('following_id').eq('follower_id', uid);
+  const followIds = (following || []).map(f => f.following_id);
+  console.log('Following:', followIds);
+
+  // 4. Can I read THEIR stage_logs? (tests RLS)
+  if (followIds.length) {
+    const { data: theirStages, error: e3 } = await sb.from('stage_logs')
+      .select('id, user_id, race_slug, year, stage_num, rating')
+      .in('user_id', followIds);
+    console.log('Their stage_logs (RLS test):', theirStages?.length ?? 'ERROR', e3 || '');
+    console.table(theirStages || []);
+
+    const { data: theirRaces, error: e4 } = await sb.from('race_logs')
+      .select('id, user_id, slug, year, rating')
+      .in('user_id', followIds);
+    console.log('Their race_logs (RLS test):', theirRaces?.length ?? 'ERROR', e4 || '');
+    console.table(theirRaces || []);
+  }
+
+  // 5. Local stageLog store
+  console.log('Local stageLog store:', JSON.parse(localStorage.getItem('g3-stage-log') || '{}'));
+
+  console.groupEnd();
+};
+console.log('%c[Grupetto] Debug ready — run window.grupettoDebug() in console', 'color:#f5a623');
+
 async function syncLocalStageLogsToSupabase() {
   if (!currentUser) return;
   const entries = [];
