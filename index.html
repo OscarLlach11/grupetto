@@ -192,6 +192,7 @@
             live:   s.watched_live,
           };
         });
+        const isGhostEntry = !log.rating && !log.review && !log.watched_live && (log.stage_logs||[]).length > 0;
         userLog[log.slug].watches.push({
           id:     log.id,
           year:   log.year,
@@ -201,6 +202,7 @@
           review: log.review || '',
           stages,
           ts:     new Date(log.created_at).getTime(),
+          ghost:  isGhostEntry,
         });
         // Populate stageLog store from DB stage_logs rows
         (log.stage_logs || []).forEach(s => {
@@ -1902,7 +1904,7 @@ async function openRacePage(id, preferYear){
   curRacePageId = id;
   const r=RACES.find(x=>x.id===id); if(!r) return;
   const rl=userLog[id]||{};
-  const watches=(rl.watches||[]);
+  const watches=(rl.watches||[]).filter(w=>!w.ghost);
   const cnt=getStageCount(id);
 
   // Push hash immediately with whatever year we have (will be updated once years load)
@@ -2459,11 +2461,11 @@ async function saveStageLogToSupabase(raceId, year, stageNum) {
     }).select().single();
     if (error) { console.error('race_logs insert error (for stage):', error); return; }
     logId = data.id;
-    // Store the new logId back into userLog so future stage saves reuse it
+    // Store the ghost watch entry — needed for FK but hidden from UI
     if (!userLog[raceId]) userLog[raceId] = { watches: [] };
     userLog[raceId].watches.push({
       id: logId, year, date: entry.date || null, live: false,
-      rating: 0, review: '', stages: {}, ts: Date.now(),
+      rating: 0, review: '', stages: {}, ts: Date.now(), ghost: true,
     });
     persist();
   }
@@ -3636,12 +3638,12 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeMO('log-mo');c
 //  HELPERS
 // ════════════════════════════════════════════════════════
 function persist(){localStorage.setItem('g3-log',JSON.stringify(userLog));}
-function hasLog(id){const rl=userLog[id];return !!(rl&&(rl.watches||[]).length);}
+function hasLog(id){const rl=userLog[id];return !!(rl&&(rl.watches||[]).some(w=>!w.ghost));}
 function allEntries(){
   const out=[];
   Object.entries(userLog).forEach(([id,rl])=>{
     if(id.startsWith('stage::')) return; // legacy cleanup — ignore any old stage:: keys
-    (rl.watches||[]).forEach(w=>out.push([id,w]));
+    (rl.watches||[]).filter(w=>!w.ghost).forEach(w=>out.push([id,w]));
   });
   return out.sort((a,b)=>(b[1].ts||0)-(a[1].ts||0));
 }
