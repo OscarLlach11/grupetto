@@ -1324,7 +1324,18 @@ async function fetchAppData(RACE_COLS){
 
 function applyAppData({ races, dates, config }){
   if(races?.length){
-    RACES = races.map(r => ({
+    // Deduplicate by race_name — keep entry with logo_url, then longest slug, then first
+    const seen = new Map();
+    races.forEach(r => {
+      const key = (r.race_name || '').toLowerCase().trim();
+      const existing = seen.get(key);
+      if (!existing) { seen.set(key, r); return; }
+      const existingWins =
+        (existing.logo_url && !r.logo_url) ||
+        (!!existing.logo_url === !!r.logo_url && existing.slug.length >= r.slug.length);
+      if (!existingWins) seen.set(key, r);
+    });
+    RACES = Array.from(seen.values()).map(r => ({
       id:          r.slug,
       name:        r.race_name || '',
       tier:        r.tier || 'Pro',
