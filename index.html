@@ -154,12 +154,14 @@
     if (!currentUser) return;
     const uid = currentUser.id;
 
-    // Run all three queries in parallel — saves ~400-600ms on sign-in
-    const [profRes, wlRes, logsRes] = await Promise.all([
+    // Run all queries in parallel
+    const [profRes, wlRes, logsRes, stageLogsRes] = await Promise.all([
       sb.from('profiles').select('*').eq('user_id', uid).maybeSingle(),
       sb.from('watchlist').select('slug').eq('user_id', uid),
-      sb.from('race_logs').select(`*, stage_logs(*)`).eq('user_id', uid).order('created_at', { ascending: false }),
+      sb.from('race_logs').select('id,slug,year,rating,review,watched_live,date_watched,created_at').eq('user_id', uid).order('created_at', { ascending: false }),
+      sb.from('stage_logs').select('id,log_id,race_slug,year,stage_num,rating,review,watched_live,date_watched,created_at').eq('user_id', uid).order('created_at', { ascending: false }),
     ]);
+    if (stageLogsRes.error) console.error('stage_logs load error:', stageLogsRes.error);
 
     const prof = profRes.data;
     if (prof) {
@@ -180,50 +182,44 @@
     watchlist = ((wlRes.data) || []).map(r => r.slug);
 
     const logs = logsRes.data || [];
-    if (logs.length > 0) {
-      userLog = {};
-      stageLog = {};
-      logs.forEach(log => {
-        if (!userLog[log.slug]) userLog[log.slug] = { watches: [] };
-        const stages = {};
-        (log.stage_logs || []).forEach(s => {
-          stages[s.stage_num] = {
-            rating: s.rating,
-            review: s.review,
-            date:   s.date_watched,
-            live:   s.watched_live,
-          };
-        });
-        const isGhostEntry = !log.rating && !log.review && !log.watched_live && (log.stage_logs||[]).length > 0;
-        userLog[log.slug].watches.push({
-          id:     log.id,
-          year:   log.year,
-          date:   log.date_watched,
-          live:   log.watched_live,
-          rating: parseFloat(log.rating) || 0,
-          review: log.review || '',
-          stages,
-          ts:     new Date(log.created_at).getTime(),
-          ghost:  isGhostEntry,
-        });
-        // Populate stageLog store from DB stage_logs rows
-        (log.stage_logs || []).forEach(s => {
-          if (!stageLog[log.slug]) stageLog[log.slug] = {};
-          if (!stageLog[log.slug][log.year]) stageLog[log.slug][log.year] = {};
-          stageLog[log.slug][log.year][s.stage_num] = {
-            rating:     parseFloat(s.rating) || 0,
-            review:     s.review || '',
-            date:       s.date_watched || null,
-            live:       s.watched_live || false,
-            stageLabel: String(s.stage_num),
-            ts:         s.created_at ? new Date(s.created_at).getTime() : Date.now(),
-            dbId:       s.id,
-          };
-        });
+    const allStageLogs = stageLogsRes.data || [];
+
+    userLog = {};
+    stageLog = {};
+
+    // Populate race logs
+    logs.forEach(log => {
+      if (!userLog[log.slug]) userLog[log.slug] = { watches: [] };
+      userLog[log.slug].watches.push({
+        id:     log.id,
+        year:   log.year,
+        date:   log.date_watched,
+        live:   log.watched_live,
+        rating: parseFloat(log.rating) || 0,
+        review: log.review || '',
+        stages: {},
+        ts:     new Date(log.created_at).getTime(),
       });
-      persist();
-      persistStageLog();
-    }
+    });
+
+    // Populate stage logs directly from stage_logs table
+    allStageLogs.forEach(s => {
+      if (!s.race_slug || !s.year) return;
+      if (!stageLog[s.race_slug]) stageLog[s.race_slug] = {};
+      if (!stageLog[s.race_slug][s.year]) stageLog[s.race_slug][s.year] = {};
+      stageLog[s.race_slug][s.year][s.stage_num] = {
+        rating:     parseFloat(s.rating) || 0,
+        review:     s.review || '',
+        date:       s.date_watched || null,
+        live:       s.watched_live || false,
+        stageLabel: String(s.stage_num),
+        ts:         s.created_at ? new Date(s.created_at).getTime() : Date.now(),
+        dbId:       s.id,
+      };
+    });
+
+    persist();
+    persistStageLog();
   }
 
   // ── Save race log ─────────────────────────────────────────────────────────
@@ -253,23 +249,7 @@
       logId = data?.id;
     }
 
-    // Rebuild stage logs
-    if (logId && watchEntry.stages) {
-      await sb.from('stage_logs').delete().eq('log_id', logId);
-      const stageRows = Object.entries(watchEntry.stages).map(([num, s]) => ({
-        log_id:       logId,
-        user_id:      currentUser.id,
-        stage_num:    parseInt(num),
-        rating:       s.rating || null,
-        review:       s.review || null,
-        watched_live: s.live || false,
-        date_watched: s.date || null,
-      }));
-      if (stageRows.length) {
-        const { error } = await sb.from('stage_logs').insert(stageRows);
-        if (error) console.error('stage_logs insert error:', error);
-      }
-    }
+    // NOTE: stage_logs are managed independently by saveStageLogToSupabase — do NOT touch them here.
 
     return logId;
   }
@@ -1906,7 +1886,7 @@ async function openRacePage(id, preferYear){
   curRacePageId = id;
   const r=RACES.find(x=>x.id===id); if(!r) return;
   const rl=userLog[id]||{};
-  const watches=(rl.watches||[]).filter(w=>!w.ghost);
+  const watches=(rl.watches||[]);
   const cnt=getStageCount(id);
 
   // Push hash immediately with whatever year we have (will be updated once years load)
@@ -2446,34 +2426,10 @@ async function saveStageLogToSupabase(raceId, year, stageNum) {
   const entry = stageLog[raceId]?.[year]?.[stageNum];
   if (!entry) return;
 
-  // 1. Find existing race_log for this slug+year, or create a minimal one
-  let logId = null;
-  const existingWatch = (userLog[raceId]?.watches || []).find(w => w.year === year);
-  if (existingWatch?.id) {
-    logId = existingWatch.id;
-  } else {
-    // Create a minimal race_log entry (no rating/review) as a parent
-    const { data, error } = await sb.from('race_logs').insert({
-      user_id:      currentUser.id,
-      slug:         raceId,
-      year:         year,
-      rating:       null,
-      review:       null,
-      watched_live: false,
-      date_watched: entry.date || null,
-    }).select().single();
-    if (error) { console.error('race_logs insert error (for stage):', error); return; }
-    logId = data.id;
-    // Store the ghost watch entry — needed for FK but hidden from UI
-    if (!userLog[raceId]) userLog[raceId] = { watches: [] };
-    userLog[raceId].watches.push({
-      id: logId, year, date: entry.date || null, live: false,
-      rating: 0, review: '', stages: {}, ts: Date.now(), ghost: true,
-    });
-    persist();
-  }
+  // Save directly to stage_logs with all fields — no ghost race_log parent needed.
+  // log_id is optional (null if user hasn't logged the full race).
+  const logId = (userLog[raceId]?.watches || []).find(w => w.year === year)?.id || null;
 
-  // 2. Upsert the stage_log row
   const row = {
     log_id:       logId,
     user_id:      currentUser.id,
@@ -2496,7 +2452,6 @@ async function saveStageLogToSupabase(raceId, year, stageNum) {
     dbId = data.id;
   }
 
-  // Store dbId back so future edits/deletes can reference it
   if (stageLog[raceId]?.[year]?.[stageNum]) {
     stageLog[raceId][year][stageNum].dbId = dbId;
     persistStageLog();
@@ -3695,12 +3650,12 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeMO('log-mo');c
 //  HELPERS
 // ════════════════════════════════════════════════════════
 function persist(){localStorage.setItem('g3-log',JSON.stringify(userLog));}
-function hasLog(id){const rl=userLog[id];return !!(rl&&(rl.watches||[]).some(w=>!w.ghost));}
+function hasLog(id){const rl=userLog[id];return !!(rl&&(rl.watches||[]).length);}
 function allEntries(){
   const out=[];
   Object.entries(userLog).forEach(([id,rl])=>{
     if(id.startsWith('stage::')) return; // legacy cleanup — ignore any old stage:: keys
-    (rl.watches||[]).filter(w=>!w.ghost).forEach(w=>out.push([id,w]));
+    (rl.watches||[]).forEach(w=>out.push([id,w]));
   });
   return out.sort((a,b)=>(b[1].ts||0)-(a[1].ts||0));
 }
@@ -5118,17 +5073,9 @@ async function openUserPage(userId){
   if(stageLogsRes.error?.code === '42501') console.warn('stage_logs RLS is blocking reads — add public SELECT policy.');
 
   const p = profRes.data || {};
-  const rawLogs = logsRes.data || [];
+  const logs = logsRes.data || [];
   const stageLogRows = stageLogsRes.data || [];
   const followerCount = followersRes.count || 0;
-
-  // Filter out ghost race_log entries: rows auto-created as FK parents for stage logging
-  // (no rating, no review, no watched_live, but stage_logs exist for that slug+year)
-  const stageKeySet = new Set(stageLogRows.map(s => s.race_slug + '|' + s.year));
-  const logs = rawLogs.filter(log => {
-    const isGhost = !log.rating && !log.review && !log.watched_live && stageKeySet.has(log.slug + '|' + log.year);
-    return !isGhost;
-  });
 
   // Build allEntries from real race_log entries (non-ghost)
   const all = logs.map(log => [log.slug, {
