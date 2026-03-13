@@ -4636,9 +4636,121 @@ async function renderRiderPage(inputName){
   const sortedYears = Object.keys(byYear).map(Number).sort((a,b)=>b-a);
   const totalRaces = rows.reduce((acc, r) => { acc.add(r.year+'_'+(resolveRaceSlug(r.slug)||r.slug)); return acc; }, new Set()).size;
 
+  // ── Trophy Cabinet: query race_results directly for all wins ─────────────
+  // top10 is a JSONB array; we use the `cs` (contains) operator to find rows
+  // where the array contains this rider's name, then filter client-side for pos 0.
+  // We try both the exact rawName and a case-folded fallback.
+  const riderNameLC = rawName.toLowerCase();
+
+  let winsData = [];
+  // Try exact match first, then case-insensitive via ilike on top10::text
+  const { data: winsExact } = await sb
+    .from('race_results')
+    .select('slug,year,top10')
+    .cs('top10', JSON.stringify([rawName]))   // contains this name in array
+    .order('year', { ascending: false })
+    .limit(500);
+  if(winsExact?.length) winsData = winsExact;
+
+  // If nothing came back (name casing might differ in results vs startlists),
+  // fall back: fetch all results rows whose top10 text contains the surname
+  if(!winsData.length){
+    const surname = rawName.split(' ')[0]; // DB format "Lastname Firstname"
+    const { data: winsFallback } = await sb
+      .from('race_results')
+      .select('slug,year,top10')
+      .ilike('top10::text', `%${surname}%`)
+      .order('year', { ascending: false })
+      .limit(500);
+    winsData = winsFallback || [];
+  }
+
+  // Filter client-side: only keep rows where top10[0] matches this rider
+  const winRows = winsData.filter(row => {
+    let t = row.top10;
+    if(typeof t === 'string'){ try{ t = JSON.parse(t); }catch(e){ t=[]; } }
+    return Array.isArray(t) && t.length && typeof t[0]==='string' && t[0].toLowerCase()===riderNameLC;
+  });
+
+  // Also back-fill these results into _resultsCache so the 🏆 badges in race history work
+  winRows.forEach(row => {
+    let t = row.top10;
+    if(typeof t === 'string'){ try{ t = JSON.parse(t); }catch(e){ t=[]; } }
+    const slug = row.slug;
+    _resultsCache[slug] = _resultsCache[slug] || {};
+    if(!_resultsCache[slug][row.year]) _resultsCache[slug][row.year] = { top10: t };
+  });
+
+  // Build trophyMap: raceId → { raceName, gradient, slug, years[] }
+  const trophyMap = {};
+  winRows.forEach(row => {
+    const raceId = resolveRaceSlug(row.slug) || row.slug;
+    const race = RACES.find(x => x.id === raceId);
+    if(!trophyMap[raceId]){
+      trophyMap[raceId] = {
+        raceName: race ? race.name : row.slug.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase()),
+        gradient: race ? race.gradient : 'linear-gradient(135deg,#333,#444)',
+        slug: raceId,
+        years: []
+      };
+    }
+    const yearNum = parseInt(row.year);
+    if(!trophyMap[raceId].years.includes(yearNum)) trophyMap[raceId].years.push(yearNum);
+  });
+
+  // Sort years within each trophy descending
+  Object.values(trophyMap).forEach(t => t.years.sort((a,b) => b-a));
+  const trophies = Object.values(trophyMap).sort((a,b) => b.years.length - a.years.length || a.raceName.localeCompare(b.raceName));
+
+  let trophyHTML = '';
+  if(trophies.length){
+    trophyHTML = `
+    <div style="margin-bottom:36px;">
+      <div style="font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:2px;color:var(--gold);margin-bottom:14px;display:flex;align-items:center;gap:8px;">
+        <span>🏆</span><span>Trophy Cabinet</span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;" id="trophy-cabinet-row">
+        ${trophies.map((t,i) => `
+          <div style="position:relative;">
+            <button onclick="_trophyToggle(${i})"
+              style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--card-bg);border:1px solid var(--border);cursor:pointer;color:var(--text);font-family:inherit;text-align:left;transition:border-color .15s;"
+              onmouseover="this.style.borderColor='var(--gold-dim)'" onmouseout="this.style.borderColor='var(--border)'">
+              <div style="width:10px;height:10px;flex-shrink:0;border-radius:50%;background:${t.gradient};"></div>
+              <span style="font-family:'Bebas Neue',sans-serif;font-size:14px;letter-spacing:2px;">${t.raceName}</span>
+              <span style="font-size:11px;color:var(--gold);font-family:'Bebas Neue',sans-serif;letter-spacing:1px;">✕${t.years.length}</span>
+              <span style="font-size:9px;color:var(--muted);margin-left:2px;">▾</span>
+            </button>
+            <div id="trophy-drop-${i}" style="display:none;position:absolute;top:100%;left:0;z-index:100;background:var(--card-bg);border:1px solid var(--border);border-top:none;min-width:160px;box-shadow:0 8px 24px rgba(0,0,0,.5);">
+              ${t.years.map(y => `
+                <div onclick="navToRace('${t.slug}',${y});_trophyToggle(${i})"
+                  style="padding:10px 16px;font-size:12px;letter-spacing:1px;cursor:pointer;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;transition:background .1s;"
+                  onmouseover="this.style.background='rgba(255,255,255,0.06)'" onmouseout="this.style.background='none'">
+                  <span style="color:var(--gold);">🏆</span>
+                  <span>${y}</span>
+                </div>`).join('')}
+            </div>
+          </div>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  // ── Race History: sort by year DESC, then by race date within year ──────
   let racesHTML = '';
   sortedYears.forEach(year => {
     const racesInYear = Object.values(byYear[year]);
+
+    // Sort races within year by their date from RACE_DATES (ascending = earlier races first)
+    racesInYear.sort((a, b) => {
+      const raceIdA = resolveRaceSlug(a.slug) || a.slug;
+      const raceIdB = resolveRaceSlug(b.slug) || b.slug;
+      const dateA = RACE_DATES[raceIdA]?.[year] || RACE_DATES[raceIdA]?.[String(year)] || '';
+      const dateB = RACE_DATES[raceIdB]?.[year] || RACE_DATES[raceIdB]?.[String(year)] || '';
+      if(dateA && dateB) return dateA.localeCompare(dateB);
+      if(dateA) return -1;
+      if(dateB) return 1;
+      return (a.slug||'').localeCompare(b.slug||'');
+    });
+
     racesHTML += `<div style="margin-bottom:32px;">
       <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:3px;color:var(--gold);border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:12px;">${year}</div>`;
     racesInYear.forEach(entry => {
@@ -4653,6 +4765,9 @@ async function renderRiderPage(inputName){
       const watchedBadge = watch ? `<span style="font-size:9px;color:var(--muted);border:1px solid var(--border);padding:1px 6px;letter-spacing:1px;">WATCHED</span>` : '';
       const clickable = raceId ? `onclick="navToRace('${raceId}', ${year})"` : '';
       const cursor = raceId ? 'cursor:pointer;' : 'cursor:default;opacity:0.6;';
+      // Check if this rider won this edition
+      const winCheck = (_resultsCache[raceId]?.[year]?.top10?.[0] || _resultsCache[raceId]?.[String(year)]?.top10?.[0] || '').toLowerCase();
+      const wonBadge = winCheck === riderNameLC ? `<span style="font-size:10px;color:var(--gold);letter-spacing:1px;">🏆</span>` : '';
 
       racesHTML += `<div ${clickable} style="padding:14px 0;display:flex;align-items:center;gap:16px;border-bottom:1px solid var(--border);${cursor}transition:background .12s;" ${raceId ? `onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background='none'"` : ''}>
         <div style="width:40px;height:40px;flex-shrink:0;background:${raceGradient};"></div>
@@ -4660,7 +4775,7 @@ async function renderRiderPage(inputName){
           <div style="font-family:'Bebas Neue',sans-serif;font-size:16px;letter-spacing:2px;color:var(--text);">${raceName}</div>
           <div style="font-size:10px;color:var(--muted);margin-top:2px;">${entry.team_name || ''}</div>
         </div>
-        <div style="display:flex;align-items:center;gap:10px;">${myRating}${watchedBadge}</div>
+        <div style="display:flex;align-items:center;gap:10px;">${wonBadge}${myRating}${watchedBadge}</div>
       </div>`;
     });
     racesHTML += `</div>`;
@@ -4676,9 +4791,23 @@ async function renderRiderPage(inputName){
       </div>
     </div>
     <div style="margin-top:32px;">
+      ${trophyHTML}
       <div style="font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:2px;color:var(--gold);margin-bottom:16px;">Race History</div>
       ${racesHTML || '<div style="color:var(--muted);font-size:12px;">No race entries found.</div>'}
     </div>`;
+
+  // Close trophy dropdowns when clicking outside
+  document.addEventListener('click', function _closeTrophies(e){
+    if(!e.target.closest('#trophy-cabinet-row')){ trophies.forEach((_,i)=>{ const d=document.getElementById('trophy-drop-'+i); if(d) d.style.display='none'; }); document.removeEventListener('click',_closeTrophies); }
+  }, {capture:true, once:false});
+  // Attach toggle function to window scope for this render
+  window._trophyToggle = function(i){
+    const d = document.getElementById('trophy-drop-'+i);
+    if(!d) return;
+    const isOpen = d.style.display !== 'none';
+    trophies.forEach((_,j)=>{ const x=document.getElementById('trophy-drop-'+j); if(x) x.style.display='none'; });
+    if(!isOpen) d.style.display='block';
+  };
 }
 
 
