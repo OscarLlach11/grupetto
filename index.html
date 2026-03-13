@@ -3260,6 +3260,8 @@ let _featuredRidersCache = null;
 // Maps lowercase rider_name (DB format) → Promise<rows[]>
 // Preloaded for featured riders and fav riders so clicking is instant.
 const _riderPageCache = new Map();
+// Trophy preload cache: dbName.toLowerCase() → Promise<trophies[]>
+const _riderTrophyCache = new Map();
 
 async function _preloadRiderData(dbName){
   const key = dbName.toLowerCase();
@@ -3273,6 +3275,52 @@ async function _preloadRiderData(dbName){
     return data && data.length ? data : null;
   })();
   _riderPageCache.set(key, promise);
+  // Once startlist rows resolve, kick off trophy preload in background
+  promise.then(rows => {
+    if(rows) _preloadRiderTrophies(dbName, rows);
+  });
+}
+
+// Preload trophies for a rider given their already-resolved startlist rows
+async function _preloadRiderTrophies(dbName, rows){
+  const key = dbName.toLowerCase();
+  if(_riderTrophyCache.has(key)) return;
+  const promise = (async () => {
+    try {
+      const riderSlugs = [...new Set((rows||[]).map(r => r.slug).filter(Boolean))];
+      if(!riderSlugs.length) return [];
+      const { data, error } = await sb
+        .from('race_results')
+        .select('slug,year,top10')
+        .in('slug', riderSlugs)
+        .order('year', { ascending: false })
+        .limit(2000);
+      if(error) { console.warn('trophy preload error:', error.message); return []; }
+      const riderNameLC = dbName.toLowerCase();
+      const trophyMap = {};
+      (data||[]).forEach(row => {
+        let t = row.top10;
+        if(typeof t === 'string'){ try{ t = JSON.parse(t); }catch(e){ t=[]; } }
+        _resultsCache[row.slug] = _resultsCache[row.slug] || {};
+        if(!_resultsCache[row.slug][row.year]) _resultsCache[row.slug][row.year] = { top10: t };
+        if(!(Array.isArray(t) && t.length && typeof t[0]==='string' && t[0].toLowerCase()===riderNameLC)) return;
+        const raceId = resolveRaceSlug(row.slug) || row.slug;
+        const race = RACES.find(x => x.id === raceId);
+        if(!trophyMap[raceId]){
+          trophyMap[raceId] = {
+            raceName: race ? race.name : row.slug.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase()),
+            gradient: race ? race.gradient : 'linear-gradient(135deg,#333,#444)',
+            slug: raceId, years: []
+          };
+        }
+        const yr = parseInt(row.year);
+        if(!trophyMap[raceId].years.includes(yr)) trophyMap[raceId].years.push(yr);
+      });
+      Object.values(trophyMap).forEach(t => t.years.sort((a,b) => b-a));
+      return Object.values(trophyMap).sort((a,b) => b.years.length - a.years.length || a.raceName.localeCompare(b.raceName));
+    } catch(e) { console.warn('trophy preload exception:', e); return []; }
+  })();
+  _riderTrophyCache.set(key, promise);
 }
 
 function _preloadRiderNames(names){
@@ -4636,71 +4684,51 @@ async function renderRiderPage(inputName){
   const sortedYears = Object.keys(byYear).map(Number).sort((a,b)=>b-a);
   const totalRaces = rows.reduce((acc, r) => { acc.add(r.year+'_'+(resolveRaceSlug(r.slug)||r.slug)); return acc; }, new Set()).size;
 
-  // ── Trophy Cabinet: query race_results directly for all wins ─────────────
-  // top10 is a JSONB array; we use the `cs` (contains) operator to find rows
-  // where the array contains this rider's name, then filter client-side for pos 0.
-  // We try both the exact rawName and a case-folded fallback.
+  // ── Trophy Cabinet: use preloaded cache or fetch fresh ───────────────────
   const riderNameLC = rawName.toLowerCase();
-
-  let winsData = [];
-  // Try exact match first, then case-insensitive via ilike on top10::text
-  const { data: winsExact } = await sb
-    .from('race_results')
-    .select('slug,year,top10')
-    .cs('top10', JSON.stringify([rawName]))   // contains this name in array
-    .order('year', { ascending: false })
-    .limit(500);
-  if(winsExact?.length) winsData = winsExact;
-
-  // If nothing came back (name casing might differ in results vs startlists),
-  // fall back: fetch all results rows whose top10 text contains the surname
-  if(!winsData.length){
-    const surname = rawName.split(' ')[0]; // DB format "Lastname Firstname"
-    const { data: winsFallback } = await sb
-      .from('race_results')
-      .select('slug,year,top10')
-      .ilike('top10::text', `%${surname}%`)
-      .order('year', { ascending: false })
-      .limit(500);
-    winsData = winsFallback || [];
-  }
-
-  // Filter client-side: only keep rows where top10[0] matches this rider
-  const winRows = winsData.filter(row => {
-    let t = row.top10;
-    if(typeof t === 'string'){ try{ t = JSON.parse(t); }catch(e){ t=[]; } }
-    return Array.isArray(t) && t.length && typeof t[0]==='string' && t[0].toLowerCase()===riderNameLC;
-  });
-
-  // Also back-fill these results into _resultsCache so the 🏆 badges in race history work
-  winRows.forEach(row => {
-    let t = row.top10;
-    if(typeof t === 'string'){ try{ t = JSON.parse(t); }catch(e){ t=[]; } }
-    const slug = row.slug;
-    _resultsCache[slug] = _resultsCache[slug] || {};
-    if(!_resultsCache[slug][row.year]) _resultsCache[slug][row.year] = { top10: t };
-  });
-
-  // Build trophyMap: raceId → { raceName, gradient, slug, years[] }
-  const trophyMap = {};
-  winRows.forEach(row => {
-    const raceId = resolveRaceSlug(row.slug) || row.slug;
-    const race = RACES.find(x => x.id === raceId);
-    if(!trophyMap[raceId]){
-      trophyMap[raceId] = {
-        raceName: race ? race.name : row.slug.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase()),
-        gradient: race ? race.gradient : 'linear-gradient(135deg,#333,#444)',
-        slug: raceId,
-        years: []
-      };
+  let trophies = [];
+  try {
+    const trophyCacheKey = rawName.toLowerCase();
+    if(_riderTrophyCache.has(trophyCacheKey)){
+      // Preloaded — instant or near-instant await
+      trophies = (await _riderTrophyCache.get(trophyCacheKey)) || [];
+    } else {
+      // Not preloaded — fetch now, same logic as _preloadRiderTrophies
+      const riderSlugs = [...new Set(rows.map(r => r.slug).filter(Boolean))];
+      if(riderSlugs.length){
+        const { data: resultsData, error: resultsErr } = await sb
+          .from('race_results')
+          .select('slug,year,top10')
+          .in('slug', riderSlugs)
+          .order('year', { ascending: false })
+          .limit(2000);
+        if(resultsErr) console.warn('trophy fetch error:', resultsErr.message);
+        if(resultsData?.length){
+          const trophyMap = {};
+          resultsData.forEach(row => {
+            let t = row.top10;
+            if(typeof t === 'string'){ try{ t = JSON.parse(t); }catch(e){ t=[]; } }
+            _resultsCache[row.slug] = _resultsCache[row.slug] || {};
+            if(!_resultsCache[row.slug][row.year]) _resultsCache[row.slug][row.year] = { top10: t };
+            if(!(Array.isArray(t) && t.length && typeof t[0]==='string' && t[0].toLowerCase()===riderNameLC)) return;
+            const raceId = resolveRaceSlug(row.slug) || row.slug;
+            const race = RACES.find(x => x.id === raceId);
+            if(!trophyMap[raceId]){
+              trophyMap[raceId] = {
+                raceName: race ? race.name : row.slug.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase()),
+                gradient: race ? race.gradient : 'linear-gradient(135deg,#333,#444)',
+                slug: raceId, years: []
+              };
+            }
+            const yr = parseInt(row.year);
+            if(!trophyMap[raceId].years.includes(yr)) trophyMap[raceId].years.push(yr);
+          });
+          Object.values(trophyMap).forEach(t => t.years.sort((a,b) => b-a));
+          trophies = Object.values(trophyMap).sort((a,b) => b.years.length - a.years.length || a.raceName.localeCompare(b.raceName));
+        }
+      }
     }
-    const yearNum = parseInt(row.year);
-    if(!trophyMap[raceId].years.includes(yearNum)) trophyMap[raceId].years.push(yearNum);
-  });
-
-  // Sort years within each trophy descending
-  Object.values(trophyMap).forEach(t => t.years.sort((a,b) => b-a));
-  const trophies = Object.values(trophyMap).sort((a,b) => b.years.length - a.years.length || a.raceName.localeCompare(b.raceName));
+  } catch(e) { console.warn('trophy cabinet error (non-fatal):', e); }
 
   let trophyHTML = '';
   if(trophies.length){
