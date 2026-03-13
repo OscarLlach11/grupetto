@@ -37,11 +37,10 @@
   async function onSignedIn() {
     renderNavUser();
     await loadUserData();
-    // Run all three in parallel — loadFollowingFeed calls loadFollowingIds internally if needed
+    // loadFollowingIds must complete before loadFollowingFeed (feed depends on the set)
     await Promise.all([
       loadRaceResultsForLog(),
-      loadFollowingIds(),
-      loadFollowingFeed(),
+      loadFollowingIds().then(() => loadFollowingFeed()),
     ]);
     renderAll();
     updateStats();
@@ -53,6 +52,7 @@
     userLog    = {};
     watchlist  = [];
     stageLog   = {};
+    _followingIds = new Set(); // clear so next login doesn't inherit stale following list
     profile    = {
       name: 'Cyclist',
       handle: 'velocipedist',
