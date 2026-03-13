@@ -37,14 +37,14 @@
   async function onSignedIn() {
     renderNavUser();
     await loadUserData();
-    // These two are independent — run in parallel
+    // Run all three in parallel — loadFollowingFeed calls loadFollowingIds internally if needed
     await Promise.all([
       loadRaceResultsForLog(),
       loadFollowingIds(),
+      loadFollowingFeed(),
     ]);
     renderAll();
     updateStats();
-    loadFollowingFeed();
     renderRiders(true);
     if(window._pendingRoute){ handleRoute(window._pendingRoute); window._pendingRoute=null; }
   }
@@ -62,6 +62,11 @@
     renderNavGuest();
     renderAll();
     renderProfile();
+    // Hide the following feed — logged-out users have no feed
+    const _feedSection = document.getElementById('following-feed-section');
+    const _feedList = document.getElementById('following-feed-list');
+    if(_feedSection) _feedSection.style.display = 'none';
+    if(_feedList) _feedList.innerHTML = '';
     // If the user was on the profile page, redirect to discover
     if(aPg === 'profile') showPage('discover');
     if(window._pendingRoute){ handleRoute(window._pendingRoute); window._pendingRoute=null; }
