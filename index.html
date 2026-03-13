@@ -39,6 +39,8 @@
   async function onSignedIn() {
     renderNavUser();
     await loadUserData();
+    // Push any locally-stored stage logs that haven't been synced to Supabase yet
+    syncLocalStageLogsToSupabase();
     // loadFollowingIds must complete before loadFollowingFeed (feed depends on the set)
     await Promise.all([
       loadRaceResultsForLog(),
@@ -2498,6 +2500,28 @@ async function saveStageLogToSupabase(raceId, year, stageNum) {
   if (stageLog[raceId]?.[year]?.[stageNum]) {
     stageLog[raceId][year][stageNum].dbId = dbId;
     persistStageLog();
+  }
+}
+
+// ── Sync any locally-stored stage logs that haven't reached Supabase yet ──
+// Runs once on sign-in. Iterates stageLog and calls saveStageLogToSupabase
+// for any entry missing a dbId (i.e. never successfully saved to DB).
+async function syncLocalStageLogsToSupabase() {
+  if (!currentUser) return;
+  const entries = [];
+  Object.entries(stageLog).forEach(([raceId, years]) => {
+    Object.entries(years).forEach(([year, stages]) => {
+      Object.entries(stages).forEach(([stageNum, sl]) => {
+        if (!sl.dbId) {
+          entries.push({ raceId, year: parseInt(year), stageNum: parseInt(stageNum) });
+        }
+      });
+    });
+  });
+  if (!entries.length) return;
+  console.log(`Syncing ${entries.length} unsynced stage log(s) to Supabase…`);
+  for (const { raceId, year, stageNum } of entries) {
+    await saveStageLogToSupabase(raceId, year, stageNum);
   }
 }
 
