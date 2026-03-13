@@ -2601,126 +2601,11 @@ async function renderLogFormBody(){
   html+=`<span class="slabel">Review</span>
   <textarea class="rta" id="lm-review" placeholder="What made this edition memorable?">${w?.review||''}</textarea>`;
 
-  // Stages — try real DB data first
-  if(cnt){
-    // Try to load from DB; fall back to synthetic
-    let stages = await loadStages(id, year);
-    if(!stages) stages = buildStages(id, year);
-    const savedStages=w?.stages||{};
-    const loggedCount=Object.keys(savedStages).length;
-    const autoWatched=loggedCount>=cnt;
-    html+=`<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-        <span class="slabel" style="margin-bottom:0;">${r.type==='Grand Tour'?'Stage Log':'Stage Log'}</span>
-        <span style="font-size:10px;color:var(--ml);">${loggedCount}/${cnt} stages</span>
-      </div>
-      ${autoWatched?`<div class="autonote">✓ All stages logged — edition marked as fully watched</div>`:''}
-      <div class="stage-list" id="stage-list-form">`;
-
-    if(!stages){
-      html+=`<div style="padding:8px 12px;font-size:12px;color:var(--muted);">No stage data available.</div>`;
-    } else {
-      stages.forEach((s,i)=>{
-        const saved=savedStages[s.num];
-        const isLogged=!!saved;
-        const isFut=s.date>TODAY;
-        const typeIcon = {flat:'━',hills:'∧',mountain:'⛰',itt:'⏱',ttt:'⏱⏱',cobbled:'◫'}[s.type]||'';
-        const distStr = s.distance_km ? `${s.distance_km}km` : '';
-        const routeStr = (s.departure && s.arrival) ? `${s.departure} → ${s.arrival}` : '';
-        html+=`<div class="srow ${isLogged?'slogged':''} ${isFut?'sfut':''}" id="srow-${i}" onclick="${isFut?'':`toggleStageForm(${i})`}">
-          <span class="snum">${s.num===0?'P':s.num}</span>
-          <div class="sinfo">
-            <div class="sname">${s.name}${typeIcon?` <span style="font-size:10px;color:var(--muted);margin-left:4px;">${typeIcon}</span>`:''}${distStr?` <span style="font-size:10px;color:var(--muted);">${distStr}</span>`:''}</div>
-            <div class="sdate">${routeStr||fmtDate(s.date)}${isFut?' · future':''}</div>
-          </div>
-          <div class="stars">${starsHTML(stRatings[s.num]||saved?.rating||0,9)}</div>
-          <button class="slbtn ${isLogged?'logged':''}" ${isFut?'disabled':''} onclick="event.stopPropagation();${isFut?'':`toggleStageForm(${i})`}">${isFut?'Future':isLogged?'Edit':'Log'}</button>
-        </div>
-        <div class="sinline" id="sf-${i}" style="display:none;"></div>`;
-      });
-    }
-    html+=`</div></div>`;
-  }
-
   document.getElementById('log-form-body').innerHTML=html;
   // Attach half-star events after DOM insertion
   attachHSEvents('form-overall');
-  // Restore stage ratings from saved entry
-  if(cnt && w && w.stages){
-    Object.entries(w.stages).forEach(function([num,sv]){
-      if(!stRatings[parseInt(num)]) stRatings[parseInt(num)] = sv.rating||0;
-    });
-  }
 }
 
-function toggleStageForm(idx){
-  const year=parseInt(document.getElementById('lm-year').value);
-  const stages=buildStages(curId,year);
-  const s=stages[idx];
-  const sf=document.getElementById(`sf-${idx}`);
-  if(sf.style.display!=='none'){sf.style.display='none';return;}
-  // Close all others
-  document.querySelectorAll('.sinline').forEach(x=>x.style.display='none');
-  const rl=userLog[curId]||{};
-  const w=(curWatchIdx!==null&&rl.watches)?rl.watches[curWatchIdx]:null;
-  const saved=w?.stages?.[s.num];
-  stRatings[s.num]=stRatings[s.num]||saved?.rating||0;
-  sf.innerHTML=`<div style="padding:10px;">
-    <div style="font-family:'DM Serif Display',serif;font-size:14px;margin-bottom:10px;">Stage ${s.num} — ${fmtDate(s.date)}</div>
-    <div class="frow" style="margin-bottom:10px;">
-      <div><label class="flbl">Watched</label><input type="date" class="dinp" id="sf-date-${idx}" value="${saved?.date||s.date}" max="${TODAY}"></div>
-      <div><div style="height:18px;"></div>
-        <div class="ltog ${saved?.live?'on':''}" id="sf-live-${idx}" onclick="toggleSfLive(${idx},'${s.date}')"><div class="ldot"></div><span>Watched Live</span></div>
-      </div>
-    </div>
-    ${buildHSHTML(`sf-hs-${idx}`,'stage',s.num,stRatings[s.num])}
-    <textarea class="rta" id="sf-rev-${idx}" style="min-height:56px;" placeholder="Stage notes…">${saved?.review||''}</textarea>
-    <div style="display:flex;gap:6px;">
-      <button class="bp" style="font-size:9px;padding:7px 14px;" onclick="saveStageForm(${idx})">Save Stage</button>
-      <button class="bs" style="font-size:9px;padding:7px 12px;" onclick="document.getElementById('sf-${idx}').style.display='none'">Cancel</button>
-    </div>
-  </div>`;
-  sf.style.display='block';
-  attachHSEvents(`sf-hs-${idx}`);
-  sf.scrollIntoView({behavior:'smooth',block:'nearest'});
-}
-
-function toggleSfLive(idx,stageDate){
-  const el=document.getElementById(`sf-live-${idx}`); el.classList.toggle('on');
-  if(el.classList.contains('on')) document.getElementById(`sf-date-${idx}`).value=stageDate;
-}
-
-async function saveStageForm(idx){
-  const year=parseInt(document.getElementById('lm-year').value);
-  const stages=buildStages(curId,year);
-  const s=stages[idx];
-  const wd=document.getElementById(`sf-date-${idx}`).value;
-  if(!wd||wd>TODAY){toast('Cannot log a future date');return;}
-  const isLive=document.getElementById(`sf-live-${idx}`).classList.contains('on');
-  const rev=document.getElementById(`sf-rev-${idx}`)?.value?.trim()||'';
-  // Store in a temp object that gets saved with the whole form
-  if(!userLog[curId]) userLog[curId]={watches:[],range:[]};
-  let w=null;
-  if(curWatchIdx!==null&&userLog[curId].watches[curWatchIdx]){w=userLog[curId].watches[curWatchIdx];}
-  else {
-    // create temporary entry
-    w={year,date:wd,live:false,rating:0,review:'',stages:{},ts:Date.now()};
-    if(curWatchIdx===null){userLog[curId].watches.push(w);curWatchIdx=userLog[curId].watches.length-1;}
-  }
-  if(!w.stages) w.stages={};
-  w.stages[s.num]={rating:stRatings[s.num]||0,review:rev,date:wd,live:isLive};
-  // Auto-avg if all stages logged
-  const cnt=getStageCount(curId);
-  const allLogged=Object.keys(w.stages).length>=cnt;
-  if(allLogged&&!w.rating){
-    const rts=Object.values(w.stages).filter(x=>x.rating).map(x=>x.rating);
-    if(rts.length){const avg=rts.reduce((a,b)=>a+b,0)/rts.length;w.rating=Math.round(avg*2)/2;formRating=w.rating;}
-  }
-  persist();
-  document.getElementById(`sf-${idx}`).style.display='none';
-  await renderLogFormBody();
-  toast(`Stage ${s.num} saved`);
-}
 
 async function addRewatch(){
   curWatchIdx=null; formRating=0; stRatings={};
@@ -2955,12 +2840,11 @@ function renderLogPage(){
     const {id,w} = item;
     const r=RACES.find(x=>x.id===id);
     const yrLabel=w.from?`${w.from}–${w.to}`:w.year;
-    const stCnt=Object.keys(w.stages||{}).length;
     return `<div class="lpe" onclick="openRacePage('${id}')">
       <div class="lpe-sw" style="background:${r.gradient}"></div>
       <div class="lpe-info">
         <div class="lpe-race">${r.name}</div>
-        <div class="lpe-ed">${yrLabel} Edition${stCnt?` · ${stCnt} stages`:''}</div>
+        <div class="lpe-ed">${yrLabel} Edition</div>
         <div class="lpe-meta">${r.flag} ${r.country} · ${r.type}</div>
         <div style="margin-bottom:4px;">${starsHTML(w.rating||0,11)}</div>
         ${w.review?`<div class="lpe-rev">"${w.review}"</div>`:''}
