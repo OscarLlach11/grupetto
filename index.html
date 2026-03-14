@@ -4717,35 +4717,23 @@ async function renderRiderPage(inputName){
   const totalRaces = rows.reduce((acc, r) => { acc.add(r.year+'_'+(resolveRaceSlug(r.slug)||r.slug)); return acc; }, new Set()).size;
 
   // Use raw DB slugs for race_dates query — race_dates.race_id uses the same format as startlists.slug
-  // Use cleanSlug so apostrophe-slugs match race_dates.race_id keys
-  const riderSlugs = [...new Set(rows.map(r => cleanSlug(r.slug)).filter(Boolean))];
   const riderNameLC = rawName.toLowerCase();
 
-  // ── Fetch race_dates, GC wins, and stage wins in parallel ────────────────
+  // ── Fetch GC wins and stage wins in parallel ─────────────────────────────
+  // RACE_DATES is already fully populated by loadAppData — no need to re-fetch
   let gcWinRows = [];
   let stageWinRows = [];
-  const [datesRes] = await Promise.all([
-    sb.from('race_dates').select('race_id,year,race_date').in('race_id', riderSlugs),
+  await Promise.all([
     (async () => {
       try {
-        const trophyCacheKey = riderNameLC;
-        if(_riderTrophyCache.has(trophyCacheKey)){
-          gcWinRows = (await _riderTrophyCache.get(trophyCacheKey)) || [];
-          // _riderTrophyCache stores already-built trophies; re-fetch raw for new layout
-          const { data } = await sb.from('rider_wins').select('race_slug,year')
-            .ilike('rider_name', rawName).order('year', { ascending: false });
-          gcWinRows = data || [];
-        } else {
-          const { data, error } = await sb.from('rider_wins').select('race_slug,year')
-            .ilike('rider_name', rawName).order('year', { ascending: false });
-          if(error) console.warn('trophy fetch error:', error.message);
-          gcWinRows = data || [];
-        }
+        const { data, error } = await sb.from('rider_wins').select('race_slug,year')
+          .ilike('rider_name', rawName).order('year', { ascending: false });
+        if(error) console.warn('trophy fetch error:', error.message);
+        gcWinRows = data || [];
       } catch(e) { console.warn('trophy cabinet error (non-fatal):', e); }
     })(),
     (async () => {
       try {
-        // Fetch stage wins from stage_results where winner matches rider
         const { data, error } = await sb.from('stage_results')
           .select('race_slug,year,stage_num,stage_label,stage_date')
           .ilike('winner', rawName)
@@ -4755,14 +4743,6 @@ async function renderRiderPage(inputName){
       } catch(e) { console.warn('stage wins error (non-fatal):', e); }
     })(),
   ]);
-
-  if(datesRes.data?.length){
-    datesRes.data.forEach(row => {
-      const dk = cleanSlug(row.race_id);
-      if(!RACE_DATES[dk]) RACE_DATES[dk] = {};
-      RACE_DATES[dk][row.year] = row.race_date;
-    });
-  }
 
   // ── Build Race History HTML ───────────────────────────────────────────────
   // Build a set of GC wins for quick lookup: "slug|year"
