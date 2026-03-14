@@ -191,7 +191,7 @@
     logs.forEach(log => {
       const _ls = cleanSlug(log.slug);
       if (!userLog[_ls]) userLog[_ls] = { watches: [] };
-      userLog[_ls].watches.push(
+      userLog[_ls].watches.push({
         id:     log.id,
         year:   log.year,
         date:   log.date_watched,
