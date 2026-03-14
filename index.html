@@ -189,8 +189,9 @@
 
     // Populate race logs
     logs.forEach(log => {
-      if (!userLog[log.slug]) userLog[log.slug] = { watches: [] };
-      userLog[log.slug].watches.push({
+      const _ls = cleanSlug(log.slug);
+      if (!userLog[_ls]) userLog[_ls] = { watches: [] };
+      userLog[_ls].watches.push(
         id:     log.id,
         year:   log.year,
         date:   log.date_watched,
@@ -1353,7 +1354,7 @@ function applyAppData({ races, dates, config }){
       if (!existingWins) seen.set(key, r);
     });
     RACES = Array.from(seen.values()).map(r => ({
-      id:          r.slug,
+      id:          cleanSlug(r.slug),
       name:        r.race_name || '',
       tier:        r.tier || 'Pro',
       country:     r.country || '',
@@ -1371,8 +1372,9 @@ function applyAppData({ races, dates, config }){
     }));
   }
   dates.forEach(row => {
-    if(!RACE_DATES[row.race_id]) RACE_DATES[row.race_id] = {};
-    RACE_DATES[row.race_id][row.year] = row.race_date;
+    const dk = cleanSlug(row.race_id);
+    if(!RACE_DATES[dk]) RACE_DATES[dk] = {};
+    RACE_DATES[dk][row.year] = row.race_date;
   });
   config.forEach(row => {
     if(row.key === 'featured_riders') FEATURED_RIDERS = row.value;
@@ -1449,6 +1451,9 @@ async function getAllRiders(){
   const seen = new Set();
   return data.map(r => r.rider_name).filter(n => { if(seen.has(n)) return false; seen.add(n); return true; });
 }
+
+// ── cleanSlug: strips apostrophes/special chars from DB slugs ──────────────
+function cleanSlug(s){ return s ? s.replace(/'/g,'-').replace(/--+/g,'-') : s; }
 
 // ── resolveRaceSlug: maps DB slug to RACES id ─────────────────────────────
 function resolveRaceSlug(dbSlug){
@@ -3313,7 +3318,7 @@ function _preloadRiderTrophies(dbName){
 function _buildTrophies(winRows){
   const trophyMap = {};
   winRows.forEach(({ race_slug, year }) => {
-    const raceId = resolveRaceSlug(race_slug) || race_slug;
+    const raceId = cleanSlug(resolveRaceSlug(race_slug) || race_slug);
     const race = RACES.find(x => x.id === raceId);
     if(!trophyMap[raceId]){
       trophyMap[raceId] = {
@@ -4703,16 +4708,17 @@ async function renderRiderPage(inputName){
   // Group entries by year, then by race slug within year
   const byYear = {};
   rows.forEach(r => {
+    const rs = cleanSlug(r.slug);
     if(!byYear[r.year]) byYear[r.year] = {};
-    if(!byYear[r.year][r.slug]) byYear[r.year][r.slug] = { ...r, stages: [] };
+    if(!byYear[r.year][rs]) byYear[r.year][rs] = { ...r, slug: rs, stages: [] };
   });
 
   const sortedYears = Object.keys(byYear).map(Number).sort((a,b)=>b-a);
   const totalRaces = rows.reduce((acc, r) => { acc.add(r.year+'_'+(resolveRaceSlug(r.slug)||r.slug)); return acc; }, new Set()).size;
 
   // Use raw DB slugs for race_dates query — race_dates.race_id uses the same format as startlists.slug
-  // Do NOT resolveRaceSlug here: RACES may not be loaded yet on first visit, causing empty riderSlugs
-  const riderSlugs = [...new Set(rows.map(r => r.slug).filter(Boolean))];
+  // Use cleanSlug so apostrophe-slugs match race_dates.race_id keys
+  const riderSlugs = [...new Set(rows.map(r => cleanSlug(r.slug)).filter(Boolean))];
   const riderNameLC = rawName.toLowerCase();
 
   // ── Fetch race_dates, GC wins, and stage wins in parallel ────────────────
@@ -4759,9 +4765,9 @@ async function renderRiderPage(inputName){
 
   // ── Build Race History HTML ───────────────────────────────────────────────
   // Build a set of GC wins for quick lookup: "slug|year"
-  const gcWinSet = new Set(gcWinRows.map(w => `${resolveRaceSlug(w.race_slug)||w.race_slug}|${w.year}`));
+  const gcWinSet = new Set(gcWinRows.map(w => { const s=cleanSlug(resolveRaceSlug(w.race_slug)||w.race_slug); return `${s}|${w.year}`; }));
   // Build stage win set: "slug|year|stage_num"
-  const stageWinSet = new Set(stageWinRows.map(w => `${w.race_slug}|${w.year}|${w.stage_num}`));
+  const stageWinSet = new Set(stageWinRows.map(w => `${cleanSlug(w.race_slug)}|${w.year}|${w.stage_num}`));
 
   let racesHTML = '';
   sortedYears.forEach(year => {
@@ -4840,7 +4846,7 @@ async function renderRiderPage(inputName){
   // Build GC trophy map: { raceId: { raceName, gradient, slug, tier, category, years:[] } }
   const gcTrophyMap = {};
   gcWinRows.forEach(({ race_slug, year }) => {
-    const raceId = resolveRaceSlug(race_slug) || race_slug;
+    const raceId = cleanSlug(resolveRaceSlug(race_slug) || race_slug);
     const race = RACES.find(x => x.id === raceId);
     if(!gcTrophyMap[raceId]){
       gcTrophyMap[raceId] = {
@@ -4861,7 +4867,7 @@ async function renderRiderPage(inputName){
   // Group stage wins by race slug → array of {year, stageLabel}
   const stagesByRace = {};
   stageWinRows.forEach(row => {
-    const raceId = resolveRaceSlug(row.race_slug) || row.race_slug;
+    const raceId = cleanSlug(resolveRaceSlug(row.race_slug) || row.race_slug);
     if(!stagesByRace[raceId]) stagesByRace[raceId] = [];
     stagesByRace[raceId].push({ year: parseInt(row.year), stageLabel: row.stage_label || String(row.stage_num) });
   });
