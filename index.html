@@ -4708,7 +4708,9 @@ async function renderRiderPage(inputName){
   const sortedYears = Object.keys(byYear).map(Number).sort((a,b)=>b-a);
   const totalRaces = rows.reduce((acc, r) => { acc.add(r.year+'_'+(resolveRaceSlug(r.slug)||r.slug)); return acc; }, new Set()).size;
 
-  const riderSlugs = [...new Set(rows.map(r => resolveRaceSlug(r.slug) || r.slug).filter(Boolean))];
+  // Use raw DB slugs for race_dates query — race_dates.race_id uses the same format as startlists.slug
+  // Do NOT resolveRaceSlug here: RACES may not be loaded yet on first visit, causing empty riderSlugs
+  const riderSlugs = [...new Set(rows.map(r => r.slug).filter(Boolean))];
   const riderNameLC = rawName.toLowerCase();
 
   // ── Fetch race_dates, GC wins, and stage wins in parallel ────────────────
@@ -4788,7 +4790,7 @@ async function renderRiderPage(inputName){
            </div>` : '';
       const watchedBadge = watch
         ? `<div style="font-size:9px;color:var(--muted);border:1px solid var(--border);padding:3px 7px;letter-spacing:1.5px;font-family:'Bebas Neue',sans-serif;">WATCHED</div>` : '';
-      const clickable = raceId ? `onclick="navToRace('${raceId}', ${year})"` : '';
+      const clickable = raceId ? `data-raceid="${raceId.replace(/"/g,'&quot;')}" data-year="${year}" onclick="navToRace(this.dataset.raceid, parseInt(this.dataset.year))"` : '';
       const cursor = raceId ? 'cursor:pointer;' : 'cursor:default;opacity:0.6;';
       const isGCWin = gcWinSet.has(`${raceId}|${year}`);
       const wonBadge = isGCWin
