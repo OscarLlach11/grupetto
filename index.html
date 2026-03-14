@@ -4758,8 +4758,9 @@ async function renderRiderPage(inputName){
 
   if(datesRes.data?.length){
     datesRes.data.forEach(row => {
-      if(!RACE_DATES[row.race_id]) RACE_DATES[row.race_id] = {};
-      RACE_DATES[row.race_id][row.year] = row.race_date;
+      const dk = cleanSlug(row.race_id);
+      if(!RACE_DATES[dk]) RACE_DATES[dk] = {};
+      RACE_DATES[dk][row.year] = row.race_date;
     });
   }
 
@@ -4939,7 +4940,7 @@ async function renderRiderPage(inputName){
         const isGT = t.category === 'Grand Tour';
         const isMonument = t.category === 'Monument';
         const accentColor = isGT ? 'var(--gold)' : isMonument ? '#c8a87a' : 'var(--ml)';
-        const rowId = `trophy-row-${encodeURIComponent(t.raceName).replace(/%/g,'')}`;
+        const rowId = `trophy-row-${encodeURIComponent(t.raceName).replace(/%/g,'').replace(/'/g,'').replace(/"/g,'')}`;
 
         const safeSlug = t.slug.replace(/'/g, "\\'");
         if(t.isStage){
