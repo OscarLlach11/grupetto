@@ -4748,11 +4748,15 @@ async function renderRiderPage(inputName){
     })(),
   ]);
 
+  console.log('[rider] race_dates fetch:', datesRes.data?.length, 'rows, riderSlugs:', riderSlugs);
   if(datesRes.data?.length){
     datesRes.data.forEach(row => {
       if(!RACE_DATES[row.race_id]) RACE_DATES[row.race_id] = {};
       RACE_DATES[row.race_id][row.year] = row.race_date;
     });
+    console.log('[rider] RACE_DATES keys after backfill:', Object.keys(RACE_DATES));
+  } else {
+    console.warn('[rider] No race_dates rows. riderSlugs:', riderSlugs, 'error:', datesRes.error);
   }
 
   // ── Build Race History HTML ───────────────────────────────────────────────
@@ -4765,10 +4769,13 @@ async function renderRiderPage(inputName){
   sortedYears.forEach(year => {
     const racesInYear = Object.values(byYear[year]);
     racesInYear.sort((a, b) => {
+      // Use resolved ID OR raw slug — RACE_DATES is keyed by whichever was returned by the query
       const raceIdA = resolveRaceSlug(a.slug) || a.slug;
       const raceIdB = resolveRaceSlug(b.slug) || b.slug;
-      const dateA = RACE_DATES[raceIdA]?.[year] || RACE_DATES[raceIdA]?.[String(year)] || '';
-      const dateB = RACE_DATES[raceIdB]?.[year] || RACE_DATES[raceIdB]?.[String(year)] || '';
+      const dateA = RACE_DATES[raceIdA]?.[year] || RACE_DATES[raceIdA]?.[String(year)]
+                 || RACE_DATES[a.slug]?.[year]   || RACE_DATES[a.slug]?.[String(year)] || '';
+      const dateB = RACE_DATES[raceIdB]?.[year] || RACE_DATES[raceIdB]?.[String(year)]
+                 || RACE_DATES[b.slug]?.[year]   || RACE_DATES[b.slug]?.[String(year)] || '';
       if(dateA && dateB) return dateA.localeCompare(dateB);
       if(dateA) return -1; if(dateB) return 1;
       return (a.slug||'').localeCompare(b.slug||'');
@@ -4777,11 +4784,12 @@ async function renderRiderPage(inputName){
     racesHTML += `<div style="margin-bottom:32px;">
       <div style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:3px;color:var(--gold);border-bottom:1px solid var(--border);padding-bottom:8px;margin-bottom:12px;">${year}</div>`;
     racesInYear.forEach(entry => {
-      const raceId = resolveRaceSlug(entry.slug);
-      const race = raceId ? RACES.find(x => x.id === raceId) : null;
+      // Always have a navigable ID: prefer resolved slug, fall back to raw DB slug
+      const raceId = resolveRaceSlug(entry.slug) || entry.slug;
+      const race = RACES.find(x => x.id === raceId) || null;
       const raceName = race ? race.name : entry.slug.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
       const raceGradient = race ? race.gradient : 'linear-gradient(135deg,#222,#333)';
-      const log = raceId ? userLog[raceId] : null;
+      const log = userLog[raceId] || null;
       const watch = log ? (log.watches||[]).find(w => w.year === year) : null;
       const myRating = watch?.rating
         ? `<div style="display:flex;align-items:center;gap:4px;background:rgba(232,200,74,0.08);border:1px solid rgba(232,200,74,0.2);padding:3px 8px;">
@@ -4790,8 +4798,8 @@ async function renderRiderPage(inputName){
            </div>` : '';
       const watchedBadge = watch
         ? `<div style="font-size:9px;color:var(--muted);border:1px solid var(--border);padding:3px 7px;letter-spacing:1.5px;font-family:'Bebas Neue',sans-serif;">WATCHED</div>` : '';
-      const clickable = raceId ? `data-raceid="${raceId.replace(/"/g,'&quot;')}" data-year="${year}" onclick="navToRace(this.dataset.raceid, parseInt(this.dataset.year))"` : '';
-      const cursor = raceId ? 'cursor:pointer;' : 'cursor:default;opacity:0.6;';
+      // Use data attributes — safe against apostrophes and special chars in slug
+      const safeId = raceId.replace(/"/g,'&quot;');
       const isGCWin = gcWinSet.has(`${raceId}|${year}`);
       const wonBadge = isGCWin
         ? `<div style="display:flex;align-items:center;gap:5px;background:rgba(232,200,74,0.12);border:1px solid rgba(232,200,74,0.3);padding:3px 8px;">
@@ -4799,7 +4807,10 @@ async function renderRiderPage(inputName){
              <span style="font-size:9px;color:var(--gold);font-family:'Bebas Neue',sans-serif;letter-spacing:1.5px;">WIN</span>
            </div>` : '';
 
-      racesHTML += `<div ${clickable} style="padding:13px 0;display:flex;align-items:center;gap:14px;border-bottom:1px solid var(--border);${cursor}transition:background .12s;" ${raceId ? `onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background='none'"` : ''}>
+      racesHTML += `<div data-raceid="${safeId}" data-year="${year}"
+        onclick="navToRace(this.dataset.raceid, parseInt(this.dataset.year))"
+        onmouseover="this.style.background='rgba(255,255,255,0.03)'" onmouseout="this.style.background='none'"
+        style="padding:13px 0;display:flex;align-items:center;gap:14px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s;">
         <div style="width:36px;height:36px;flex-shrink:0;background:${raceGradient};"></div>
         <div style="flex:1;min-width:0;">
           <div style="font-family:'Bebas Neue',sans-serif;font-size:15px;letter-spacing:2px;color:var(--white);">${raceName}</div>
