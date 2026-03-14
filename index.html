@@ -2580,7 +2580,7 @@ async function syncLocalStageLogsToSupabase() {
 // ── TTL Cache — stale-while-revalidate for expensive Supabase queries ─────
 // Usage: cacheSet('key', data, ttlMinutes)  /  cacheGet('key') → data or null
 const CACHE_PREFIX = 'g3-cache:';
-const CACHE_VERSION = 'v3'; // bump this to bust all caches
+const CACHE_VERSION = 'v4'; // bump this to bust all caches
 function cacheSet(key, data, ttlMinutes = 30){
   try {
     localStorage.setItem(CACHE_PREFIX + key, JSON.stringify({
@@ -3409,7 +3409,15 @@ async function renderRiders(forceRefresh){
 async function _fetchFeaturedRiders(){
   // FEATURED_RIDERS entries may be objects {name, url, imageUrl} or plain strings
   const extractName = entry => (entry && typeof entry === 'object') ? (entry.name || '') : (entry || '');
+  const extractImg  = entry => (entry && typeof entry === 'object') ? (entry.imageUrl || null) : null;
   const featuredNames = FEATURED_RIDERS.map(extractName).filter(Boolean);
+  // Build a fallback image map from app_config data
+  const configImgMap = {};
+  FEATURED_RIDERS.forEach(entry => {
+    const name = extractName(entry);
+    const img  = extractImg(entry);
+    if(name && img) configImgMap[name.toLowerCase()] = img;
+  });
 
   const allRows = [];
   await Promise.all(featuredNames.map(async name => {
@@ -3465,7 +3473,11 @@ async function _fetchFeaturedRiders(){
     const best   = seenBest.get(key)   || {rider_name: name, image_url: null, year: null};
     const latest = seenLatest.get(key) || best;
     const lastYr = seenYear.get(key)   || best.year;
-    return { ...best, team_name: latest.team_name, nationality: latest.nationality, last_year: lastYr };
+    // Use startlists image if available, fall back to app_config imageUrl
+    const image_url = (best.image_url && best.image_url !== 'none')
+      ? best.image_url
+      : (configImgMap[key] || null);
+    return { ...best, image_url, team_name: latest.team_name, nationality: latest.nationality, last_year: lastYr };
   });
 }
 
