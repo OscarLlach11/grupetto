@@ -1455,8 +1455,10 @@ function resolveRaceSlug(dbSlug){
   if(!dbSlug) return null;
   const direct = RACES.find(x => x.id === dbSlug);
   if(direct) return dbSlug;
-  const clean = dbSlug.replace(/-/g,' ').toLowerCase();
-  const fuzzy = RACES.find(r => r.name.toLowerCase().includes(clean) || clean.includes(r.name.toLowerCase().slice(0,6)));
+  // Strip apostrophes so 'giro-d-italia' matches race name "Giro d'Italia"
+  const norm = s => s.replace(/-/g,' ').replace(/[\u2018\u2019']/g,'').toLowerCase();
+  const clean = norm(dbSlug);
+  const fuzzy = RACES.find(r => norm(r.name).includes(clean) || clean.includes(norm(r.name).slice(0,6)));
   return fuzzy ? fuzzy.id : null;
 }
 
@@ -4748,15 +4750,11 @@ async function renderRiderPage(inputName){
     })(),
   ]);
 
-  console.log('[rider] race_dates fetch:', datesRes.data?.length, 'rows, riderSlugs:', riderSlugs);
   if(datesRes.data?.length){
     datesRes.data.forEach(row => {
       if(!RACE_DATES[row.race_id]) RACE_DATES[row.race_id] = {};
       RACE_DATES[row.race_id][row.year] = row.race_date;
     });
-    console.log('[rider] RACE_DATES keys after backfill:', Object.keys(RACE_DATES));
-  } else {
-    console.warn('[rider] No race_dates rows. riderSlugs:', riderSlugs, 'error:', datesRes.error);
   }
 
   // ── Build Race History HTML ───────────────────────────────────────────────
