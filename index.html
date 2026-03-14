@@ -4710,24 +4710,38 @@ async function renderRiderPage(inputName){
   const sortedYears = Object.keys(byYear).map(Number).sort((a,b)=>b-a);
   const totalRaces = rows.reduce((acc, r) => { acc.add(r.year+'_'+(resolveRaceSlug(r.slug)||r.slug)); return acc; }, new Set()).size;
 
-  // ── Trophy Cabinet: use preloaded cache or query rider_wins table ──────────
+  // ── Fetch race_dates + trophies in parallel ───────────────────────────────
+  const riderSlugs = [...new Set(rows.map(r => resolveRaceSlug(r.slug) || r.slug).filter(Boolean))];
+
   const riderNameLC = rawName.toLowerCase();
   let trophies = [];
-  try {
-    const trophyCacheKey = riderNameLC;
-    if(_riderTrophyCache.has(trophyCacheKey)){
-      trophies = (await _riderTrophyCache.get(trophyCacheKey)) || [];
-    } else {
-      // Not preloaded — query rider_wins directly (single targeted fetch)
-      const { data, error } = await sb
-        .from('rider_wins')
-        .select('race_slug,year')
-        .ilike('rider_name', rawName)
-        .order('year', { ascending: false });
-      if(error) console.warn('trophy fetch error:', error.message);
-      trophies = _buildTrophies(data || []);
-    }
-  } catch(e) { console.warn('trophy cabinet error (non-fatal):', e); }
+  const [datesRes] = await Promise.all([
+    // Fetch dates for all races this rider entered, back-fill into RACE_DATES
+    sb.from('race_dates').select('race_id,year,race_date').in('race_id', riderSlugs),
+    // Trophy fetch (sets trophies via side effect below)
+    (async () => {
+      try {
+        const trophyCacheKey = riderNameLC;
+        if(_riderTrophyCache.has(trophyCacheKey)){
+          trophies = (await _riderTrophyCache.get(trophyCacheKey)) || [];
+        } else {
+          const { data, error } = await sb
+            .from('rider_wins').select('race_slug,year')
+            .ilike('rider_name', rawName).order('year', { ascending: false });
+          if(error) console.warn('trophy fetch error:', error.message);
+          trophies = _buildTrophies(data || []);
+        }
+      } catch(e) { console.warn('trophy cabinet error (non-fatal):', e); }
+    })(),
+  ]);
+
+  // Back-fill RACE_DATES with freshly fetched dates
+  if(datesRes.data?.length){
+    datesRes.data.forEach(row => {
+      if(!RACE_DATES[row.race_id]) RACE_DATES[row.race_id] = {};
+      RACE_DATES[row.race_id][row.year] = row.race_date;
+    });
+  }
 
   let trophyHTML = '';
   if(trophies.length){
