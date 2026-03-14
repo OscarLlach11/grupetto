@@ -3363,10 +3363,12 @@ async function renderRiders(forceRefresh){
   }
 
   // 2. localStorage cache — fast, stale-while-revalidate
-  // Invalidate if cached data has no images (old cache before rider photos were seeded)
+  // Invalidate if: no images (pre-photo cache), or rider_name is not a string (object-name bug)
   const lsCached = cacheGet('featured-riders');
-  const lsCachedHasImages = lsCached && lsCached.some(r => r.image_url && r.image_url !== 'none');
-  if(lsCached && lsCachedHasImages && !forceRefresh){
+  const lsCachedValid = lsCached &&
+    lsCached.some(r => r.image_url && r.image_url !== 'none') &&
+    lsCached.every(r => typeof r.rider_name === 'string');
+  if(lsCached && lsCachedValid && !forceRefresh){
     _featuredRidersCache = lsCached;
     if(label) label.textContent = 'Featured Riders';
     grid.innerHTML = lsCached.map(r => renderRiderCard(r)).join('');
@@ -3399,8 +3401,12 @@ async function renderRiders(forceRefresh){
 }
 
 async function _fetchFeaturedRiders(){
+  // FEATURED_RIDERS entries may be objects {name, url, imageUrl} or plain strings
+  const extractName = entry => (entry && typeof entry === 'object') ? (entry.name || '') : (entry || '');
+  const featuredNames = FEATURED_RIDERS.map(extractName).filter(Boolean);
+
   const allRows = [];
-  await Promise.all(FEATURED_RIDERS.map(async name => {
+  await Promise.all(featuredNames.map(async name => {
     const { data: rows, error: err } = await sb.from('startlists')
       .select('rider_name,team_name,nationality,image_url,year')
       .ilike('rider_name', name)
@@ -3448,7 +3454,7 @@ async function _fetchFeaturedRiders(){
     if(r.year > prev.year) seenBest.set(key, r);
   });
 
-  return FEATURED_RIDERS.map(name => {
+  return featuredNames.map(name => {
     const key    = name.toLowerCase();
     const best   = seenBest.get(key)   || {rider_name: name, image_url: null, year: null};
     const latest = seenLatest.get(key) || best;
