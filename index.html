@@ -1596,11 +1596,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Signal auth block that app data is ready — initAuth will now fire
   _appDataReady();
 
-  // Kick off featured riders fetch in background — but only if localStorage cache is stale/missing.
-  // If cache is warm, renderRiders() will serve it instantly and revalidate on its own.
+  // Start featured riders fetch in background only if cache is cold.
+  // If cache is warm, renderRiders() serves it instantly and revalidates itself.
   const _ridersLsCached = cacheGet('featured-riders');
-  const _ridersLsUsable = _ridersLsCached && _ridersLsCached.length > 0 && _ridersLsCached.every(r => typeof r.rider_name === 'string');
-  if(!_ridersLsUsable){
+  if(!_ridersLsCached || !_ridersLsCached.length){
     _featuredRidersFetchPromise = _fetchFeaturedRiders().then(riders => {
       _featuredRidersFetchPromise = null;
       if(!riders) return;
@@ -2581,10 +2580,11 @@ async function syncLocalStageLogsToSupabase() {
 // ── TTL Cache — stale-while-revalidate for expensive Supabase queries ─────
 // Usage: cacheSet('key', data, ttlMinutes)  /  cacheGet('key') → data or null
 const CACHE_PREFIX = 'g3-cache:';
+const CACHE_VERSION = 'v3'; // bump this to bust all caches
 function cacheSet(key, data, ttlMinutes = 30){
   try {
     localStorage.setItem(CACHE_PREFIX + key, JSON.stringify({
-      data, expires: Date.now() + ttlMinutes * 60 * 1000
+      data, expires: Date.now() + ttlMinutes * 60 * 1000, v: CACHE_VERSION
     }));
   } catch(e) {} // storage full — fail silently
 }
@@ -2592,7 +2592,8 @@ function cacheGet(key){
   try {
     const raw = localStorage.getItem(CACHE_PREFIX + key);
     if(!raw) return null;
-    const { data, expires } = JSON.parse(raw);
+    const { data, expires, v } = JSON.parse(raw);
+    if(v !== CACHE_VERSION) return null; // stale version
     if(Date.now() > expires) return null; // expired
     return data;
   } catch(e) { return null; }
@@ -3374,20 +3375,18 @@ async function renderRiders(forceRefresh){
     return;
   }
 
-  // 2. localStorage cache — serve immediately, always revalidate in background
+  // 2. localStorage cache — serve immediately, revalidate in background
   const lsCached = cacheGet('featured-riders');
-  const lsCachedUsable = lsCached && lsCached.length > 0 && lsCached.every(r => typeof r.rider_name === 'string');
-  if(lsCachedUsable && !forceRefresh){
+  if(lsCached && lsCached.length > 0 && !forceRefresh){
     _featuredRidersCache = lsCached;
     show(lsCached);
-    // Always revalidate silently — but only if not already fetching
+    // Always revalidate in background — but only if not already fetching
     if(!_featuredRidersFetchPromise){
       _featuredRidersFetchPromise = _fetchFeaturedRiders().then(fresh => {
         _featuredRidersFetchPromise = null;
         if(!fresh) return;
         _featuredRidersCache = fresh;
         cacheSet('featured-riders', fresh, 120);
-        // Only re-render if still on riders tab
         if(document.getElementById('riders-grid')) show(fresh);
       });
     }
