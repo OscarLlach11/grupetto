@@ -1596,15 +1596,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Signal auth block that app data is ready — initAuth will now fire
   _appDataReady();
 
-  // Kick off featured riders fetch immediately in background (parallel with auth).
-  // Store the promise so renderRiders() can await it instead of fetching again.
-  _featuredRidersFetchPromise = _fetchFeaturedRiders().then(riders => {
-    _featuredRidersFetchPromise = null;
-    if(!riders) return;
-    _featuredRidersCache = riders;
-    cacheSet('featured-riders', riders, 120);
-    _preloadRiderNames(riders.map(r => r.rider_name || r.name));
-  });
+  // Kick off featured riders fetch in background — but only if localStorage cache is stale/missing.
+  // If cache is warm, renderRiders() will serve it instantly and revalidate on its own.
+  const _ridersLsCached = cacheGet('featured-riders');
+  const _ridersLsUsable = _ridersLsCached && _ridersLsCached.length > 0 && _ridersLsCached.every(r => typeof r.rider_name === 'string');
+  if(!_ridersLsUsable){
+    _featuredRidersFetchPromise = _fetchFeaturedRiders().then(riders => {
+      _featuredRidersFetchPromise = null;
+      if(!riders) return;
+      _featuredRidersCache = riders;
+      cacheSet('featured-riders', riders, 120);
+      _preloadRiderNames(riders.map(r => r.rider_name || r.name));
+    });
+  }
   if(location.hash && location.hash.length > 2) {
     if(!location.hash.startsWith('#/review/')) window._pendingRoute = location.hash;
   } else {
@@ -3357,42 +3361,40 @@ async function renderRiders(forceRefresh){
   const label = document.querySelector('#riders-list > div:first-child');
   if(!grid) return;
 
-  // 1. In-memory cache — instant
-  if(_featuredRidersCache && !forceRefresh){
+  // Helper to render riders into the grid
+  const show = (riders) => {
     if(label) label.textContent = 'Featured Riders';
-    grid.innerHTML = _featuredRidersCache.map(r => renderRiderCard(r)).join('');
-    _preloadRiderNames(_featuredRidersCache.map(r => r.rider_name || r.name));
+    grid.innerHTML = riders.map(r => renderRiderCard(r)).join('');
+    _preloadRiderNames(riders.map(r => r.rider_name || r.name));
+  };
+
+  // 1. In-memory cache — instant, no network
+  if(_featuredRidersCache && !forceRefresh){
+    show(_featuredRidersCache);
     return;
   }
 
-  // 2. localStorage cache — fast, stale-while-revalidate
-  // Invalidate if: no images (pre-photo cache), or rider_name is not a string (object-name bug)
+  // 2. localStorage cache — serve immediately, always revalidate in background
   const lsCached = cacheGet('featured-riders');
-  const lsCachedValid = lsCached &&
-    lsCached.some(r => r.image_url && r.image_url !== 'none') &&
-    lsCached.every(r => typeof r.rider_name === 'string');
-  if(lsCached && lsCachedValid && !forceRefresh){
+  const lsCachedUsable = lsCached && lsCached.length > 0 && lsCached.every(r => typeof r.rider_name === 'string');
+  if(lsCachedUsable && !forceRefresh){
     _featuredRidersCache = lsCached;
-    if(label) label.textContent = 'Featured Riders';
-    grid.innerHTML = lsCached.map(r => renderRiderCard(r)).join('');
-    // Preload rider page data immediately
-    _preloadRiderNames(lsCached.map(r => r.rider_name || r.name));
-    // Revalidate silently in background only if no fresh fetch is already running
+    show(lsCached);
+    // Always revalidate silently — but only if not already fetching
     if(!_featuredRidersFetchPromise){
       _featuredRidersFetchPromise = _fetchFeaturedRiders().then(fresh => {
         _featuredRidersFetchPromise = null;
-        if(fresh){
-          _featuredRidersCache = fresh;
-          cacheSet('featured-riders', fresh, 120);
-          grid.innerHTML = fresh.map(r => renderRiderCard(r)).join('');
-          _preloadRiderNames(fresh.map(r => r.rider_name || r.name));
-        }
+        if(!fresh) return;
+        _featuredRidersCache = fresh;
+        cacheSet('featured-riders', fresh, 120);
+        // Only re-render if still on riders tab
+        if(document.getElementById('riders-grid')) show(fresh);
       });
     }
     return;
   }
 
-  // 3. Fetch in progress or no cache — await existing fetch or start a new one
+  // 3. No usable cache — await in-flight fetch or start one, show skeletons meanwhile
   grid.innerHTML = Array(FEATURED_RIDERS.length || 10).fill(RIDER_SKELETON).join('');
 
   const riders = await (_featuredRidersFetchPromise
@@ -3402,10 +3404,7 @@ async function renderRiders(forceRefresh){
 
   _featuredRidersCache = riders;
   cacheSet('featured-riders', riders, 120);
-  if(label) label.textContent = 'Featured Riders';
-  grid.innerHTML = riders.map(r => renderRiderCard(r)).join('');
-  // Preload full rider data for all displayed featured riders
-  _preloadRiderNames(riders.map(r => r.rider_name || r.name));
+  show(riders);
 }
 
 async function _fetchFeaturedRiders(){
