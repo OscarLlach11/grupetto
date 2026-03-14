@@ -4924,6 +4924,7 @@ async function renderRiderPage(inputName){
         const accentColor = isGT ? 'var(--gold)' : isMonument ? '#c8a87a' : 'var(--ml)';
         const rowId = `trophy-row-${encodeURIComponent(t.raceName).replace(/%/g,'')}`;
 
+        const safeSlug = t.slug.replace(/'/g, "\\'");
         if(t.isStage){
           // Stage wins: expandable rows showing each stage win
           trophyTabHTML += `
@@ -4944,7 +4945,8 @@ async function renderRiderPage(inputName){
             <div id="${rowId}" style="display:none;">
               <div style="padding:0 0 12px 18px;display:flex;flex-wrap:wrap;gap:8px;">
                 ${t.wins.map(w => `
-                  <div onclick="navToRace('${t.slug}',${w.year})"
+                  <div data-slug="${t.slug.replace(/"/g,'&quot;')}" data-year="${w.year}"
+                    onclick="navToRace(this.dataset.slug, parseInt(this.dataset.year))"
                     style="display:flex;align-items:center;gap:8px;padding:6px 12px;background:var(--card-bg);border:1px solid var(--border);cursor:pointer;transition:border-color .15s;"
                     onmouseover="this.style.borderColor='var(--border-light)'" onmouseout="this.style.borderColor='var(--border)'">
                     <span style="font-size:10px;">🏆</span>
@@ -4974,7 +4976,8 @@ async function renderRiderPage(inputName){
             <div id="${rowId}" style="display:none;">
               <div style="padding:0 0 12px 18px;display:flex;flex-wrap:wrap;gap:8px;">
                 ${t.years.map(y => `
-                  <div onclick="navToRace('${t.slug}',${y})"
+                  <div data-slug="${t.slug.replace(/"/g,'&quot;')}" data-year="${y}"
+                    onclick="navToRace(this.dataset.slug, parseInt(this.dataset.year))"
                     style="display:flex;align-items:center;gap:6px;padding:6px 12px;background:var(--card-bg);border:1px solid var(--border);cursor:pointer;transition:border-color .15s;"
                     onmouseover="this.style.borderColor='${accentColor}40'" onmouseout="this.style.borderColor='var(--border)'">
                     <span style="font-size:10px;">🏆</span>
