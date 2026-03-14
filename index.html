@@ -3275,10 +3275,6 @@ async function _preloadRiderData(dbName){
     return data && data.length ? data : null;
   })();
   _riderPageCache.set(key, promise);
-  // Once startlist rows resolve, kick off trophy preload in background
-  promise.then(rows => {
-    if(rows) _preloadRiderTrophies(dbName, rows);
-  });
 }
 
 // Preload trophies for a rider given their already-resolved startlist rows
@@ -3325,9 +3321,23 @@ async function _preloadRiderTrophies(dbName, rows){
 
 function _preloadRiderNames(names){
   // names: array of DB-format strings (may be null/undefined — filtered out)
-  (names || []).filter(Boolean).forEach(n => {
-    const name = (n && typeof n === 'object') ? (n.name || '') : (n || '');
-    if(name) _preloadRiderData(name);
+  const filtered = (names || []).filter(Boolean).map(n =>
+    (n && typeof n === 'object') ? (n.name || '') : (n || '')
+  ).filter(Boolean);
+
+  // Kick off startlist preloads immediately (small selects, fast)
+  filtered.forEach(name => _preloadRiderData(name));
+
+  // Stagger trophy preloads: wait 5s then do one rider every 1.5s
+  // This avoids hammering Supabase while the main UI is loading
+  filtered.forEach((name, i) => {
+    setTimeout(() => {
+      const key = name.toLowerCase();
+      const startlistPromise = _riderPageCache.get(key);
+      if(startlistPromise && !_riderTrophyCache.has(key)){
+        startlistPromise.then(rows => { if(rows) _preloadRiderTrophies(name, rows); });
+      }
+    }, 5000 + i * 1500);
   });
 }
 
@@ -3353,8 +3363,10 @@ async function renderRiders(forceRefresh){
   }
 
   // 2. localStorage cache — fast, stale-while-revalidate
+  // Invalidate if cached data has no images (old cache before rider photos were seeded)
   const lsCached = cacheGet('featured-riders');
-  if(lsCached && !forceRefresh){
+  const lsCachedHasImages = lsCached && lsCached.some(r => r.image_url && r.image_url !== 'none');
+  if(lsCached && lsCachedHasImages && !forceRefresh){
     _featuredRidersCache = lsCached;
     if(label) label.textContent = 'Featured Riders';
     grid.innerHTML = lsCached.map(r => renderRiderCard(r)).join('');
