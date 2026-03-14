@@ -48,7 +48,7 @@
     ]);
     renderAll();
     updateStats();
-    renderRiders(true);
+    renderRiders(); // use cache if available, don't force refresh
     if(window._pendingRoute){ handleRoute(window._pendingRoute); window._pendingRoute=null; }
   }
 
@@ -1596,7 +1596,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Signal auth block that app data is ready — initAuth will now fire
   _appDataReady();
 
-  // Handle URL hash routing
+  // Kick off featured riders preload immediately in background (parallel with auth)
+  // so cards are ready by the time user navigates to Riders tab
+  _fetchFeaturedRiders().then(riders => {
+    if(!riders) return;
+    _featuredRidersCache = riders;
+    cacheSet('featured-riders', riders, 120);
+    // Also preload startlist + trophy data for each featured rider
+    _preloadRiderNames(riders.map(r => r.rider_name || r.name));
+  });
   if(location.hash && location.hash.length > 2) {
     if(!location.hash.startsWith('#/review/')) window._pendingRoute = location.hash;
   } else {
@@ -1608,9 +1616,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Fade out overlay
   overlay.style.opacity = '0';
   setTimeout(() => overlay.remove(), 320);
-
-  // Preload featured riders in background after page is visible
-  setTimeout(() => renderRiders(), 100);
 });
 
 // ════════════════════════════════════════════════════════
