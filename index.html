@@ -3282,46 +3282,42 @@ async function _preloadRiderData(dbName){
   _riderPageCache.set(key, promise);
 }
 
-// Preload trophies for a rider given their already-resolved startlist rows
-async function _preloadRiderTrophies(dbName, rows){
+// Fetch trophies for a rider from the rider_wins table and cache the result
+function _preloadRiderTrophies(dbName){
   const key = dbName.toLowerCase();
   if(_riderTrophyCache.has(key)) return;
   const promise = (async () => {
     try {
-      const riderSlugs = [...new Set((rows||[]).map(r => r.slug).filter(Boolean))];
-      if(!riderSlugs.length) return [];
       const { data, error } = await sb
-        .from('race_results')
-        .select('slug,year,top10')
-        .in('slug', riderSlugs)
-        .order('year', { ascending: false })
-        .limit(2000);
-      if(error) { console.warn('trophy preload error:', error.message); return []; }
-      const riderNameLC = dbName.toLowerCase();
-      const trophyMap = {};
-      (data||[]).forEach(row => {
-        let t = row.top10;
-        if(typeof t === 'string'){ try{ t = JSON.parse(t); }catch(e){ t=[]; } }
-        _resultsCache[row.slug] = _resultsCache[row.slug] || {};
-        if(!_resultsCache[row.slug][row.year]) _resultsCache[row.slug][row.year] = { top10: t };
-        if(!(Array.isArray(t) && t.length && typeof t[0]==='string' && t[0].toLowerCase()===riderNameLC)) return;
-        const raceId = resolveRaceSlug(row.slug) || row.slug;
-        const race = RACES.find(x => x.id === raceId);
-        if(!trophyMap[raceId]){
-          trophyMap[raceId] = {
-            raceName: race ? race.name : row.slug.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase()),
-            gradient: race ? race.gradient : 'linear-gradient(135deg,#333,#444)',
-            slug: raceId, years: []
-          };
-        }
-        const yr = parseInt(row.year);
-        if(!trophyMap[raceId].years.includes(yr)) trophyMap[raceId].years.push(yr);
-      });
-      Object.values(trophyMap).forEach(t => t.years.sort((a,b) => b-a));
-      return Object.values(trophyMap).sort((a,b) => b.years.length - a.years.length || a.raceName.localeCompare(b.raceName));
-    } catch(e) { console.warn('trophy preload exception:', e); return []; }
+        .from('rider_wins')
+        .select('race_slug,year')
+        .ilike('rider_name', dbName)
+        .order('year', { ascending: false });
+      if(error){ console.warn('trophy fetch error:', error.message); return []; }
+      return _buildTrophies(data || []);
+    } catch(e){ console.warn('trophy preload exception:', e); return []; }
   })();
   _riderTrophyCache.set(key, promise);
+}
+
+// Build sorted trophies array from rider_wins rows
+function _buildTrophies(winRows){
+  const trophyMap = {};
+  winRows.forEach(({ race_slug, year }) => {
+    const raceId = resolveRaceSlug(race_slug) || race_slug;
+    const race = RACES.find(x => x.id === raceId);
+    if(!trophyMap[raceId]){
+      trophyMap[raceId] = {
+        raceName: race ? race.name : race_slug.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase()),
+        gradient: race ? race.gradient : 'linear-gradient(135deg,#333,#444)',
+        slug: raceId, years: []
+      };
+    }
+    const yr = parseInt(year);
+    if(!trophyMap[raceId].years.includes(yr)) trophyMap[raceId].years.push(yr);
+  });
+  Object.values(trophyMap).forEach(t => t.years.sort((a,b) => b-a));
+  return Object.values(trophyMap).sort((a,b) => b.years.length - a.years.length || a.raceName.localeCompare(b.raceName));
 }
 
 function _preloadRiderNames(names){
@@ -3340,7 +3336,7 @@ function _preloadRiderNames(names){
       const key = name.toLowerCase();
       const startlistPromise = _riderPageCache.get(key);
       if(startlistPromise && !_riderTrophyCache.has(key)){
-        startlistPromise.then(rows => { if(rows) _preloadRiderTrophies(name, rows); });
+        _preloadRiderTrophies(name);
       }
     }, 5000 + i * 1500);
   });
@@ -4707,49 +4703,22 @@ async function renderRiderPage(inputName){
   const sortedYears = Object.keys(byYear).map(Number).sort((a,b)=>b-a);
   const totalRaces = rows.reduce((acc, r) => { acc.add(r.year+'_'+(resolveRaceSlug(r.slug)||r.slug)); return acc; }, new Set()).size;
 
-  // ── Trophy Cabinet: use preloaded cache or fetch fresh ───────────────────
+  // ── Trophy Cabinet: use preloaded cache or query rider_wins table ──────────
   const riderNameLC = rawName.toLowerCase();
   let trophies = [];
   try {
-    const trophyCacheKey = rawName.toLowerCase();
+    const trophyCacheKey = riderNameLC;
     if(_riderTrophyCache.has(trophyCacheKey)){
-      // Preloaded — instant or near-instant await
       trophies = (await _riderTrophyCache.get(trophyCacheKey)) || [];
     } else {
-      // Not preloaded — fetch now, same logic as _preloadRiderTrophies
-      const riderSlugs = [...new Set(rows.map(r => r.slug).filter(Boolean))];
-      if(riderSlugs.length){
-        const { data: resultsData, error: resultsErr } = await sb
-          .from('race_results')
-          .select('slug,year,top10')
-          .in('slug', riderSlugs)
-          .order('year', { ascending: false })
-          .limit(2000);
-        if(resultsErr) console.warn('trophy fetch error:', resultsErr.message);
-        if(resultsData?.length){
-          const trophyMap = {};
-          resultsData.forEach(row => {
-            let t = row.top10;
-            if(typeof t === 'string'){ try{ t = JSON.parse(t); }catch(e){ t=[]; } }
-            _resultsCache[row.slug] = _resultsCache[row.slug] || {};
-            if(!_resultsCache[row.slug][row.year]) _resultsCache[row.slug][row.year] = { top10: t };
-            if(!(Array.isArray(t) && t.length && typeof t[0]==='string' && t[0].toLowerCase()===riderNameLC)) return;
-            const raceId = resolveRaceSlug(row.slug) || row.slug;
-            const race = RACES.find(x => x.id === raceId);
-            if(!trophyMap[raceId]){
-              trophyMap[raceId] = {
-                raceName: race ? race.name : row.slug.replace(/-/g,' ').replace(/\b\w/g,c=>c.toUpperCase()),
-                gradient: race ? race.gradient : 'linear-gradient(135deg,#333,#444)',
-                slug: raceId, years: []
-              };
-            }
-            const yr = parseInt(row.year);
-            if(!trophyMap[raceId].years.includes(yr)) trophyMap[raceId].years.push(yr);
-          });
-          Object.values(trophyMap).forEach(t => t.years.sort((a,b) => b-a));
-          trophies = Object.values(trophyMap).sort((a,b) => b.years.length - a.years.length || a.raceName.localeCompare(b.raceName));
-        }
-      }
+      // Not preloaded — query rider_wins directly (single targeted fetch)
+      const { data, error } = await sb
+        .from('rider_wins')
+        .select('race_slug,year')
+        .ilike('rider_name', rawName)
+        .order('year', { ascending: false });
+      if(error) console.warn('trophy fetch error:', error.message);
+      trophies = _buildTrophies(data || []);
     }
   } catch(e) { console.warn('trophy cabinet error (non-fatal):', e); }
 
