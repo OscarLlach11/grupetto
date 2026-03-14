@@ -1596,13 +1596,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Signal auth block that app data is ready — initAuth will now fire
   _appDataReady();
 
-  // Kick off featured riders preload immediately in background (parallel with auth)
-  // so cards are ready by the time user navigates to Riders tab
-  _fetchFeaturedRiders().then(riders => {
+  // Kick off featured riders fetch immediately in background (parallel with auth).
+  // Store the promise so renderRiders() can await it instead of fetching again.
+  _featuredRidersFetchPromise = _fetchFeaturedRiders().then(riders => {
+    _featuredRidersFetchPromise = null;
     if(!riders) return;
     _featuredRidersCache = riders;
     cacheSet('featured-riders', riders, 120);
-    // Also preload startlist + trophy data for each featured rider
     _preloadRiderNames(riders.map(r => r.rider_name || r.name));
   });
   if(location.hash && location.hash.length > 2) {
@@ -3260,6 +3260,8 @@ function renderRiderCard(rider){
 
 // Cache for featured riders — in-memory for session, localStorage for cross-session
 let _featuredRidersCache = null;
+// In-flight fetch promise — stored so renderRiders can await it rather than start a second fetch
+let _featuredRidersFetchPromise = null;
 
 // ── Rider page data preload cache ────────────────────────────────────────────
 // Maps lowercase rider_name (DB format) → Promise<rows[]>
@@ -3375,22 +3377,27 @@ async function renderRiders(forceRefresh){
     grid.innerHTML = lsCached.map(r => renderRiderCard(r)).join('');
     // Preload rider page data immediately
     _preloadRiderNames(lsCached.map(r => r.rider_name || r.name));
-    // Revalidate silently in background
-    _fetchFeaturedRiders().then(fresh => {
-      if(fresh){
-        _featuredRidersCache = fresh;
-        cacheSet('featured-riders', fresh, 120);
-        grid.innerHTML = fresh.map(r => renderRiderCard(r)).join('');
-        _preloadRiderNames(fresh.map(r => r.rider_name || r.name));
-      }
-    });
+    // Revalidate silently in background only if no fresh fetch is already running
+    if(!_featuredRidersFetchPromise){
+      _featuredRidersFetchPromise = _fetchFeaturedRiders().then(fresh => {
+        _featuredRidersFetchPromise = null;
+        if(fresh){
+          _featuredRidersCache = fresh;
+          cacheSet('featured-riders', fresh, 120);
+          grid.innerHTML = fresh.map(r => renderRiderCard(r)).join('');
+          _preloadRiderNames(fresh.map(r => r.rider_name || r.name));
+        }
+      });
+    }
     return;
   }
 
-  // 3. No cache — show skeletons, then fetch
+  // 3. Fetch in progress or no cache — await existing fetch or start a new one
   grid.innerHTML = Array(FEATURED_RIDERS.length || 10).fill(RIDER_SKELETON).join('');
 
-  const riders = await _fetchFeaturedRiders();
+  const riders = await (_featuredRidersFetchPromise
+    ? _featuredRidersFetchPromise.then(() => _featuredRidersCache)
+    : _fetchFeaturedRiders());
   if(!riders){ grid.innerHTML = '<div style="color:var(--muted);font-size:12px;grid-column:1/-1;">Could not load riders.</div>'; return; }
 
   _featuredRidersCache = riders;
