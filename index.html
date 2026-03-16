@@ -4750,12 +4750,22 @@ async function renderRiderPage(inputName){
   // Build stage win set: "slug|year|stage_num"
   const stageWinSet = new Set(stageWinRows.map(w => `${cleanSlug(w.race_slug)}|${w.year}|${w.stage_num}`));
 
-  // DEBUG: log RACE_DATES keys and slug formats to diagnose ordering
-  const _sampleSlug = sortedYears.length ? Object.keys(byYear[sortedYears[0]])[0] : 'none';
-  console.log('[sort-debug] sample startlist slug:', _sampleSlug, '→ resolves to:', resolveRaceSlug(_sampleSlug));
-  console.log('[sort-debug] RACE_DATES keys (first 5):', Object.keys(RACE_DATES).slice(0,5));
-  console.log('[sort-debug] RACE_DATES has strade-bianche?', !!RACE_DATES['strade-bianche'], 'keys matching strade:', Object.keys(RACE_DATES).filter(k=>k.includes('strade')));
-
+  // Fetch race_dates for all slugs in this rider's history so date-based sorting works
+  const allRiderSlugs = [...new Set(
+    sortedYears.flatMap(year => Object.keys(byYear[year]))
+  )];
+  const resolvedSlugs = [...new Set(
+    allRiderSlugs.map(s => resolveRaceSlug(s) || s).concat(allRiderSlugs)
+  )];
+  const { data: dateRows } = await sb.from('race_dates')
+    .select('race_id,year,race_date')
+    .in('race_id', resolvedSlugs);
+  (dateRows || []).forEach(row => {
+    const dk = cleanSlug(row.race_id);
+    if (!RACE_DATES[dk]) RACE_DATES[dk] = {};
+    RACE_DATES[dk][row.year] = row.race_date;
+  });
+  
   let racesHTML = '';
   sortedYears.forEach(year => {
     const racesInYear = Object.values(byYear[year]);
