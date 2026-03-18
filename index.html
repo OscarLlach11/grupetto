@@ -3644,6 +3644,24 @@ function renderStats(){
       ${topGCWinner?`<div class="stat-row stat-clickrow" onclick="showStatsPanel('gcwins2')"><span class="stat-row-label">GC Wins ↓</span><span class="stat-row-val" style="font-size:13px;text-align:right;">${formatRiderName(topGCWinner[0])}<br><span style="font-size:11px;color:var(--muted);">${topGCWinner[1]} GC wins</span></span></div>`:''}
       ${topStageWinner?`<div class="stat-row stat-clickrow" onclick="showStatsPanel('stagewins')"><span class="stat-row-label">Stage Wins ↓</span><span class="stat-row-val" style="font-size:13px;text-align:right;">${formatRiderName(topStageWinner[0])}<br><span style="font-size:11px;color:var(--muted);">${topStageWinner[1]} stage wins</span></span></div>`:''}
     </div>
+    <div class="stat-card">
+      <div class="stat-card-title">Wins Seen</div>
+      <div class="stat-row stat-clickrow" onclick="showStatsPanel('gcwins')" style="${Object.keys(overallWins).length?'':'opacity:.45;pointer-events:none;'}">
+        <span class="stat-row-label">Overall Wins</span>
+        <span class="stat-row-val">${Object.values(overallWins).reduce((a,b)=>a+b,0)||'—'}</span>
+      </div>
+      <div style="font-size:10px;color:var(--muted);padding:2px 0 8px;line-height:1.5;">GC finals · one-day races · monuments</div>
+      <div class="stat-row stat-clickrow" onclick="showStatsPanel('gcwins2')" style="${Object.keys(gcWins).length?'':'opacity:.45;pointer-events:none;'}">
+        <span class="stat-row-label">GC Wins</span>
+        <span class="stat-row-val">${Object.values(gcWins).reduce((a,b)=>a+b,0)||'—'}</span>
+      </div>
+      <div style="font-size:10px;color:var(--muted);padding:2px 0 8px;line-height:1.5;">stage races &amp; grand tours only</div>
+      <div class="stat-row stat-clickrow" onclick="showStatsPanel('stagewins')" style="${Object.keys(stageWins).length?'':'opacity:.45;pointer-events:none;'}">
+        <span class="stat-row-label">Stage Wins</span>
+        <span class="stat-row-val">${Object.values(stageWins).reduce((a,b)=>a+b,0)||'—'}</span>
+      </div>
+      <div style="font-size:10px;color:var(--muted);padding:2px 0 4px;line-height:1.5;">individual stage victories</div>
+    </div>
   </div>`;
 }
 
