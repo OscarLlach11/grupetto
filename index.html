@@ -1665,7 +1665,21 @@ function showPage(p){
   if(p!=='discover') curRacePageId=null;
   if(p==='log') renderLogPage();
   else if(p==='top') renderLeaderboard();
-  else if(p==='stats'){ loadRaceResultsForLog().then(()=>renderStats()); }
+  else if(p==='stats'){
+    loadRaceResultsForLog().then(async ()=>{
+      // Also load stage winners for all logged stages so getRiderData() can use them
+      const stageFetches = [];
+      Object.entries(stageLog).forEach(([raceId, years]) => {
+        Object.keys(years).forEach(year => {
+          if(!STAGES_CACHE[raceId]?.[year]) {
+            stageFetches.push(loadStages(raceId, parseInt(year)));
+          }
+        });
+      });
+      if(stageFetches.length) await Promise.all(stageFetches);
+      renderStats();
+    });
+  }
   else if(p==='profile') renderProfile();
   else if(p==='followers') {} // rendered by openFollowersPage()
   else if(p==='user') {}      // rendered by openUserPage()
@@ -3178,16 +3192,19 @@ function getRiderData(){
         }
       });
 
-      // Count stage wins
-      (res.stageWins||[]).forEach(name=>{
-        if(!name || typeof name!=='string') return;
-        stageWins[name]=(stageWins[name]||0)+1;
-        if(!raceHistory[name]) raceHistory[name]=[];
-        let entry = raceHistory[name].find(x=>x.id===id&&x.year===yr);
+      // Count stage wins — cross-reference logged stages with STAGES_CACHE winners
+      const loggedStageNums = Object.keys((stageLog[id]?.[yr] || stageLog[id]?.[String(yr)] || {})).map(Number);
+      const cachedStages = STAGES_CACHE[id]?.[yr] || STAGES_CACHE[id]?.[String(yr)] || [];
+      loggedStageNums.forEach(stageNum => {
+        const stageData = cachedStages.find(s => s.num === stageNum);
+        const winnerName = stageData?.winner;
+        if(!winnerName || typeof winnerName !== 'string') return;
+        stageWins[winnerName]=(stageWins[winnerName]||0)+1;
+        if(!raceHistory[winnerName]) raceHistory[winnerName]=[];
+        let entry = raceHistory[winnerName].find(x=>x.id===id&&x.year===yr);
         if(!entry){
-          counts[name]=(counts[name]||0);
-          raceHistory[name].push({id, year:yr, raceName, gcPos:-1, stages:0});
-          entry = raceHistory[name][raceHistory[name].length-1];
+          raceHistory[winnerName].push({id, year:yr, raceName, gcPos:-1, stages:0});
+          entry = raceHistory[winnerName][raceHistory[winnerName].length-1];
         }
         entry.stages=(entry.stages||0)+1;
       });
@@ -3642,7 +3659,7 @@ function renderStats(){
       ${topRider?`<div class="stat-row stat-clickrow" onclick="showStatsPanel('rider')"><span class="stat-row-label">Rider ↓</span><span class="stat-row-val" style="font-size:13px;text-align:right;">${formatRiderName(topRider[0])}<br><span style="font-size:11px;color:var(--muted);">${topRider[1]} races seen</span></span></div>`:''}
       ${topOverallWinner?`<div class="stat-row stat-clickrow" onclick="showStatsPanel('gcwins')"><span class="stat-row-label">Overall Wins ↓</span><span class="stat-row-val" style="font-size:13px;text-align:right;">${formatRiderName(topOverallWinner[0])}<br><span style="font-size:11px;color:var(--muted);">${topOverallWinner[1]} overall wins</span></span></div>`:''}
       ${topGCWinner?`<div class="stat-row stat-clickrow" onclick="showStatsPanel('gcwins2')"><span class="stat-row-label">GC Wins ↓</span><span class="stat-row-val" style="font-size:13px;text-align:right;">${formatRiderName(topGCWinner[0])}<br><span style="font-size:11px;color:var(--muted);">${topGCWinner[1]} GC wins</span></span></div>`:''}
-      ${topStageWinner?`<div class="stat-row stat-clickrow" onclick="showStatsPanel('stagewins')"><span class="stat-row-label">Stage Wins ↓</span><span class="stat-row-val" style="font-size:13px;text-align:right;">${formatRiderName(topStageWinner[0])}<br><span style="font-size:11px;color:var(--muted);">${topStageWinner[1]} stage wins</span></span></div>`:''}
+      <div class="stat-row${topStageWinner?' stat-clickrow':''}" ${topStageWinner?`onclick="showStatsPanel('stagewins')"`:''}><span class="stat-row-label">Stage Wins ↓</span><span class="stat-row-val" style="font-size:13px;text-align:right;">${topStageWinner?`${formatRiderName(topStageWinner[0])}<br><span style="font-size:11px;color:var(--muted);">${topStageWinner[1]} stage wins</span>`:'<span style="font-size:12px;color:var(--muted);">—</span>'}</span></div>
     </div>
   </div>`;
 }
