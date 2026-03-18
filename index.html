@@ -3192,18 +3192,28 @@ function getRiderData(){
         }
       });
 
-      // Count stage wins — cross-reference logged stages with STAGES_CACHE winners
-      const loggedStageNums = Object.keys((stageLog[id]?.[yr] || stageLog[id]?.[String(yr)] || {})).map(Number);
-      const cachedStages = STAGES_CACHE[id]?.[yr] || STAGES_CACHE[id]?.[String(yr)] || [];
-      loggedStageNums.forEach(stageNum => {
+
+    });
+  });
+
+  // Count stage wins — loop stageLog independently so all logged stages are counted
+  // regardless of whether a parent race log entry exists
+  Object.entries(stageLog).forEach(([raceId, years]) => {
+    const raceObj = RACES.find(r => r.id === raceId);
+    const raceName = raceObj?.name || raceId;
+    Object.entries(years).forEach(([yearStr, stages]) => {
+      const yr = parseInt(yearStr);
+      const cachedStages = STAGES_CACHE[raceId]?.[yr] || STAGES_CACHE[raceId]?.[yearStr] || [];
+      Object.keys(stages).forEach(stageNumStr => {
+        const stageNum = parseInt(stageNumStr);
         const stageData = cachedStages.find(s => s.num === stageNum);
         const winnerName = stageData?.winner;
         if(!winnerName || typeof winnerName !== 'string') return;
         stageWins[winnerName]=(stageWins[winnerName]||0)+1;
         if(!raceHistory[winnerName]) raceHistory[winnerName]=[];
-        let entry = raceHistory[winnerName].find(x=>x.id===id&&x.year===yr);
+        let entry = raceHistory[winnerName].find(x=>x.id===raceId&&x.year===yr);
         if(!entry){
-          raceHistory[winnerName].push({id, year:yr, raceName, gcPos:-1, stages:0});
+          raceHistory[winnerName].push({id:raceId, year:yr, raceName, gcPos:-1, stages:0});
           entry = raceHistory[winnerName][raceHistory[winnerName].length-1];
         }
         entry.stages=(entry.stages||0)+1;
