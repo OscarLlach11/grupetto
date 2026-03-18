@@ -1870,7 +1870,7 @@ function availYears(id){
 function renderAll(){renderGrid();renderSidebar();updateStats();if(curRacePageId) openRacePage(curRacePageId);}
 
 function filteredRaces(){
-  return RACES.filter(r=>{
+  const filtered = RACES.filter(r=>{
     if(aTier==='wt' && !isWT(r)) return false;
     if(aTier==='pro' && isWT(r)) return false;
     if(aTab!=='all'&&r.type!==aTab) return false;
@@ -1881,6 +1881,14 @@ function filteredRaces(){
     if(aSearch&&!r.name.toLowerCase().includes(aSearch)&&!r.country.toLowerCase().includes(aSearch)) return false;
     return true;
   });
+  // Sort: World Tour first (by tvYear asc), then Pro Series (by tvYear asc)
+  filtered.sort((a,b)=>{
+    const aWT = isWT(a) ? 0 : 1;
+    const bWT = isWT(b) ? 0 : 1;
+    if(aWT !== bWT) return aWT - bWT;
+    return (a.tvYear||a.firstYear||9999) - (b.tvYear||b.firstYear||9999);
+  });
+  return filtered;
 }
 
 function renderGrid(){
@@ -5486,7 +5494,7 @@ async function loadFollowingFeed(){
     const isStage = item.type === 'stage';
     const onclick = isStage
       ? `openStagePage('${item.slug}',${item.year},${item.stageNum})`
-      : `openRacePage('${item.slug}')`;
+      : `openRacePage('${item.slug}',${item.year})`;
 
     const posterBg = logoUrl
       ? `<div class="feed-poster-bg" style="background:${gradient};display:flex;align-items:center;justify-content:center;">
