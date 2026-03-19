@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GRUPETTO — Cycling Race Journal</title>
+<title>PALMARÈS — Cycling Race Journal</title>
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Serif+Display:ital@0;1&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
@@ -763,7 +763,7 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 
 <nav>
   <div class="logo" onclick="showPage('discover')">
-    <span class="logo-word">GRUPETTO</span>
+    <span class="logo-word">PALMARÈS</span>
     <span class="logo-sub">Cycling Race Journal</span>
   </div>
   <div class="nav-links">
@@ -1483,7 +1483,7 @@ function resolveRaceSlug(dbSlug){
 // Migrate from old storage key if exists
 (function(){
   try {
-    const oldLog = localStorage.getItem('grupetto-log');
+    const oldLog = localStorage.getItem('palmarès-log');
     if(oldLog && !localStorage.getItem('g3-log')){
       // Convert old flat format {id: [{type,year,rating,...}]} to new {id: {watches:[],range:[]}}
       const old = JSON.parse(oldLog);
@@ -1500,7 +1500,7 @@ function resolveRaceSlug(dbSlug){
       });
       localStorage.setItem('g3-log', JSON.stringify(newLog));
     }
-    const oldWL = localStorage.getItem('grupetto-watch');
+    const oldWL = localStorage.getItem('palmarès-watch');
     if(oldWL && !localStorage.getItem('g3-wl')) localStorage.setItem('g3-wl', oldWL);
   } catch(ex) { console.warn('Migration error', ex); }
 })();
@@ -1594,7 +1594,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const overlay = document.createElement('div');
   overlay.id = 'app-loading';
   overlay.innerHTML = `<div style="text-align:center;">
-    <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:6px;color:var(--gold);margin-bottom:12px;">GRUPETTO</div>
+    <div style="font-family:'Bebas Neue',sans-serif;font-size:28px;letter-spacing:6px;color:var(--gold);margin-bottom:12px;">PALMARÈS</div>
     <div style="display:flex;gap:6px;justify-content:center;">${Array(3).fill(0).map((_,i)=>`<div style="width:6px;height:6px;border-radius:50%;background:var(--gold);opacity:.3;animation:pulse 1.2s ${i*0.2}s ease-in-out infinite;"></div>`).join('')}</div>
   </div>`;
   overlay.style.cssText = 'position:fixed;inset:0;background:var(--black);z-index:9000;display:flex;align-items:center;justify-content:center;transition:opacity .3s;';
@@ -2538,11 +2538,11 @@ async function saveStageLogToSupabase(raceId, year, stageNum) {
 // Runs once on sign-in. Iterates stageLog and calls saveStageLogToSupabase
 // for any entry missing a dbId (i.e. never successfully saved to DB).
 
-// ── Debug helper — call window.grupettoDebug() from browser console ────────
-window.grupettoDebug = async function() {
+// ── Debug helper — call window.palmarèsDebug() from browser console ────────
+window.palmarèsDebug = async function() {
   if (!currentUser) { console.error('Not signed in'); return; }
   const uid = currentUser.id;
-  console.group('=== GRUPETTO DEBUG ===');
+  console.group('=== PALMARÈS DEBUG ===');
   console.log('Current user:', uid);
 
   // 1. What's in stage_logs for this user?
@@ -2586,7 +2586,7 @@ window.grupettoDebug = async function() {
 };
 
 // Force re-sync all local stage logs to Supabase (clears dbId cache so all go through fresh inserts)
-window.grupettoRepairStageLogs = async function() {
+window.palmarèsRepairStageLogs = async function() {
   if (!currentUser) { console.error('Not signed in'); return; }
   console.log('Repairing stage logs — clearing dbId cache and re-syncing all to Supabase...');
 
@@ -2609,10 +2609,10 @@ window.grupettoRepairStageLogs = async function() {
 
   // Re-sync all
   await syncLocalStageLogsToSupabase();
-  console.log('Done. Run window.grupettoDebug() to verify.');
+  console.log('Done. Run window.palmarèsDebug() to verify.');
   toast('Stage logs repaired and re-synced ✓');
 };
-console.log('%c[Grupetto] Debug ready — run window.grupettoDebug() or window.grupettoRepairStageLogs() in console', 'color:#f5a623');
+console.log('%c[Palmarès] Debug ready — run window.palmarèsDebug() or window.palmarèsRepairStageLogs() in console', 'color:#f5a623');
 
 async function syncLocalStageLogsToSupabase() {
   if (!currentUser) return;
