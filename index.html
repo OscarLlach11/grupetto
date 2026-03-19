@@ -1870,7 +1870,7 @@ function availYears(id){
 function renderAll(){renderGrid();renderSidebar();updateStats();if(curRacePageId) openRacePage(curRacePageId);}
 
 function filteredRaces(){
-  return RACES.filter(r=>{
+  const filtered = RACES.filter(r=>{
     if(aTier==='wt' && !isWT(r)) return false;
     if(aTier==='pro' && isWT(r)) return false;
     if(aTab!=='all'&&r.type!==aTab) return false;
@@ -1881,6 +1881,19 @@ function filteredRaces(){
     if(aSearch&&!r.name.toLowerCase().includes(aSearch)&&!r.country.toLowerCase().includes(aSearch)) return false;
     return true;
   });
+  filtered.sort((a,b)=>{
+    const aWT = isWT(a) ? 0 : 1;
+    const bWT = isWT(b) ? 0 : 1;
+    if(aWT !== bWT) return aWT - bWT;
+    // Within tier: sort by current-year race date, fall back to tvYear then firstYear
+    const dateA = RACE_DATES[a.id]?.[CY] || RACE_DATES[a.id]?.[String(CY)] || '';
+    const dateB = RACE_DATES[b.id]?.[CY] || RACE_DATES[b.id]?.[String(CY)] || '';
+    if(dateA && dateB) return dateA.localeCompare(dateB);
+    if(dateA) return -1;
+    if(dateB) return 1;
+    return (a.tvYear||a.firstYear||9999) - (b.tvYear||b.firstYear||9999);
+  });
+  return filtered;
 }
 
 function renderGrid(){
@@ -2995,8 +3008,11 @@ function renderLogPage(){
     if(logFilter.live==='replay' && w.live) return false;
     return true;
   });
-  stageItems = stageItems.filter(({sl})=>{
+  stageItems = stageItems.filter(({raceId, sl})=>{
+    const r=RACES.find(x=>x.id===raceId);
     if(logFilter.rating){ const rounded=(Math.round((sl.rating||0)*2)/2); if(rounded!==logFilter.rating) return false; }
+    if(logFilter.country && r){ const key=`${r.flag||''} ${r.country}`.trim(); if(key!==logFilter.country) return false; }
+    if(logFilter.type && r && r.type!==logFilter.type) return false;
     if(logFilter.live==='live' && !sl.live) return false;
     if(logFilter.live==='replay' && sl.live) return false;
     return true;
