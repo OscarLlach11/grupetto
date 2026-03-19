@@ -304,6 +304,10 @@
       </button>
       <button class="nav-a" onclick="signOut()"
         style="font-size:10px;letter-spacing:2px;">Sign out</button>`;
+    const navLog = document.getElementById('nav-log');
+    const navProfile = document.getElementById('nav-profile');
+    if(navLog) navLog.style.display = '';
+    if(navProfile) navProfile.style.display = '';
   }
 
   function renderNavGuest() {
@@ -311,6 +315,10 @@
     if (!el) return;
     el.innerHTML = `
       <button class="nav-a nav-cta" onclick="openAuthModal()">Sign in</button>`;
+    const navLog = document.getElementById('nav-log');
+    const navProfile = document.getElementById('nav-profile');
+    if(navLog) navLog.style.display = 'none';
+    if(navProfile) navProfile.style.display = 'none';
   }
 
   function openAuthModal() { openMO('auth-mo'); }
@@ -760,11 +768,11 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
   </div>
   <div class="nav-links">
     <button class="nav-a" id="nav-discover" onclick="showPage('discover')">Discover</button>
-    <button class="nav-a" id="nav-log" onclick="showPage('log')">My Log</button>
+    <button class="nav-a" id="nav-log" onclick="showPage('log')" style="display:none;">My Log</button>
     <button class="nav-a" id="nav-members" onclick="showPage('members')">Members</button>
     <button class="nav-a" id="nav-top" onclick="showPage('top')">Top Races</button>
     <button class="nav-a" id="nav-stats" onclick="showPage('stats')">Stats</button>
-    <button class="nav-a" id="nav-profile" onclick="showPage('profile')">Profile</button>
+    <button class="nav-a" id="nav-profile" onclick="showPage('profile')" style="display:none;">Profile</button>
     <div id="nav-cta-area" style="display:flex;align-items:center;gap:12px;">
       <button class="nav-a nav-cta" onclick="openAuthModal()">Sign in</button>
     </div>
@@ -1633,7 +1641,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 // ════════════════════════════════════════════════════════
 let aPg='discover';
 function showPage(p){
-  // Clear log filters when leaving the log page
+  // Redirect guests away from auth-only pages
+  if(!currentUser && (p==='log' || p==='profile')){ openAuthModal(); return; }
   if(aPg==='log' && p!=='log'){
     logFilter = { rating:0, country:'', type:'', sort:'date', live:'' };
   }
