@@ -314,6 +314,8 @@
     if(mobLog) mobLog.style.display = '';
     if(mobProfile) mobProfile.style.display = '';
     if(mobSignin) mobSignin.style.display = 'none';
+    const mobSignout = document.getElementById('mob-nav-signout');
+    if(mobSignout) mobSignout.style.display = '';
   }
 
   function renderNavGuest() {
@@ -331,6 +333,8 @@
     if(mobLog) mobLog.style.display = 'none';
     if(mobProfile) mobProfile.style.display = 'none';
     if(mobSignin) mobSignin.style.display = '';
+    const mobSignout = document.getElementById('mob-nav-signout');
+    if(mobSignout) mobSignout.style.display = 'none';
   }
 
   function openAuthModal() { openMO('auth-mo'); }
@@ -1335,14 +1339,20 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
       <!-- Sign in -->
       <div id="auth-form-in">
         <label class="flbl">Email</label>
-        <input type="email" class="dinp" id="si-email"
+        <input type="text" class="dinp" id="si-email"
           style="width:100%;margin-bottom:12px;"
           placeholder="your@email.com"
+          autocomplete="off"
+          data-lpignore="true"
+          data-form-type="other"
           onkeydown="if(event.key==='Enter') signInEmail()">
         <label class="flbl">Password</label>
         <input type="password" class="dinp" id="si-password"
           style="width:100%;margin-bottom:20px;"
           placeholder="••••••••"
+          autocomplete="new-password"
+          data-lpignore="true"
+          data-form-type="other"
           onkeydown="if(event.key==='Enter') signInEmail()">
         <button class="bp" style="width:100%;"
           onclick="signInEmail()">
@@ -1359,11 +1369,13 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
         <label class="flbl">Email</label>
         <input type="email" class="dinp" id="su-email"
           style="width:100%;margin-bottom:12px;"
+          autocomplete="off"
           placeholder="your@email.com">
         <label class="flbl">Password</label>
         <input type="password" class="dinp" id="su-password"
           style="width:100%;margin-bottom:20px;"
           placeholder="Min 6 characters"
+          autocomplete="new-password"
           onkeydown="if(event.key==='Enter') signUpEmail()">
         <button class="bp" style="width:100%;"
           onclick="signUpEmail()">
@@ -1724,9 +1736,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if(location.hash && location.hash.length > 2) {
     if(!location.hash.startsWith('#/review/')) window._pendingRoute = location.hash;
   } else {
-    const savedPage = localStorage.getItem('g3-activePage') || 'discover';
-    const validPages = ['discover','log','top','stats','profile'];
-    showPage(validPages.includes(savedPage) ? savedPage : 'discover');
+    showPage('discover');
   }
 
   // Fade out overlay
@@ -4577,8 +4587,7 @@ function editUsername(){ openEditProfile(); }
 // ════════════════════════════════════════════════════════
 function handleRoute(hash){
   if(!hash || hash === '#' || hash === '#/') {
-    const saved = localStorage.getItem('g3-activePage') || 'discover';
-    showPage(saved); return;
+    showPage('discover'); return;
   }
   const parts = hash.replace(/^#\//, '').split('/');
   if(parts[0] === 'race' && parts[1]) {
@@ -4604,7 +4613,7 @@ function handleRoute(hash){
     // Try treating as a main page name (log, top, stats, profile)
     const validPages = ['discover','log','top','stats','profile'];
     if(validPages.includes(parts[0])) showPage(parts[0]);
-    else { const saved = localStorage.getItem('g3-activePage') || 'discover'; showPage(saved); }
+    else { showPage('discover'); }
   }
 }
 
@@ -6018,6 +6027,10 @@ function sgBadgesHTML(id){
     <button class="mob-nav-btn" id="mob-nav-signin" onclick="openAuthModal()">
       <svg viewBox="0 0 24 24"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
       Sign In
+    </button>
+    <button class="mob-nav-btn" id="mob-nav-signout" onclick="signOut()" style="display:none;">
+      <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      Sign Out
     </button>
   </div>
 </div>
