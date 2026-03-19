@@ -1329,7 +1329,7 @@ async function loadAppData(){
 async function fetchAppData(RACE_COLS){
   const [racesRes, datesRes, configRes] = await Promise.all([
     sb.from('races').select(RACE_COLS).order('tier').order('race_type').order('race_name').limit(500),
-    sb.from('race_dates').select('race_id,year,race_date').limit(5000),
+    sb.from('race_dates').select('race_id,year,race_date').order('year', {ascending: false}).limit(5000),
     sb.from('app_config').select('key,value'),
   ]);
   if(racesRes.error) console.warn('races error:', racesRes.error.message);
@@ -1881,10 +1881,15 @@ function filteredRaces(){
     if(aSearch&&!r.name.toLowerCase().includes(aSearch)&&!r.country.toLowerCase().includes(aSearch)) return false;
     return true;
   });
-  // Helper: get the most recent available race date for a race
-  const latestDate = r => {
+  // Helper: get race date for sorting — prefer 2025, then most recent year available
+  const sortDate = r => {
     const dates = RACE_DATES[r.id];
     if(!dates) return '';
+    // Try 2025 first, then walk back through available years
+    for(const y of [2025, 2024, 2023, 2022, 2021, 2020]){
+      if(dates[y]) return dates[y];
+    }
+    // Fallback: any year
     const years = Object.keys(dates).map(Number).sort((a,b)=>b-a);
     for(const y of years){ if(dates[y]) return dates[y]; }
     return '';
@@ -1893,12 +1898,9 @@ function filteredRaces(){
     const aWT = isWT(a) ? 0 : 1;
     const bWT = isWT(b) ? 0 : 1;
     if(aWT !== bWT) return aWT - bWT;
-    // Within tier: sort by most recent available race date (MM-DD portion for calendar order)
-    const dateA = latestDate(a);
-    const dateB = latestDate(b);
-    // Compare only the MM-DD part so all years map to the same calendar position
-    const mmddA = dateA ? dateA.slice(5) : '';
-    const mmddB = dateB ? dateB.slice(5) : '';
+    // Within tier: compare MM-DD only (calendar position in the season)
+    const mmddA = (sortDate(a)||'').slice(5);
+    const mmddB = (sortDate(b)||'').slice(5);
     if(mmddA && mmddB) return mmddA.localeCompare(mmddB);
     if(mmddA) return -1;
     if(mmddB) return 1;
@@ -2625,7 +2627,7 @@ async function syncLocalStageLogsToSupabase() {
 // ── TTL Cache — stale-while-revalidate for expensive Supabase queries ─────
 // Usage: cacheSet('key', data, ttlMinutes)  /  cacheGet('key') → data or null
 const CACHE_PREFIX = 'g3-cache:';
-const CACHE_VERSION = 'v4'; // bump this to bust all caches
+const CACHE_VERSION = 'v5'; // bump this to bust all caches
 function cacheSet(key, data, ttlMinutes = 30){
   try {
     localStorage.setItem(CACHE_PREFIX + key, JSON.stringify({
