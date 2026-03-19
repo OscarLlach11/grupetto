@@ -625,86 +625,6 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 .mob-nav-btn:hover,.mob-nav-btn.active{color:var(--gold);}
 .mob-nav-btn svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;}
 .mob-nav-btn.active svg{stroke:var(--gold);}
-
-@media(max-width:820px){
-  /* layout */
-  .main-layout,.race-sub-layout{grid-template-columns:1fr;}
-  .sidebar,.rsp-sidebar{display:none;}
-  .profile-layout{grid-template-columns:1fr;}
-  .profile-sidebar{border-right:none;border-bottom:1px solid var(--border);padding:24px 20px 16px;}
-  .profile-main{padding:20px;}
-  .profile-main[style*="border-right"]{border-right:none!important;border-bottom:1px solid var(--border);}
-
-  /* nav — hide desktop links, show mobile nav */
-  nav .nav-links{display:none;}
-  nav{padding:12px 20px;}
-  .logo-word{font-size:22px;}
-  .logo-sub{font-size:8px;}
-
-  /* add bottom padding so content isn't hidden behind mobile nav */
-  .page.active,.page{padding-bottom:64px;}
-  #page-rider,#page-race,#page-review,#page-stage,#page-followers{padding-bottom:0;}
-
-  /* mobile nav visible */
-  .mob-nav{display:block;}
-
-  /* hero */
-  .hero{padding:20px 20px 18px;}
-  .hero h1{white-space:normal;font-size:clamp(28px,8vw,48px);}
-  .hstats{gap:16px;}
-  .hstat-n{font-size:20px;}
-
-  /* tabs, filters, tier bar */
-  .tabs{padding:0 16px;overflow-x:auto;-webkit-overflow-scrolling:touch;}
-  .tab{padding:12px 0;margin-right:18px;}
-  .fbar{padding:10px 16px;gap:5px;overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch;}
-  .tier-bar{padding:8px 16px 0;}
-  .disc-subtabs{padding:0 16px;}
-
-  /* search */
-  .search-wrap-disc{padding:10px 16px 0;}
-  .search-disc{max-width:100%;}
-
-  /* list items */
-  .lpe{padding:12px 16px;}
-  .lbi{padding:10px 16px;}
-  .rider-card{padding:10px 16px;}
-
-  /* race subpage */
-  .rsp-main{padding:16px;}
-  .rsp-banner{height:160px;}
-  .rsp-ttl{font-size:30px;}
-
-  /* riders section search */
-  #disc-section-riders > div:first-child{flex-direction:column;align-items:flex-start;padding:16px;}
-  #disc-section-riders > div:first-child > div:last-child{width:100%;}
-  #disc-section-riders > div:first-child input{width:100%;box-sizing:border-box;}
-  #riders-list{padding:20px 16px;}
-
-  /* stats grid */
-  .stats-grid{grid-template-columns:1fr;}
-
-  /* fav riders */
-  .fav-riders-grid{gap:8px;}
-  .fav-rider-slot,.fav-rider-slot.filled{width:calc((100vw - 40px - 24px) / 4)!important;min-width:0;}
-  .fav-race-card{width:100%;}
-
-  /* modals */
-  .modal,.modal.wide{max-width:100%;width:calc(100vw - 16px);}
-
-  /* empty states */
-  .empty{padding:36px 20px;}
-
-  /* toast above mobile nav */
-  .toast{bottom:80px;}
-
-  /* members/following page */
-  .lpe-right{gap:3px;}
-
-  /* race grid cards */
-  .race-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));}
-}
-
 .search-wrap-disc{padding:14px 40px 0;}.search-disc{background:var(--card-bg);border:1px solid var(--border);color:var(--white);padding:9px 14px;font-family:'DM Sans',sans-serif;font-size:13px;width:100%;max-width:340px;transition:border-color .15s;}.search-disc:focus{outline:none;border-color:var(--gold-dim);}.search-disc::placeholder{color:var(--muted);}
 /* PROFILE PAGE */
 .profile-layout{display:grid;grid-template-columns:1fr 2fr 1fr;min-height:calc(100vh - 57px);}
@@ -856,6 +776,85 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 .feed-username{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .feed-stars{margin-top:3px;display:flex;align-items:center;gap:4px;}
 .feed-date{font-size:9px;color:var(--muted);margin-top:1px;}
+
+@media(max-width:820px){
+  /* layout */
+  .main-layout,.race-sub-layout{grid-template-columns:1fr;}
+  .sidebar,.rsp-sidebar{display:none;}
+  .profile-layout{grid-template-columns:1fr;}
+  .profile-sidebar{border-right:none;border-bottom:1px solid var(--border);padding:24px 20px 16px;}
+  .profile-main{padding:20px;}
+  .profile-main[style*="border-right"]{border-right:none!important;border-bottom:1px solid var(--border);}
+
+  /* nav — hide desktop links, show mobile nav */
+  nav .nav-links{display:none;}
+  nav{padding:12px 20px;}
+  .logo-word{font-size:22px;}
+  .logo-sub{font-size:8px;}
+
+  /* add bottom padding so content isn't hidden behind mobile nav */
+  .page.active,.page{padding-bottom:64px;}
+  #page-rider,#page-race,#page-review,#page-stage,#page-followers{padding-bottom:0;}
+
+  /* mobile nav visible */
+  .mob-nav{display:block;}
+
+  /* hero */
+  .hero{padding:20px 20px 18px;}
+  .hero h1{white-space:normal;font-size:clamp(28px,8vw,48px);}
+  .hstats{gap:16px;}
+  .hstat-n{font-size:20px;}
+
+  /* tabs, filters, tier bar */
+  .tabs{padding:0 16px;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  .tab{padding:12px 0;margin-right:18px;}
+  .fbar{padding:10px 16px;gap:5px;overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch;}
+  .tier-bar{padding:8px 16px 0;}
+  .disc-subtabs{padding:0 16px;}
+
+  /* search */
+  .search-wrap-disc{padding:10px 16px 0;}
+  .search-disc{max-width:100%;}
+
+  /* list items */
+  .lpe{padding:12px 16px;}
+  .lbi{padding:10px 16px;}
+  .rider-card{padding:10px 16px;}
+
+  /* race subpage */
+  .rsp-main{padding:16px;}
+  .rsp-banner{height:160px;}
+  .rsp-ttl{font-size:30px;}
+
+  /* riders section search */
+  #disc-section-riders > div:first-child{flex-direction:column;align-items:flex-start;padding:16px;}
+  #disc-section-riders > div:first-child > div:last-child{width:100%;}
+  #disc-section-riders > div:first-child input{width:100%;box-sizing:border-box;}
+  #riders-list{padding:20px 16px;}
+
+  /* stats grid */
+  .stats-grid{grid-template-columns:1fr;}
+
+  /* fav riders */
+  .fav-riders-grid{gap:8px;}
+  .fav-rider-slot,.fav-rider-slot.filled{width:calc((100vw - 40px - 24px) / 4)!important;min-width:0;}
+  .fav-race-card{width:100%;}
+
+  /* modals */
+  .modal,.modal.wide{max-width:100%;width:calc(100vw - 16px);}
+
+  /* empty states */
+  .empty{padding:36px 20px;}
+
+  /* toast above mobile nav */
+  .toast{bottom:80px;}
+
+  /* members/following page */
+  .lpe-right{gap:3px;}
+
+  /* race grid cards */
+  .race-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));}
+}
 </style>
 </head>
 <body>
@@ -1070,7 +1069,7 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 <div id="page-top" class="page">
   <div class="hero" style="padding-bottom:32px;">
     <div class="hero-bg">TOP</div>
-    <div class="eyebrow">— Personal Rankings</div>
+    <div class="eyebrow">— Community Rankings</div>
     <h1>Greatest <em>races</em> ever.</h1>
   </div>
   <div style="padding:24px 40px 12px;font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:3px;">Rankings</div>
