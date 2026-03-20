@@ -337,7 +337,49 @@
     if(mobSignout) mobSignout.style.display = 'none';
   }
 
-  function openAuthModal() { openMO('auth-mo'); }
+  function openAuthModal() {
+    // Inject auth form fresh each time — keeps password fields out of the DOM on load
+    // so browsers never trigger autofill/keychain popups
+    document.getElementById('auth-modal-body').innerHTML = `
+      <div style="display:flex;border-bottom:1px solid var(--border);margin-bottom:24px;">
+        <button id="auth-tab-in" onclick="setAuthTab('in')"
+          style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:3px;background:none;border:none;color:var(--gold);padding:0 0 10px;margin-right:24px;border-bottom:2px solid var(--gold);cursor:pointer;">
+          Sign In
+        </button>
+        <button id="auth-tab-up" onclick="setAuthTab('up')"
+          style="font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:3px;background:none;border:none;color:var(--muted);padding:0 0 10px;border-bottom:2px solid transparent;cursor:pointer;">
+          Create Account
+        </button>
+      </div>
+      <div id="auth-form-in">
+        <label class="flbl">Email</label>
+        <input type="email" class="dinp" id="si-email"
+          style="width:100%;margin-bottom:12px;" placeholder="your@email.com"
+          autocomplete="email"
+          onkeydown="if(event.key==='Enter') signInEmail()">
+        <label class="flbl">Password</label>
+        <input type="password" class="dinp" id="si-password"
+          style="width:100%;margin-bottom:20px;" placeholder="••••••••"
+          autocomplete="current-password"
+          onkeydown="if(event.key==='Enter') signInEmail()">
+        <button class="bp" style="width:100%;" onclick="signInEmail()">Sign In</button>
+      </div>
+      <div id="auth-form-up" style="display:none;">
+        <label class="flbl">Your Name</label>
+        <input type="text" class="dinp" id="su-name"
+          style="width:100%;margin-bottom:12px;" placeholder="Eddy Merckx" autocomplete="off">
+        <label class="flbl">Email</label>
+        <input type="email" class="dinp" id="su-email"
+          style="width:100%;margin-bottom:12px;" placeholder="your@email.com" autocomplete="off">
+        <label class="flbl">Password</label>
+        <input type="password" class="dinp" id="su-password"
+          style="width:100%;margin-bottom:20px;" placeholder="Min 6 characters"
+          autocomplete="new-password"
+          onkeydown="if(event.key==='Enter') signUpEmail()">
+        <button class="bp" style="width:100%;" onclick="signUpEmail()">Create Account</button>
+      </div>`;
+    openMO('auth-mo');
+  }
 
   function setAuthTab(tab) {
     document.getElementById('auth-form-in').style.display = tab==='in' ? 'block' : 'none';
@@ -549,7 +591,7 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 .lbi:hover{background:#0d0d0d;}
 .lbrank{font-family:'Bebas Neue',sans-serif;font-size:26px;color:var(--muted);width:32px;text-align:center;flex-shrink:0;}
 .lbrank.pod{color:var(--gold);}
-.lbsw{width:5px;height:40px;flex-shrink:0;}
+.lbsw{width:5px;height:40px;flex-shrink:0;position:relative;}
 .lbinfo{flex:1;min-width:0;}
 .lbname{font-family:'DM Serif Display',serif;font-size:15px;margin-bottom:1px;}
 .lbsub{font-size:10px;color:var(--ml);letter-spacing:1px;}
@@ -1316,71 +1358,8 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 <!-- AUTH MODAL -->
 <div class="mo" id="auth-mo" onclick="handleMOClick(event,'auth-mo')">
   <div class="modal" style="max-width:420px;">
-    <div class="mbody" style="padding:28px;">
-
-      <!-- Tabs -->
-      <div style="display:flex;border-bottom:1px solid var(--border);margin-bottom:24px;">
-        <button id="auth-tab-in" onclick="setAuthTab('in')"
-          style="font-family:'Bebas Neue',sans-serif;font-size:18px;
-                 letter-spacing:3px;background:none;border:none;
-                 color:var(--gold);padding:0 0 10px;margin-right:24px;
-                 border-bottom:2px solid var(--gold);cursor:pointer;">
-          Sign In
-        </button>
-        <button id="auth-tab-up" onclick="setAuthTab('up')"
-          style="font-family:'Bebas Neue',sans-serif;font-size:18px;
-                 letter-spacing:3px;background:none;border:none;
-                 color:var(--muted);padding:0 0 10px;
-                 border-bottom:2px solid transparent;cursor:pointer;">
-          Create Account
-        </button>
-      </div>
-
-      <!-- Sign in -->
-      <div id="auth-form-in">
-        <label class="flbl">Email</label>
-        <input type="text" class="dinp" id="si-email"
-          style="width:100%;margin-bottom:12px;"
-          placeholder="your@email.com"
-          autocomplete="off"
-          data-lpignore="true"
-          data-form-type="other"
-          onkeydown="if(event.key==='Enter') signInEmail()">
-        <label class="flbl">Password</label>
-        <input type="password" class="dinp" id="si-password"
-          style="width:100%;margin-bottom:20px;"
-          placeholder="••••••••"
-          autocomplete="new-password"
-          data-lpignore="true"
-          data-form-type="other"
-          onkeydown="if(event.key==='Enter') signInEmail()">
-        <button class="bp" style="width:100%;"
-          onclick="signInEmail()">
-          Sign In
-        </button>
-      </div>
-
-      <!-- Sign up -->
-      <div id="auth-form-up" style="display:none;">
-        <label class="flbl">Your Name</label>
-        <input type="text" class="dinp" id="su-name"
-          style="width:100%;margin-bottom:12px;"
-          placeholder="Eddy Merckx">
-        <label class="flbl">Email</label>
-        <input type="email" class="dinp" id="su-email"
-          style="width:100%;margin-bottom:12px;"
-          autocomplete="off"
-          placeholder="your@email.com">
-        <label class="flbl">Password</label>
-        <input type="password" class="dinp" id="su-password"
-          style="width:100%;margin-bottom:20px;"
-          placeholder="Min 6 characters"
-          autocomplete="new-password"
-          onkeydown="if(event.key==='Enter') signUpEmail()">
-        <button class="bp" style="width:100%;"
-          onclick="signUpEmail()">
-          Create Account
-        </button>
+    <div class="mbody" style="padding:28px;" id="auth-modal-body">
+      <!-- injected by openAuthModal() -->
         <div style="font-size:11px;color:var(--muted);
                     text-align:center;margin-top:12px;line-height:1.6;">
           You'll receive a confirmation email.<br>
@@ -3285,12 +3264,18 @@ async function renderLeaderboard(){
     const onclick = isStage
       ? `openStagePage('${slug}',${year},${stageNum})`
       : `openRacePage('${slug}')`;
+    const logoCell = race.logoUrl
+      ? `<div style="width:44px;height:44px;flex-shrink:0;background:${race.gradient};display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;">
+           <img src="${race.logoUrl}" alt="" style="max-width:80%;max-height:80%;object-fit:contain;filter:drop-shadow(0 1px 3px rgba(0,0,0,.5));" onerror="this.parentElement.style.background='${race.gradient}';this.remove()">
+           ${isStage ? `<div style="position:absolute;bottom:1px;left:50%;transform:translateX(-50%);font-size:6px;letter-spacing:1px;color:var(--gold);font-family:'Bebas Neue',sans-serif;background:rgba(0,0,0,.6);padding:0 3px;">S${stageNum}</div>` : ''}
+         </div>`
+      : `<div class="lbsw" style="background:${race.gradient}">
+           ${isStage ? `<div style="position:absolute;bottom:2px;left:50%;transform:translateX(-50%);font-size:7px;letter-spacing:1px;color:var(--gold);font-family:'Bebas Neue',sans-serif;">S${stageNum}</div>` : ''}
+         </div>`;
     return `
     <div class="lbi" onclick="${onclick}">
       <div class="lbrank ${i<3?'pod':''}">${i+1}</div>
-      <div class="lbsw" style="background:${race.gradient}">
-        ${isStage ? `<div style="position:absolute;bottom:2px;left:50%;transform:translateX(-50%);font-size:7px;letter-spacing:1px;color:var(--gold);font-family:'Bebas Neue',sans-serif;">S${stageNum}</div>` : ''}
-      </div>
+      ${logoCell}
       <div class="lbinfo">
         <div class="lbname">${label}</div>
         <div class="lbsub">${sublabel}</div>
@@ -4005,7 +3990,13 @@ function confirmClearAll(){
 //  MODAL HELPERS
 // ════════════════════════════════════════════════════════
 function openMO(id){document.getElementById(id).classList.add('open');}
-function closeMO(id){document.getElementById(id).classList.remove('open');if(id==='log-mo'){curId=null;_restoreLogModal();}}
+function closeMO(id){
+  if(id === 'auth-mo') {
+    ['si-password','su-password'].forEach(function(eid) {
+      var el = document.getElementById(eid);
+      if(el) { el.type = 'text'; el.value = ''; }
+    });
+  }document.getElementById(id).classList.remove('open');if(id==='log-mo'){curId=null;_restoreLogModal();}}
 function handleMOClick(e,id){if(e.target===document.getElementById(id)) closeMO(id);}
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeMO('log-mo');closeMO('search-mo');closeMO('auth-mo');closeMO('rider-picker-mo');closeMO('race-picker-mo');closeMO('edit-profile-mo');closeConfirm();}});
 
