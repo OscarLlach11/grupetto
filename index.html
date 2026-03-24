@@ -1819,8 +1819,8 @@ function restoreDiscoverFilters(){
 }
 
 // ── Championship country data ─────────────────────────────────────────────────
-// Maps country name (as it appears in race_name) → { flag, gradient }
-// Gradient uses the country's national colours.
+// Maps country name (as it appears in PCS race_name) → { flag, gradient }
+// Includes common PCS aliases (e.g. "Great Britain", "United States", "Korea").
 const COUNTRY_CHAMP_DATA = {
   'Afghanistan':      { flag:'🇦🇫', gradient:'linear-gradient(135deg,#000000,#009a44,#000000)' },
   'Albania':          { flag:'🇦🇱', gradient:'linear-gradient(135deg,#e41e20,#000000)' },
@@ -1921,22 +1921,67 @@ const COUNTRY_CHAMP_DATA = {
   'Uzbekistan':       { flag:'🇺🇿', gradient:'linear-gradient(135deg,#1eb53a,#ffffff,#ce1126)' },
   'Venezuela':        { flag:'🇻🇪', gradient:'linear-gradient(135deg,#cf142b,#ffffff,#00247d)' },
   'Vietnam':          { flag:'🇻🇳', gradient:'linear-gradient(135deg,#da251d,#ffcd00)' },
+  // ── PCS-specific aliases and additional countries ──────────────────────────
+  'Great Britain':    { flag:'🇬🇧', gradient:'linear-gradient(135deg,#012169,#c8102e,#ffffff)' },
+  'United States':    { flag:'🇺🇸', gradient:'linear-gradient(135deg,#b22234,#ffffff,#3c3b6e)' },
+  'USA':              { flag:'🇺🇸', gradient:'linear-gradient(135deg,#b22234,#ffffff,#3c3b6e)' },
+  'Korea':            { flag:'🇰🇷', gradient:'linear-gradient(135deg,#ffffff,#cd2e3a,#003478)' },
+  'Chinese Taipei':   { flag:'🇹🇼', gradient:'linear-gradient(135deg,#fe0000,#000095)' },
+  'Hong Kong':        { flag:'🇭🇰', gradient:'linear-gradient(135deg,#de2910,#ffffff)' },
+  'Czechia':          { flag:'🇨🇿', gradient:'linear-gradient(135deg,#d7141a,#ffffff,#11457e)' },
+  'Slovak Republic':  { flag:'🇸🇰', gradient:'linear-gradient(135deg,#ffffff,#0b4ea2,#ee1c25)' },
+  'Bosnia and Herzegovina': { flag:'🇧🇦', gradient:'linear-gradient(135deg,#002395,#fecb00)' },
+  'Trinidad and Tobago': { flag:'🇹🇹', gradient:'linear-gradient(135deg,#ce1126,#000000,#ffffff)' },
+  'North Korea':      { flag:'🇰🇵', gradient:'linear-gradient(135deg,#024fa2,#ffffff,#be0000)' },
+  'Dominican Republic': { flag:'🇩🇴', gradient:'linear-gradient(135deg,#002d62,#ffffff,#ce1126)' },
+  'Burkina Faso':     { flag:'🇧🇫', gradient:'linear-gradient(135deg,#ef2b2d,#fcd116,#009a00)' },
+  'Cameroon':         { flag:'🇨🇲', gradient:'linear-gradient(135deg,#007a5e,#ce1126,#fcd116)' },
+  'Ivory Coast':      { flag:'🇨🇮', gradient:'linear-gradient(135deg,#f77f00,#ffffff,#009a44)' },
+  'Democratic Republic of Congo': { flag:'🇨🇩', gradient:'linear-gradient(135deg,#007fff,#f7d618,#ce1126)' },
+  'Eritrea':          { flag:'🇪🇷', gradient:'linear-gradient(135deg,#4189dd,#12ad2b,#ff0000)' },
+  'Rwanda':           { flag:'🇷🇼', gradient:'linear-gradient(135deg,#20603d,#fad201,#20a0d6)' },
+  'Senegal':          { flag:'🇸🇳', gradient:'linear-gradient(135deg,#00853f,#fdef42,#e31b23)' },
+  'Tanzania':         { flag:'🇹🇿', gradient:'linear-gradient(135deg,#1eb53a,#000000,#fcd116,#009bde)' },
+  'Uganda':           { flag:'🇺🇬', gradient:'linear-gradient(135deg,#000000,#fcdc04,#de3908)' },
+  'Zimbabwe':         { flag:'🇿🇼', gradient:'linear-gradient(135deg,#006400,#ffd200,#d40000,#000000)' },
+  'New Caledonia':    { flag:'🇳🇨', gradient:'linear-gradient(135deg,#009a44,#fcd116,#ce1126)' },
+  'Puerto Rico':      { flag:'🇵🇷', gradient:'linear-gradient(135deg,#ed0000,#ffffff,#002a8f)' },
+  'Serbia and Montenegro': { flag:'🇷🇸', gradient:'linear-gradient(135deg,#c6363c,#0c4076,#ffffff)' },
+  'FR Yugoslavia':    { flag:'🇷🇸', gradient:'linear-gradient(135deg,#c6363c,#0c4076,#ffffff)' },
+  'Soviet Union':     { flag:'🇷🇺', gradient:'linear-gradient(135deg,#cc0000,#cc0000)' },
+  'East Germany':     { flag:'🇩🇪', gradient:'linear-gradient(135deg,#000000,#dd0000,#ffce00)' },
+  'West Germany':     { flag:'🇩🇪', gradient:'linear-gradient(135deg,#000000,#dd0000,#ffce00)' },
+  'Czechoslovakia':   { flag:'🇨🇿', gradient:'linear-gradient(135deg,#d7141a,#ffffff,#11457e)' },
+  'Yugoslavia':       { flag:'🇷🇸', gradient:'linear-gradient(135deg,#0032a0,#ffffff,#de0000)' },
 };
 const CHAMP_CATEGORY_DATA = {
-  'worlds':   { flag:'🌍', gradient:'linear-gradient(135deg,#1a1a2e,#4a0080,#800080)' },
-  'european': { flag:'🇪🇺', gradient:'linear-gradient(135deg,#003399,#ffcc00)' },
+  'worlds':   { flag:'🌍', gradient:'linear-gradient(90deg,#8b0000 0%,#e84c00 18%,#d4a800 36%,#1a7a1a 54%,#0044cc 72%,#7b00d4 100%)' },
+  'european': { flag:'🇪🇺', gradient:'linear-gradient(135deg,#003399 0%,#1558c0 50%,#ffcc00 100%)' },
 };
 
 function getChampData(r) {
   const sgs = r.subgenres || [];
+  // 1. Category-level (worlds / european) wins first
   for (const cat of ['worlds','european']) {
-    if (sgs.includes(cat)) return CHAMP_CATEGORY_DATA[cat];
+    if (sgs.includes(cat) || r.id.includes(cat.replace('worlds','world-championship').replace('european','european-championship'))) {
+      return CHAMP_CATEGORY_DATA[cat];
+    }
   }
-  // Parse country from race_name: "National Championships {Country} ME - Road Race"
-  const m = r.name.match(/National Championships?\s+(.+?)\s+(ME|WE|MU23|WU23|MJ|WJ)\s*[-–]/i);
+  if (r.id.startsWith('world-championship')) return CHAMP_CATEGORY_DATA['worlds'];
+  if (r.id.startsWith('european-championship')) return CHAMP_CATEGORY_DATA['european'];
+  // 2. Parse country from PCS race_name: "National Championships {Country} ME/WE/MU23/etc - ..."
+  const m = r.name.match(/National Championships?\s+(.+?)\s+(?:ME|WE|MU23|WU23|MJ|WJ)(?:\s*[-–]|$)/i);
   if (m) {
     const country = m[1].trim();
-    return COUNTRY_CHAMP_DATA[country] || { flag: r.flag || '🏳', gradient: 'linear-gradient(135deg,#1a1a1a,#333)' };
+    // Exact match first
+    if (COUNTRY_CHAMP_DATA[country]) return COUNTRY_CHAMP_DATA[country];
+    // Fuzzy: check if any key is contained in the parsed name or vice versa
+    const lower = country.toLowerCase();
+    for (const [k, v] of Object.entries(COUNTRY_CHAMP_DATA)) {
+      if (lower.includes(k.toLowerCase()) || k.toLowerCase().includes(lower)) return v;
+    }
+    // Last resort: flag from DB, muted gradient
+    return { flag: r.flag || '🏳', gradient: 'linear-gradient(135deg,#1e1e2e,#2a2a3e)' };
   }
   return { flag: r.flag || '', gradient: r.gradient || 'linear-gradient(135deg,#1a1a1a,#333)' };
 }
