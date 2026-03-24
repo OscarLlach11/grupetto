@@ -1839,7 +1839,13 @@ function renderTabs(){
   // Only include types that exist in current tier
   const tierRaces = RACES.filter(r => aTier==='all' || (aTier==='wt'&&isWT(r)) || (aTier==='pro'&&!isWT(r)&&!isChamp(r)) || (aTier==='champ'&&isChamp(r)));
   const presentTypes = aTier==='champ'
-    ? new Set(tierRaces.flatMap(r=>r.subgenres||[]))
+    ? new Set(tierRaces.flatMap(r => {
+        const sgs = r.subgenres || [];
+        const tags = [...sgs];
+        if (!tags.includes('ITT') && r.id.endsWith('-itt')) tags.push('ITT');
+        if (!tags.includes('RR')  && !r.id.endsWith('-itt') && isChamp(r)) tags.push('RR');
+        return tags;
+      }))
     : new Set(tierRaces.map(r=>r.type));
   const filtered = types.filter(t => presentTypes.has(t));
   const labels = {'Grand Tour':'Grand Tours','Monument':'Monuments','Classic':'Classics','Stage Race':'Stage Races','One Day':'One Day','RR':'Road Race','ITT':'Time Trial'};
@@ -1978,8 +1984,9 @@ function filteredRaces(){
     if(aTier==='wt'    && (!isWT(r) || isChamp(r))) return false;
     if(aTier==='pro'   && (isWT(r)  || isChamp(r))) return false;
     if(aTier==='champ' && !isChamp(r))              return false;
-    // For championships, RR/ITT tabs filter by subgenres array
-    if(aTier==='champ' && aTab!=='all' && !(r.subgenres||[]).includes(aTab)) return false;
+    // For championships, RR/ITT tabs filter by subgenres array (or slug suffix fallback)
+    if(aTier==='champ' && aTab==='ITT' && !(r.subgenres||[]).includes('ITT') && !r.id.endsWith('-itt')) return false;
+    if(aTier==='champ' && aTab==='RR'  && !(r.subgenres||[]).includes('RR')  && r.id.endsWith('-itt')) return false;
     if(aTier!=='champ' && aTab!=='all' && r.type!==aTab) return false;
     const l=hasLog(r.id);
     if(aFil==='logged'&&!l) return false;
@@ -2033,13 +2040,24 @@ function renderGrid(){
       ? (sgs.includes('worlds') ? '🌍' : sgs.includes('european') ? '🇪🇺' : r.flag || '')
       : (r.flag || '');
     const dispFlag = champFlag;
-    const champLabel = sgs.includes('RR') && sgs.includes('ITT') ? 'RR + ITT'
-                     : sgs.includes('RR') ? 'Road Race'
-                     : sgs.includes('ITT') ? 'Time Trial' : '';
+    // RR/ITT label — fall back to slug suffix if subgenres not yet seeded
+    const isITT = sgs.includes('ITT') || r.id.endsWith('-itt');
+    const isRR  = sgs.includes('RR')  || (!isITT && isChamp(r));
+    const champLabel = isChamp(r) ? (isRR && isITT ? 'RR + ITT' : isITT ? 'Time Trial' : 'Road Race') : '';
+    // Worlds / European logos — injected by slug, no DB change needed
+    const CHAMP_LOGOS = {
+      'world-championship':     'https://upload.wikimedia.org/wikipedia/commons/b/b4/Jersey_rainbow.svg',
+      'world-championship-itt': 'https://upload.wikimedia.org/wikipedia/commons/b/b4/Jersey_rainbow.svg',
+    };
+    const effectiveLogoUrl = r.logoUrl || CHAMP_LOGOS[r.id] || null;
     return `<div class="rc" style="animation-delay:${Math.min(i*.025,.5)}s" onclick="openRacePage('${r.id}')">
       <div class="rc-img" style="background:${r.gradient};position:relative;overflow:hidden;">
         <span class="rc-cat">${r.type==='championship'?'CHAMPS':r.type.toUpperCase()}</span>${isWT(r)&&!isChamp(r)?'<span class="rc-wt">WT</span>':''}
-        ${r.logoUrl ? `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:10px 8px 22px;"><img src="${r.logoUrl}" alt="${r.name}" style="max-width:80%;max-height:70%;object-fit:contain;filter:drop-shadow(0 2px 6px rgba(0,0,0,.5));" onerror="this.parentElement.remove()"></div>` : ''}
+        ${effectiveLogoUrl
+          ? `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:10px 8px 22px;"><img src="${effectiveLogoUrl}" alt="${r.name}" style="max-width:80%;max-height:70%;object-fit:contain;filter:drop-shadow(0 2px 6px rgba(0,0,0,.5));" onerror="this.parentElement.remove()"></div>`
+          : isChamp(r) && dispFlag
+            ? `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;"><span style="font-size:48px;filter:drop-shadow(0 2px 8px rgba(0,0,0,.6));">${dispFlag}</span></div>`
+            : ''}
       </div>
       <div class="rc-body">
         <div class="rc-ctry">${dispFlag} ${r.country}</div>
