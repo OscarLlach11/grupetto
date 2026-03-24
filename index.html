@@ -955,6 +955,7 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
       <button class="tier-btn active" onclick="setTier(this,'all')">All</button>
       <button class="tier-btn" onclick="setTier(this,'wt')">WorldTour</button>
       <button class="tier-btn" onclick="setTier(this,'pro')">Pro Series</button>
+      <button class="tier-btn" onclick="setTier(this,'champ')">Championships</button>
     </div>
     <div class="tabs" id="tabs-bar"></div>
     <div class="fbar">
@@ -1818,6 +1819,7 @@ function restoreDiscoverFilters(){
 }
 
 function isWT(r){ return r.tier === 'WT'; }
+function isChamp(r){ return r.type === 'championship'; }
 
 function setTier(el, t){
   aTier=t; aTab='all';
@@ -1830,14 +1832,15 @@ function setTier(el, t){
 function renderTabs(){
   const b=document.getElementById('tabs-bar');
   let types;
-  if(aTier==='wt')       types=['Grand Tour','Monument','Classic','Stage Race','One Day'];
-  else if(aTier==='pro') types=['Stage Race','One Day'];
-  else                   types=['Grand Tour','Monument','Classic','Stage Race','One Day'];
+  if(aTier==='wt')         types=['Grand Tour','Monument','Classic','Stage Race','One Day'];
+  else if(aTier==='pro')   types=['Stage Race','One Day'];
+  else if(aTier==='champ') types=['championship'];
+  else                     types=['Grand Tour','Monument','Classic','Stage Race','One Day','championship'];
   // Only include types that exist in current tier
-  const tierRaces = RACES.filter(r => aTier==='all' || (aTier==='wt'&&isWT(r)) || (aTier==='pro'&&!isWT(r)));
+  const tierRaces = RACES.filter(r => aTier==='all' || (aTier==='wt'&&isWT(r)) || (aTier==='pro'&&!isWT(r)&&!isChamp(r)) || (aTier==='champ'&&isChamp(r)));
   const presentTypes = new Set(tierRaces.map(r=>r.type));
   const filtered = types.filter(t => presentTypes.has(t));
-  const labels = {'Grand Tour':'Grand Tours','Monument':'Monuments','Classic':'Classics','Stage Race':'Stage Races','One Day':'One Day'};
+  const labels = {'Grand Tour':'Grand Tours','Monument':'Monuments','Classic':'Classics','Stage Race':'Stage Races','One Day':'One Day','championship':'Championships'};
   const ts=[{k:'all',l:'All'},...filtered.map(t=>({k:t,l:labels[t]||t}))];
   b.innerHTML=ts.map(t=>`<div class="tab ${t.k===aTab?'active':''}" onclick="setTab(this,'${t.k}')">${t.l}</div>`).join('');
 }
@@ -1970,8 +1973,9 @@ function renderAll(){renderGrid();renderSidebar();updateStats();if(curRacePageId
 
 function filteredRaces(){
   const filtered = RACES.filter(r=>{
-    if(aTier==='wt' && !isWT(r)) return false;
-    if(aTier==='pro' && isWT(r)) return false;
+    if(aTier==='wt'    && (!isWT(r) || isChamp(r))) return false;
+    if(aTier==='pro'   && (isWT(r)  || isChamp(r))) return false;
+    if(aTier==='champ' && !isChamp(r))              return false;
     if(aTab!=='all'&&r.type!==aTab) return false;
     const l=hasLog(r.id);
     if(aFil==='logged'&&!l) return false;
@@ -2021,7 +2025,7 @@ function renderGrid(){
     const inWL=watchlist.includes(r.id);
     return `<div class="rc" style="animation-delay:${Math.min(i*.025,.5)}s" onclick="openRacePage('${r.id}')">
       <div class="rc-img" style="background:${r.gradient};position:relative;overflow:hidden;">
-        <span class="rc-cat">${r.type.toUpperCase()}</span>${isWT(r)?'<span class="rc-wt">WT</span>':''}
+        <span class="rc-cat">${r.type==='championship'?'CHAMPS':r.type.toUpperCase()}</span>${isWT(r)&&!isChamp(r)?'<span class="rc-wt">WT</span>':''}
         ${r.logoUrl ? `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:10px 8px 22px;"><img src="${r.logoUrl}" alt="${r.name}" style="max-width:80%;max-height:70%;object-fit:contain;filter:drop-shadow(0 2px 6px rgba(0,0,0,.5));" onerror="this.parentElement.remove()"></div>` : ''}
       </div>
       <div class="rc-body">
