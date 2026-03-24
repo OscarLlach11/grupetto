@@ -1818,6 +1818,129 @@ function restoreDiscoverFilters(){
   } catch(e) {}
 }
 
+// ── Championship country data ─────────────────────────────────────────────────
+// Maps country name (as it appears in race_name) → { flag, gradient }
+// Gradient uses the country's national colours.
+const COUNTRY_CHAMP_DATA = {
+  'Afghanistan':      { flag:'🇦🇫', gradient:'linear-gradient(135deg,#000000,#009a44,#000000)' },
+  'Albania':          { flag:'🇦🇱', gradient:'linear-gradient(135deg,#e41e20,#000000)' },
+  'Algeria':          { flag:'🇩🇿', gradient:'linear-gradient(135deg,#006233,#ffffff,#d21034)' },
+  'Argentina':        { flag:'🇦🇷', gradient:'linear-gradient(135deg,#74acdf,#ffffff,#74acdf)' },
+  'Armenia':          { flag:'🇦🇲', gradient:'linear-gradient(135deg,#d90012,#0033a0,#f2a800)' },
+  'Australia':        { flag:'🇦🇺', gradient:'linear-gradient(135deg,#00008b,#cf142b,#ffffff)' },
+  'Austria':          { flag:'🇦🇹', gradient:'linear-gradient(135deg,#ed2939,#ffffff,#ed2939)' },
+  'Azerbaijan':       { flag:'🇦🇿', gradient:'linear-gradient(135deg,#0092bc,#e8192c,#00b050)' },
+  'Bahrain':          { flag:'🇧🇭', gradient:'linear-gradient(135deg,#ce1126,#ffffff)' },
+  'Belarus':          { flag:'🇧🇾', gradient:'linear-gradient(135deg,#cf101a,#009027,#ffffff)' },
+  'Belgium':          { flag:'🇧🇪', gradient:'linear-gradient(135deg,#000000,#ffd90c,#ef3340)' },
+  'Bolivia':          { flag:'🇧🇴', gradient:'linear-gradient(135deg,#d52b1e,#f4e400,#007a3d)' },
+  'Bosnia':           { flag:'🇧🇦', gradient:'linear-gradient(135deg,#002395,#fecb00)' },
+  'Brazil':           { flag:'🇧🇷', gradient:'linear-gradient(135deg,#009c3b,#ffdf00,#002776)' },
+  'Bulgaria':         { flag:'🇧🇬', gradient:'linear-gradient(135deg,#ffffff,#00966e,#d62612)' },
+  'Canada':           { flag:'🇨🇦', gradient:'linear-gradient(135deg,#ff0000,#ffffff,#ff0000)' },
+  'Chile':            { flag:'🇨🇱', gradient:'linear-gradient(135deg,#d52b1e,#ffffff,#003087)' },
+  'China':            { flag:'🇨🇳', gradient:'linear-gradient(135deg,#de2910,#ffde00)' },
+  'Colombia':         { flag:'🇨🇴', gradient:'linear-gradient(135deg,#fcd116,#003087,#ce1126)' },
+  'Costa Rica':       { flag:'🇨🇷', gradient:'linear-gradient(135deg,#002b7f,#ffffff,#ce1126,#ffffff,#002b7f)' },
+  'Croatia':          { flag:'🇭🇷', gradient:'linear-gradient(135deg,#ff0000,#ffffff,#003087)' },
+  'Cuba':             { flag:'🇨🇺', gradient:'linear-gradient(135deg,#002a8f,#ffffff,#cc0001)' },
+  'Cyprus':           { flag:'🇨🇾', gradient:'linear-gradient(135deg,#ffffff,#d57800)' },
+  'Czech Republic':   { flag:'🇨🇿', gradient:'linear-gradient(135deg,#d7141a,#ffffff,#11457e)' },
+  'Denmark':          { flag:'🇩🇰', gradient:'linear-gradient(135deg,#c60c30,#ffffff)' },
+  'Ecuador':          { flag:'🇪🇨', gradient:'linear-gradient(135deg,#ffd100,#003087,#ce1126)' },
+  'Egypt':            { flag:'🇪🇬', gradient:'linear-gradient(135deg,#ce1126,#ffffff,#000000)' },
+  'El Salvador':      { flag:'🇸🇻', gradient:'linear-gradient(135deg,#0f47af,#ffffff,#0f47af)' },
+  'Estonia':          { flag:'🇪🇪', gradient:'linear-gradient(135deg,#0072ce,#000000,#ffffff)' },
+  'Ethiopia':         { flag:'🇪🇹', gradient:'linear-gradient(135deg,#078930,#fcdd09,#da121a)' },
+  'Finland':          { flag:'🇫🇮', gradient:'linear-gradient(135deg,#ffffff,#003580)' },
+  'France':           { flag:'🇫🇷', gradient:'linear-gradient(135deg,#002395,#ffffff,#ed2939)' },
+  'Georgia':          { flag:'🇬🇪', gradient:'linear-gradient(135deg,#ffffff,#ff0000)' },
+  'Germany':          { flag:'🇩🇪', gradient:'linear-gradient(135deg,#000000,#dd0000,#ffce00)' },
+  'Ghana':            { flag:'🇬🇭', gradient:'linear-gradient(135deg,#006b3f,#fcd116,#ce1126)' },
+  'Great Britain':    { flag:'🇬🇧', gradient:'linear-gradient(135deg,#012169,#c8102e,#ffffff)' },
+  'Greece':           { flag:'🇬🇷', gradient:'linear-gradient(135deg,#0d5eaf,#ffffff)' },
+  'Guatemala':        { flag:'🇬🇹', gradient:'linear-gradient(135deg,#4997d0,#ffffff,#4997d0)' },
+  'Hungary':          { flag:'🇭🇺', gradient:'linear-gradient(135deg,#ce2939,#ffffff,#477050)' },
+  'Iceland':          { flag:'🇮🇸', gradient:'linear-gradient(135deg,#003897,#ffffff,#d72828)' },
+  'India':            { flag:'🇮🇳', gradient:'linear-gradient(135deg,#ff9933,#ffffff,#138808)' },
+  'Indonesia':        { flag:'🇮🇩', gradient:'linear-gradient(135deg,#ce1126,#ffffff)' },
+  'Iran':             { flag:'🇮🇷', gradient:'linear-gradient(135deg,#239f40,#ffffff,#da0000)' },
+  'Iraq':             { flag:'🇮🇶', gradient:'linear-gradient(135deg,#ce1126,#ffffff,#000000)' },
+  'Ireland':          { flag:'🇮🇪', gradient:'linear-gradient(135deg,#169b62,#ffffff,#ff883e)' },
+  'Israel':           { flag:'🇮🇱', gradient:'linear-gradient(135deg,#ffffff,#0038b8)' },
+  'Italy':            { flag:'🇮🇹', gradient:'linear-gradient(135deg,#009246,#ffffff,#ce2b37)' },
+  'Japan':            { flag:'🇯🇵', gradient:'linear-gradient(135deg,#ffffff,#bc002d)' },
+  'Jordan':           { flag:'🇯🇴', gradient:'linear-gradient(135deg,#007a3d,#ffffff,#000000)' },
+  'Kazakhstan':       { flag:'🇰🇿', gradient:'linear-gradient(135deg,#00afca,#ffd700)' },
+  'Kenya':            { flag:'🇰🇪', gradient:'linear-gradient(135deg,#006600,#000000,#cc0000)' },
+  'Kosovo':           { flag:'🇽🇰', gradient:'linear-gradient(135deg,#244aa5,#fcd116)' },
+  'Kuwait':           { flag:'🇰🇼', gradient:'linear-gradient(135deg,#007a3d,#ffffff,#ce1126,#000000)' },
+  'Kyrgyzstan':       { flag:'🇰🇬', gradient:'linear-gradient(135deg,#e8112d,#ffd700)' },
+  'Latvia':           { flag:'🇱🇻', gradient:'linear-gradient(135deg,#9e3039,#ffffff,#9e3039)' },
+  'Lebanon':          { flag:'🇱🇧', gradient:'linear-gradient(135deg,#ffffff,#ee161f)' },
+  'Lithuania':        { flag:'🇱🇹', gradient:'linear-gradient(135deg,#fdb913,#006a44,#c1272d)' },
+  'Luxembourg':       { flag:'🇱🇺', gradient:'linear-gradient(135deg,#ef3340,#ffffff,#00a2e1)' },
+  'Malaysia':         { flag:'🇲🇾', gradient:'linear-gradient(135deg,#cc0001,#ffffff,#010082)' },
+  'Mexico':           { flag:'🇲🇽', gradient:'linear-gradient(135deg,#006847,#ffffff,#ce1126)' },
+  'Moldova':          { flag:'🇲🇩', gradient:'linear-gradient(135deg,#003DA5,#FFD200,#CC0000)' },
+  'Montenegro':       { flag:'🇲🇪', gradient:'linear-gradient(135deg,#d4af37,#d3001c,#d4af37)' },
+  'Morocco':          { flag:'🇲🇦', gradient:'linear-gradient(135deg,#c1272d,#006233)' },
+  'Netherlands':      { flag:'🇳🇱', gradient:'linear-gradient(135deg,#ae1c28,#ffffff,#21468b)' },
+  'New Zealand':      { flag:'🇳🇿', gradient:'linear-gradient(135deg,#00247d,#cc142b)' },
+  'Nigeria':          { flag:'🇳🇬', gradient:'linear-gradient(135deg,#008751,#ffffff,#008751)' },
+  'North Macedonia':  { flag:'🇲🇰', gradient:'linear-gradient(135deg,#ce2028,#f9d616)' },
+  'Norway':           { flag:'🇳🇴', gradient:'linear-gradient(135deg,#ef2b2d,#ffffff,#002868)' },
+  'Pakistan':         { flag:'🇵🇰', gradient:'linear-gradient(135deg,#01411c,#ffffff)' },
+  'Panama':           { flag:'🇵🇦', gradient:'linear-gradient(135deg,#da121a,#ffffff,#005293)' },
+  'Paraguay':         { flag:'🇵🇾', gradient:'linear-gradient(135deg,#d52b1e,#ffffff,#0038a8)' },
+  'Peru':             { flag:'🇵🇪', gradient:'linear-gradient(135deg,#d91023,#ffffff,#d91023)' },
+  'Philippines':      { flag:'🇵🇭', gradient:'linear-gradient(135deg,#0038a8,#ffffff,#ce1126)' },
+  'Poland':           { flag:'🇵🇱', gradient:'linear-gradient(135deg,#ffffff,#dc143c)' },
+  'Portugal':         { flag:'🇵🇹', gradient:'linear-gradient(135deg,#006600,#ff0000)' },
+  'Puerto Rico':      { flag:'🇵🇷', gradient:'linear-gradient(135deg,#ed0000,#ffffff,#002a8f)' },
+  'Romania':          { flag:'🇷🇴', gradient:'linear-gradient(135deg,#002b7f,#fcd116,#ce1126)' },
+  'Russia':           { flag:'🇷🇺', gradient:'linear-gradient(135deg,#ffffff,#0039a6,#d52b1e)' },
+  'Saudi Arabia':     { flag:'🇸🇦', gradient:'linear-gradient(135deg,#006c35,#ffffff)' },
+  'Serbia':           { flag:'🇷🇸', gradient:'linear-gradient(135deg,#c6363c,#0c4076,#ffffff)' },
+  'Singapore':        { flag:'🇸🇬', gradient:'linear-gradient(135deg,#ef3340,#ffffff)' },
+  'Slovakia':         { flag:'🇸🇰', gradient:'linear-gradient(135deg,#ffffff,#0b4ea2,#ee1c25)' },
+  'Slovenia':         { flag:'🇸🇮', gradient:'linear-gradient(135deg,#003DA5,#ffffff,#CC0000)' },
+  'South Africa':     { flag:'🇿🇦', gradient:'linear-gradient(135deg,#007a4d,#000000,#ffb81c,#ffffff,#de3831,#002395)' },
+  'South Korea':      { flag:'🇰🇷', gradient:'linear-gradient(135deg,#ffffff,#cd2e3a,#003478)' },
+  'Spain':            { flag:'🇪🇸', gradient:'linear-gradient(135deg,#aa151b,#f1bf00,#aa151b)' },
+  'Sweden':           { flag:'🇸🇪', gradient:'linear-gradient(135deg,#006aa7,#fecc02)' },
+  'Switzerland':      { flag:'🇨🇭', gradient:'linear-gradient(135deg,#ff0000,#ffffff)' },
+  'Taiwan':           { flag:'🇹🇼', gradient:'linear-gradient(135deg,#fe0000,#000095)' },
+  'Thailand':         { flag:'🇹🇭', gradient:'linear-gradient(135deg,#a51931,#ffffff,#2d2a4a,#ffffff,#a51931)' },
+  'Tunisia':          { flag:'🇹🇳', gradient:'linear-gradient(135deg,#e70013,#ffffff)' },
+  'Turkey':           { flag:'🇹🇷', gradient:'linear-gradient(135deg,#e30a17,#ffffff)' },
+  'Ukraine':          { flag:'🇺🇦', gradient:'linear-gradient(135deg,#005bbb,#ffd500)' },
+  'UAE':              { flag:'🇦🇪', gradient:'linear-gradient(135deg,#00732f,#ffffff,#000000,#ff0000)' },
+  'United States':    { flag:'🇺🇸', gradient:'linear-gradient(135deg,#b22234,#ffffff,#3c3b6e)' },
+  'Uruguay':          { flag:'🇺🇾', gradient:'linear-gradient(135deg,#ffffff,#5b9bd5)' },
+  'Uzbekistan':       { flag:'🇺🇿', gradient:'linear-gradient(135deg,#1eb53a,#ffffff,#ce1126)' },
+  'Venezuela':        { flag:'🇻🇪', gradient:'linear-gradient(135deg,#cf142b,#ffffff,#00247d)' },
+  'Vietnam':          { flag:'🇻🇳', gradient:'linear-gradient(135deg,#da251d,#ffcd00)' },
+};
+const CHAMP_CATEGORY_DATA = {
+  'worlds':   { flag:'🌍', gradient:'linear-gradient(135deg,#1a1a2e,#4a0080,#800080)' },
+  'european': { flag:'🇪🇺', gradient:'linear-gradient(135deg,#003399,#ffcc00)' },
+};
+
+function getChampData(r) {
+  const sgs = r.subgenres || [];
+  for (const cat of ['worlds','european']) {
+    if (sgs.includes(cat)) return CHAMP_CATEGORY_DATA[cat];
+  }
+  // Parse country from race_name: "National Championships {Country} ME - Road Race"
+  const m = r.name.match(/National Championships?\s+(.+?)\s+(ME|WE|MU23|WU23|MJ|WJ)\s*[-–]/i);
+  if (m) {
+    const country = m[1].trim();
+    return COUNTRY_CHAMP_DATA[country] || { flag: r.flag || '🏳', gradient: 'linear-gradient(135deg,#1a1a1a,#333)' };
+  }
+  return { flag: r.flag || '', gradient: r.gradient || 'linear-gradient(135deg,#1a1a1a,#333)' };
+}
+
 function isWT(r){ return r.tier === 'WT'; }
 function isChamp(r){ return r.type === 'championship'; }
 
@@ -2035,11 +2158,10 @@ function renderGrid(){
     const bestR=rl?Math.max(0,...(rl.watches||[]).map(w=>w.rating||0)):0;
     const inWL=watchlist.includes(r.id);
     const sgs = r.subgenres || [];
-    // For championships: derive display flag from subgenres
-    const champFlag = isChamp(r)
-      ? (sgs.includes('worlds') ? '🌍' : sgs.includes('european') ? '🇪🇺' : r.flag || '')
-      : (r.flag || '');
-    const dispFlag = champFlag;
+    // For championships: resolve flag, gradient and label from country map
+    const champData = isChamp(r) ? getChampData(r) : null;
+    const dispFlag     = champData ? champData.flag     : (r.flag || '');
+    const dispGradient = champData ? champData.gradient : r.gradient;
     // RR/ITT label — fall back to slug suffix if subgenres not yet seeded
     const isITT = sgs.includes('ITT') || r.id.endsWith('-itt');
     const isRR  = sgs.includes('RR')  || (!isITT && isChamp(r));
@@ -2051,7 +2173,7 @@ function renderGrid(){
     };
     const effectiveLogoUrl = r.logoUrl || CHAMP_LOGOS[r.id] || null;
     return `<div class="rc" style="animation-delay:${Math.min(i*.025,.5)}s" onclick="openRacePage('${r.id}')">
-      <div class="rc-img" style="background:${r.gradient};position:relative;overflow:hidden;">
+      <div class="rc-img" style="background:${dispGradient};position:relative;overflow:hidden;">
         <span class="rc-cat">${r.type==='championship'?'CHAMPS':r.type.toUpperCase()}</span>${isWT(r)&&!isChamp(r)?'<span class="rc-wt">WT</span>':''}
         ${effectiveLogoUrl
           ? `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:10px 8px 22px;"><img src="${effectiveLogoUrl}" alt="${r.name}" style="max-width:80%;max-height:70%;object-fit:contain;filter:drop-shadow(0 2px 6px rgba(0,0,0,.5));" onerror="this.parentElement.remove()"></div>`
