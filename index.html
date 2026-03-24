@@ -1443,7 +1443,11 @@ function applyAppData({ races, dates, config }){
     // (after DB migration these won't exist, but guards against future accidents)
     const seen = new Map();
     races.filter(r => r.race_type || r.gradient).forEach(r => {
-      const key = (r.race_name || '').toLowerCase().trim();
+      // Championship races: always key by slug (RR and ITT share the same race_name)
+      // All other races: key by normalised race_name to deduplicate shell/duplicate rows
+      const key = r.race_type === 'championship'
+        ? (r.slug || '').toLowerCase().trim()
+        : (r.race_name || '').toLowerCase().trim();
       const existing = seen.get(key);
       if (!existing) { seen.set(key, r); return; }
       const existingWins =
@@ -1970,19 +1974,22 @@ function getChampData(r) {
   if (r.id.startsWith('world-championship')) return CHAMP_CATEGORY_DATA['worlds'];
   if (r.id.startsWith('european-championship')) return CHAMP_CATEGORY_DATA['european'];
   // 2. Parse country from PCS race_name: "National Championships {Country} ME/WE/MU23/etc - ..."
-  const m = r.name.match(/National Championships?\s+(.+?)\s+(?:ME|WE|MU23|WU23|MJ|WJ)(?:\s*[-–]|$)/i);
-  if (m) {
-    const country = m[1].trim();
-    // Exact match first
+  const mName = r.name.match(/National Championships?\s+(.+?)\s+(?:ME|WE|MU23|WU23|MJ|WJ)(?:\s*[-–]|$)/i);
+  // 3. Also try slug: "national-championships-france-me" or "national-championships-france-me-itt"
+  const mSlug = r.id.match(/^national-championships?-(.+?)-(?:me|we|mu23|wu23|mj|wj)(?:-itt)?$/i);
+
+  const candidates = [];
+  if (mName) candidates.push(mName[1].trim());
+  if (mSlug) candidates.push(mSlug[1].replace(/-/g, ' ').replace(/\w/g, c => c.toUpperCase()));
+
+  for (const country of candidates) {
     if (COUNTRY_CHAMP_DATA[country]) return COUNTRY_CHAMP_DATA[country];
-    // Fuzzy: check if any key is contained in the parsed name or vice versa
     const lower = country.toLowerCase();
     for (const [k, v] of Object.entries(COUNTRY_CHAMP_DATA)) {
       if (lower.includes(k.toLowerCase()) || k.toLowerCase().includes(lower)) return v;
     }
-    // Last resort: flag from DB, muted gradient
-    return { flag: r.flag || '🏳', gradient: 'linear-gradient(135deg,#1e1e2e,#2a2a3e)' };
   }
+  if (candidates.length) return { flag: r.flag || '🏳', gradient: 'linear-gradient(135deg,#1e1e2e,#2a2a3e)' };
   return { flag: r.flag || '', gradient: r.gradient || 'linear-gradient(135deg,#1a1a1a,#333)' };
 }
 
