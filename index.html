@@ -6329,9 +6329,13 @@ async function openUserPage(userId, handle){
     const r=RACES.find(x=>x.id===id)||{name:id};
     const isStage = w.type==='stage';
     const stageLabel = isStage ? ` · Stage ${w.stageNum}` : '';
-    return `<div class="review-card">
+    // Compute review number: 1-indexed position among all reviews for this race, sorted by ts
+    const reviewsForRace = all.filter(([rid,rw])=>rid===id && rw.review && rw.review.trim()).sort((a,b)=>(a[1].ts||0)-(b[1].ts||0));
+    const n = Math.max(1, reviewsForRace.findIndex(([,rw])=>rw.ts===w.ts) + 1);
+    return `<div class="review-card" onclick="openReviewPage('${upageHandle}','${id}',${w.year},${n})">
       <div class="review-race">${r.name} ${w.year}${stageLabel}${w.rating?` · ★ ${w.rating}`:''}</div>
       <div class="review-text">"${w.review.slice(0,220)}${w.review.length>220?'…':''}"</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:6px;letter-spacing:.5px;">View review →</div>
     </div>`;
   }).join('') : '<div style="color:var(--muted);font-size:12px;">No reviews yet.</div>';
 }
