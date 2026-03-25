@@ -5039,11 +5039,11 @@ async function submitReviewComment(reviewKey){
   if(!text) return;
   input.value = '';
   const displayName = profile.name || currentUser.email.split('@')[0];
-  const handle = profile.handle || currentUser.email.split('@')[0];
+  const myHandle = profile.handle || currentUser.email.split('@')[0];
   const { data, error } = await sb.from('review_comments').insert({
     review_key: reviewKey,
     user_id: currentUser.id,
-    handle,
+    handle: myHandle,
     display_name: displayName,
     text
   }).select().single();
@@ -5052,14 +5052,14 @@ async function submitReviewComment(reviewKey){
   const ownerHandle = reviewKey.split('/')[0];
   const raceId = reviewKey.split('/')[1];
   const year = reviewKey.split('/')[2];
-  if(ownerHandle && ownerHandle !== handle){
+  if(ownerHandle && ownerHandle !== myHandle){
     const { data: ownerData } = await sb.from('profiles').select('user_id').eq('handle', ownerHandle).maybeSingle();
     if(ownerData?.user_id && ownerData.user_id !== currentUser.id){
       createNotification({
         user_id: ownerData.user_id,
         type: 'comment',
         actor_id: currentUser.id,
-        actor_handle: handle,
+        actor_handle: myHandle,
         actor_name: displayName,
         review_key: reviewKey,
         race_id: raceId,
@@ -5075,7 +5075,7 @@ async function submitReviewComment(reviewKey){
     if(placeholder) placeholder.remove();
     list.insertAdjacentHTML('beforeend', `
       <div class="rv-comment">
-        <div class="rv-comment-author">@${handle} <span style="color:var(--muted);font-weight:400;font-size:10px;margin-left:6px;">just now</span></div>
+        <div class="rv-comment-author">@${myHandle} <span style="color:var(--muted);font-weight:400;font-size:10px;margin-left:6px;">just now</span></div>
         <div class="rv-comment-text">${text}</div>
       </div>`);
   }
@@ -6324,7 +6324,7 @@ async function openUserPage(userId, handle){
 
   // ── Recent reviews (races + stages combined) ─────────────────────────
   const withReviews=allWithStages.filter(([,w])=>w.review&&w.review.trim()).sort((a,b)=>b[1].ts-a[1].ts).slice(0,5);
-  const handle=p.handle||'user';
+  const upageHandle=p.handle||'user';
   document.getElementById('upage-recent-reviews').innerHTML = withReviews.length ? withReviews.map(([id,w])=>{
     const r=RACES.find(x=>x.id===id)||{name:id};
     const isStage = w.type==='stage';
