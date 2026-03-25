@@ -5859,16 +5859,15 @@ function updateNotifBadge(){
 }
 
 async function createNotification(payload){
-  // Fire and forget — don't block UI
-  try {
-    await sb.from('notifications').insert(payload);
-  } catch(e){ console.warn('notif insert error', e); }
+  const { error } = await sb.from('notifications').insert(payload);
+  if(error) console.warn('createNotification error:', error.code, error.message, payload);
 }
 
 function openNotifDrawer(){
   document.getElementById('notif-drawer').classList.add('open');
   document.getElementById('notif-overlay').classList.add('open');
-  renderNotifList();
+  // Always fetch fresh from Supabase on open, then render
+  loadNotifications().then(() => renderNotifList());
   // Mark all as read after a short delay (let user see the unread state first)
   setTimeout(() => markAllNotificationsRead(), 1800);
 }
