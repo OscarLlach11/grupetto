@@ -38,15 +38,19 @@
 
   async function onSignedIn() {
     renderNavUser();
-    await loadUserData();
-    // Push any locally-stored stage logs that haven't been synced to Supabase yet
-    syncLocalStageLogsToSupabase();
-    // loadFollowingIds must complete before loadFollowingFeed (feed depends on the set)
+
+    // Start feed + following IDs in parallel with user data — they only need currentUser.id
+    const feedPromise = loadFollowingIds().then(() => loadFollowingFeed());
+
     await Promise.all([
+      loadUserData(),
+      feedPromise,
       loadRaceResultsForLog(),
-      loadFollowingIds().then(() => loadFollowingFeed()),
       loadNotifications(),
     ]);
+
+    // Push any locally-stored stage logs that haven't been synced to Supabase yet
+    syncLocalStageLogsToSupabase();
     renderAll();
     updateStats();
     renderRiders(); // use cache if available, don't force refresh
@@ -61,6 +65,8 @@
     if(typeof _notifications !== 'undefined') { _notifications = []; }
     if(typeof updateNotifBadge === 'function') updateNotifBadge();
     if(typeof closeNotifDrawer === 'function') closeNotifDrawer();
+    // Clear feed cache so next user doesn't see stale data
+    try { sessionStorage.removeItem(`g3-feed:${currentUser?.id}`); } catch(e){}
     profile    = {
       name: 'Cyclist',
       handle: 'velocipedist',
@@ -6006,6 +6012,14 @@ async function loadFollowingFeed(){
   if(!_followingIds.size) await loadFollowingIds();
   if(!_followingIds.size){ section.style.display='none'; return; }
 
+  // ── Instant render from cache ─────────────────────────────────────────
+  const cacheKey = `g3-feed:${currentUser.id}`;
+  const cached = sessionStorage.getItem(cacheKey);
+  if(cached){
+    list.innerHTML = cached;
+    section.style.display = 'block';
+  }
+
   const followArr = [..._followingIds];
 
   // Fetch race logs (with nested stage_logs) in one query
@@ -6094,6 +6108,9 @@ async function loadFollowingFeed(){
       <div class="feed-date">${dateLabel}</div>
     </div>`;
   }).join('');
+
+  // Save to sessionStorage for instant render on next load
+  try { sessionStorage.setItem(cacheKey, list.innerHTML); } catch(e){}
 
   section.style.display = 'block';
 }
