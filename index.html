@@ -1312,7 +1312,7 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 <!-- RACE SUBPAGE -->
 <div id="page-race" class="page">
   <div style="background:var(--bg);padding:12px 24px;border-bottom:1px solid var(--border);flex-shrink:0;">
-    <button class="bs" style="font-size:10px;" onclick="history.back()">← Back</button>
+    <button class="bs" style="font-size:10px;" onclick="navBack()">← Back</button>
   </div>
   <div class="race-scroll-body">
     <div class="race-sub-layout">
@@ -1325,7 +1325,7 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 <!-- STAGE PAGE -->
 <div id="page-stage" class="page">
   <div style="background:var(--bg);padding:12px 24px;border-bottom:1px solid var(--border);flex-shrink:0;">
-    <button class="bs" style="font-size:10px;" onclick="history.back()">← Back</button>
+    <button class="bs" style="font-size:10px;" onclick="navBack()">← Back</button>
   </div>
   <div class="race-scroll-body">
     <div class="race-sub-layout">
@@ -1338,7 +1338,7 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 <!-- RIDER PAGE -->
 <div id="page-rider" class="page">
   <div style="position:sticky;top:0;z-index:10;background:var(--bg);padding:12px 24px;border-bottom:1px solid var(--border);flex-shrink:0;">
-    <button class="bs" id="rider-back-btn" style="font-size:10px;" onclick="history.back()">← Back</button>
+    <button class="bs" id="rider-back-btn" style="font-size:10px;" onclick="navBack()">← Back</button>
   </div>
   <div class="rider-scroll-body">
     <div style="max-width:900px;margin:0 auto;padding:32px 24px;">
@@ -1350,7 +1350,7 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 <!-- REVIEW PAGE -->
 <div id="page-review" class="page">
   <div style="background:var(--bg);padding:12px 24px;border-bottom:1px solid var(--border);flex-shrink:0;">
-    <button class="bs" style="font-size:10px;" onclick="history.back()">← Back</button>
+    <button class="bs" style="font-size:10px;" onclick="navBack()">← Back</button>
   </div>
   <div class="race-scroll-body">
     <div style="max-width:760px;margin:0 auto;padding:40px 24px;">
@@ -1791,6 +1791,21 @@ document.addEventListener('DOMContentLoaded', async () => {
 //  NAVIGATION
 // ════════════════════════════════════════════════════════
 let aPg='discover';
+
+// Safe back navigation — never exits the app.
+// Uses history.back() only if we know the previous entry was within Palmares
+// (i.e. the history stack has more than 1 entry and we've already pushed at least one state).
+// Falls back to Discover otherwise.
+let _appHistoryDepth = 0; // incremented each time we pushState
+function navBack(){
+  if(_appHistoryDepth > 0){
+    _appHistoryDepth--;
+    history.back();
+  } else {
+    showPage('discover');
+  }
+}
+
 function showPage(p){
   // Redirect guests away from auth-only pages
   if(!currentUser && (p==='log' || p==='profile')){ openAuthModal(); return; }
@@ -1860,7 +1875,7 @@ function showPage(p){
 let aTab='all',aFil='all',aSearch='',aTier='all';
 
 function saveDiscoverFilters(){
-  localStorage.setItem('g3-filters', JSON.stringify({aTab,aFil,aSearch,aTier}));
+  localStorage.setItem('g3-filters', JSON.stringify({aTab,aFil,aSearch}));
 }
 
 function restoreDiscoverFilters(){
@@ -1869,7 +1884,7 @@ function restoreDiscoverFilters(){
     aTab   = saved.aTab   || 'all';
     aFil   = saved.aFil   || 'all';
     aSearch= saved.aSearch|| '';
-    aTier  = saved.aTier  || 'all';
+    aTier  = 'all'; // always reset tier to default on page load
     // Restore UI state for tier buttons
     document.querySelectorAll('.tier-btn').forEach(btn => {
       const t = btn.getAttribute('onclick')?.match(/'(\w+)'\)/)?.[1];
@@ -2342,7 +2357,7 @@ async function openRacePage(id, preferYear){
   const cnt=getStageCount(id);
 
   // Push hash immediately with whatever year we have (will be updated once years load)
-  history.pushState(null, '', preferYear ? `#/race/${id}/${preferYear}` : `#/race/${id}`);
+  _appHistoryDepth++; history.pushState(null, '', preferYear ? `#/race/${id}/${preferYear}` : `#/race/${id}`);
 
   // Main column
   let mainHTML=`
@@ -2678,7 +2693,7 @@ let _spRaceId=null, _spYear=null, _spStage=null, _spRating=0;
 async function openStagePage(raceId, year, stageNum){
   _spRaceId=raceId; _spYear=year; _spStage=null;
 
-  history.pushState(null,'',`#/stage/${raceId}/${year}/${stageNum}`);
+  _appHistoryDepth++; history.pushState(null,'',`#/stage/${raceId}/${year}/${stageNum}`);
 
   const race = RACES.find(x=>x.id===raceId);
   const TYPE_ICON = {mountain:'⛰',tt:'⏱',ttt:'⏱⏱',cobbled:'◫',sprint:'━',hilly:'∧'};
@@ -4908,7 +4923,7 @@ window.addEventListener('popstate', () => handleRoute(location.hash));
 function navToReview(handle, raceId, year, n){
   n = n || 1;
   const hash = `#/review/${handle}/${raceId}/${year}${n>1?'/'+n:''}`;
-  history.pushState(null, '', hash);
+  _appHistoryDepth++; history.pushState(null, '', hash);
   openReviewPage(handle, raceId, year, n);
 }
 
@@ -5123,7 +5138,7 @@ function navToRider(displayOrRawName){
   // Store raw (DB format) name for the query
   const slug = displayOrRawName.toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9-]/g,'');
   window._riderPageRawName = displayOrRawName;
-  history.pushState(null, '', `#/rider/${slug}`);
+  _appHistoryDepth++; history.pushState(null, '', `#/rider/${slug}`);
   renderRiderPage(displayOrRawName);
 }
 
@@ -6156,7 +6171,7 @@ async function openUserPage(userId, handle){
   document.getElementById('page-user').classList.add('active');
   document.querySelectorAll('.nav-a').forEach(x=>x.classList.remove('active'));
   document.querySelectorAll('.mob-nav-btn').forEach(x=>x.classList.remove('active'));
-  history.pushState(null,'',`#/user/${userId}`);
+  _appHistoryDepth++; history.pushState(null,'',`#/user/${userId}`);
 
   // Show skeleton loading state
   document.getElementById('upage-name').innerHTML = '<div class="skeleton" style="width:160px;height:20px;border-radius:3px;display:inline-block;"></div>';
@@ -6453,7 +6468,7 @@ function sgBadgesHTML(id){
         </div>
       </div>
       <div style="display:flex;gap:8px;margin-bottom:24px;align-items:center;">
-        <button onclick="history.back()" style="background:none;border:1px solid var(--border);color:var(--muted);cursor:pointer;font-size:11px;padding:6px 12px;letter-spacing:1px;flex-shrink:0;">← Back</button>
+        <button onclick="navBack()" style="background:none;border:1px solid var(--border);color:var(--muted);cursor:pointer;font-size:11px;padding:6px 12px;letter-spacing:1px;flex-shrink:0;">← Back</button>
         <button id="upage-follow-btn" class="follow-btn follow" style="flex:1;" onclick="_upageFollow()"></button>
       </div>
       <div class="profile-stat-grid" id="upage-stat-grid"></div>
