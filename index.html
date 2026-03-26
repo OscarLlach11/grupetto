@@ -2018,7 +2018,7 @@ const COUNTRY_CHAMP_DATA = {
   'Yugoslavia':       { flag:'🇷🇸', gradient:'linear-gradient(135deg,#0032a0,#ffffff,#de0000)' },
 };
 const CHAMP_CATEGORY_DATA = {
-  'worlds':   { flag:'🌍', gradient:'linear-gradient(90deg,#8b0000 0%,#e84c00 18%,#d4a800 36%,#1a7a1a 54%,#0044cc 72%,#7b00d4 100%)' },
+  'worlds':   { flag:'🌍', gradient:'linear-gradient(135deg,#8b0000 0%,#e84c00 20%,#d4a800 40%,#1a7a1a 60%,#0044cc 80%,#7b00d4 100%)' },
   'european': { flag:'🇪🇺', gradient:'linear-gradient(135deg,#003399 0%,#1558c0 50%,#ffcc00 100%)' },
 };
 
@@ -2032,22 +2032,45 @@ function getChampData(r) {
   }
   if (r.id.startsWith('world-championship')) return CHAMP_CATEGORY_DATA['worlds'];
   if (r.id.startsWith('european-championship')) return CHAMP_CATEGORY_DATA['european'];
-  // 2. Parse country from PCS race_name: "National Championships {Country} ME/WE/MU23/etc - ..."
-  const mName = r.name.match(/National Championships?\s+(.+?)\s+(?:ME|WE|MU23|WU23|MJ|WJ)(?:\s*[-–]|$)/i);
-  // 3. Also try slug: "national-championships-france-me" or "national-championships-france-me-itt"
-  const mSlug = r.id.match(/^national-championships?-(.+?)-(?:me|we|mu23|wu23|mj|wj)(?:-itt)?$/i);
+
+  // 2. Parse country from PCS race_name: "National Championships {Country} ME/WE/MU23/etc"
+  const mName = r.name.match(/National Championships?\s+(.+?)\s+(?:ME|WE|MU23|WU23|MJ|WJ)(?:\s*[-\u2013]|$)/i);
+  // 3. Broad slug match - grab everything after "national-championship(s)-", strip trailing discipline suffix
+  const mSlug = r.id.match(/^national-championships?-(.+?)(?:-(?:me|we|mu23|wu23|mj|wj)(?:-itt)?)?$/i);
 
   const candidates = [];
   if (mName) candidates.push(mName[1].trim());
-  if (mSlug) candidates.push(mSlug[1].replace(/-/g, ' ').replace(/\w/g, c => c.toUpperCase()));
+  if (mSlug) {
+    const raw = mSlug[1].replace(/-/g, ' ');
+    candidates.push(raw.replace(/\b\w/g, c => c.toUpperCase())); // Title Case
+    candidates.push(raw.toUpperCase());                            // UPPERCASE fallback
+  }
+
+  // Aliases for countries whose PCS names differ from COUNTRY_CHAMP_DATA keys
+  const ALIASES = { 'United Arab Emirates': 'UAE', 'Uae': 'UAE', 'UNITED ARAB EMIRATES': 'UAE' };
 
   for (const country of candidates) {
-    if (COUNTRY_CHAMP_DATA[country]) return COUNTRY_CHAMP_DATA[country];
+    const key = ALIASES[country] || country;
+    if (COUNTRY_CHAMP_DATA[key]) return COUNTRY_CHAMP_DATA[key];
     const lower = country.toLowerCase();
+    // Check aliases
+    for (const [alias, aKey] of Object.entries(ALIASES)) {
+      if (lower === alias.toLowerCase() || lower.includes(alias.toLowerCase())) {
+        if (COUNTRY_CHAMP_DATA[aKey]) return COUNTRY_CHAMP_DATA[aKey];
+      }
+    }
+    // Fuzzy substring match against all known countries
     for (const [k, v] of Object.entries(COUNTRY_CHAMP_DATA)) {
       if (lower.includes(k.toLowerCase()) || k.toLowerCase().includes(lower)) return v;
     }
   }
+
+  // Last resort: scan slug word-by-word against all known country keys
+  const slugLower = r.id.replace(/-/g, ' ').toLowerCase();
+  for (const [k, v] of Object.entries(COUNTRY_CHAMP_DATA)) {
+    if (slugLower.includes(k.toLowerCase())) return v;
+  }
+
   if (candidates.length) return { flag: r.flag || '🏳', gradient: 'linear-gradient(135deg,#1e1e2e,#2a2a3e)' };
   return { flag: r.flag || '', gradient: r.gradient || 'linear-gradient(135deg,#1a1a1a,#333)' };
 }
