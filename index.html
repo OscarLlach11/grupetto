@@ -6178,6 +6178,7 @@ async function loadFollowingFeed(){
 
 // ── User profile page ──────────────────────────────────────────────────────
 let _upageUserId = null;
+let _upageLoading = false;
 function _upageFollow(){ if(_upageUserId) toggleFollow(_upageUserId); }
 
 async function openUserPage(userId, handle, pushHistory=true){
@@ -6188,6 +6189,10 @@ async function openUserPage(userId, handle, pushHistory=true){
     else { toast('User not found'); return; }
   }
   if(currentUser && userId === currentUser.id){ showPage('profile'); return; }
+
+  // Prevent concurrent calls (e.g. click + popstate firing together)
+  if(_upageLoading) return;
+  _upageLoading = true;
 
   _upageUserId = userId;
   document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));
@@ -6283,15 +6288,17 @@ async function openUserPage(userId, handle, pushHistory=true){
 
   // ── Follow button ───────────────────────────────────────────────────
   const followBtn = document.getElementById('upage-follow-btn');
-  if(!currentUser){
-    followBtn.style.display = 'none';
-  } else {
-    if(!_followingIds.size) await loadFollowingIds();
-    const isFollowing = _followingIds.has(userId);
-    followBtn.textContent = isFollowing ? 'Following' : 'Follow';
-    followBtn.className = 'follow-btn ' + (isFollowing ? 'following' : 'follow');
-    followBtn.id = 'follow-btn-'+userId;
-    followBtn.style.display = '';
+  if(followBtn){
+    if(!currentUser){
+      followBtn.style.display = 'none';
+    } else {
+      if(!_followingIds.size) await loadFollowingIds();
+      const isFollowing = _followingIds.has(userId);
+      followBtn.textContent = isFollowing ? 'Following' : 'Follow';
+      followBtn.className = 'follow-btn ' + (isFollowing ? 'following' : 'follow');
+      followBtn.id = 'follow-btn-'+userId;
+      followBtn.style.display = '';
+    }
   }
 
   // ── Stats grid ──────────────────────────────────────────────────────
@@ -6415,6 +6422,8 @@ async function openUserPage(userId, handle, pushHistory=true){
       <div style="font-size:10px;color:var(--muted);margin-top:6px;letter-spacing:.5px;">View review →</div>
     </div>`;
   }).join('') : '<div style="color:var(--muted);font-size:12px;">No reviews yet.</div>';
+
+  _upageLoading = false;
 }
 
 
