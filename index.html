@@ -345,8 +345,10 @@
         style="font-size:10px;letter-spacing:2px;">Sign out</button>`;
     const navLog = document.getElementById('nav-log');
     const navProfile = document.getElementById('nav-profile');
+    const navStats = document.getElementById('nav-stats');
     if(navLog) navLog.style.display = '';
     if(navProfile) navProfile.style.display = '';
+    if(navStats) navStats.style.display = '';
     const mobLog = document.getElementById('mob-nav-log');
     const mobProfile = document.getElementById('mob-nav-profile');
     const mobSignin = document.getElementById('mob-nav-signin');
@@ -366,8 +368,10 @@
       <button class="nav-a nav-cta" onclick="openAuthModal()">Sign in</button>`;
     const navLog = document.getElementById('nav-log');
     const navProfile = document.getElementById('nav-profile');
+    const navStats = document.getElementById('nav-stats');
     if(navLog) navLog.style.display = 'none';
     if(navProfile) navProfile.style.display = 'none';
+    if(navStats) navStats.style.display = 'none';
     const mobLog = document.getElementById('mob-nav-log');
     const mobProfile = document.getElementById('mob-nav-profile');
     const mobSignin = document.getElementById('mob-nav-signin');
@@ -997,7 +1001,7 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
     <button class="nav-a" id="nav-log" onclick="showPage('log')" style="display:none;">My Log</button>
     <button class="nav-a" id="nav-members" onclick="showPage('members')">Members</button>
     <button class="nav-a" id="nav-top" onclick="showPage('top')">Top Races</button>
-    <button class="nav-a" id="nav-stats" onclick="showPage('stats')">Stats</button>
+    <button class="nav-a" id="nav-stats" onclick="showPage('stats')" style="display:none;">Stats</button>
     <button class="nav-a" id="nav-profile" onclick="showPage('profile')" style="display:none;">Profile</button>
     <div id="nav-cta-area" style="display:flex;align-items:center;gap:12px;">
       <button class="nav-a nav-cta" onclick="openAuthModal()">Sign in</button>
@@ -1831,7 +1835,7 @@ function navBack(){
 
 function showPage(p){
   // Redirect guests away from auth-only pages
-  if(!currentUser && (p==='log' || p==='profile')){ openAuthModal(); return; }
+  if(!currentUser && (p==='log' || p==='profile' || p==='stats')){ openAuthModal(); return; }
   if(aPg==='log' && p!=='log'){
     logFilter = { rating:0, country:'', type:'', sort:'date', live:'' };
   }
