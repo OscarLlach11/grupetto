@@ -461,9 +461,9 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 .nav-cta{background:var(--gold)!important;color:var(--black)!important;padding:8px 16px;font-weight:500!important;font-size:10px!important;}
 /* PAGES */
 .page{display:none;animation:fadeUp .25s ease;}.page.active{display:block;}
-#page-rider, #page-race, #page-review, #page-stage, #page-followers{display:none;flex-direction:column;height:calc(100vh - 57px);overflow:hidden;}
-#page-rider.active, #page-race.active, #page-review.active, #page-stage.active{display:flex;}
-#page-rider .rider-scroll-body, #page-race .race-scroll-body, #page-review .race-scroll-body, #page-stage .race-scroll-body{flex:1;overflow-y:auto;}
+#page-rider, #page-race, #page-review, #page-stage, #page-edition, #page-followers{display:none;flex-direction:column;height:calc(100vh - 57px);overflow:hidden;}
+#page-rider.active, #page-race.active, #page-review.active, #page-stage.active, #page-edition.active{display:flex;}
+#page-rider .rider-scroll-body, #page-race .race-scroll-body, #page-review .race-scroll-body, #page-stage .race-scroll-body, #page-edition .race-scroll-body{flex:1;overflow-y:auto;}
 #page-followers.active{display:block;height:calc(100vh - 57px);overflow-y:auto;}
 #page-user{display:none;}
 #page-user.active{display:block;}
@@ -851,6 +851,25 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 .rv-comment{padding:14px 0;border-bottom:1px solid var(--border);}
 .rv-comment-author{font-size:11px;letter-spacing:1px;color:var(--gold);margin-bottom:4px;}
 .rv-comment-text{font-size:13px;color:var(--text);line-height:1.6;}
+/* ── Edition page ───────────────────────────────────────────────────── */
+.edition-subhead{font-size:11px;letter-spacing:3px;color:rgba(255,255,255,.6);text-transform:uppercase;margin-bottom:6px;}
+.edition-comment{padding:13px 0;border-bottom:1px solid var(--border);}
+.edition-comment-author{font-size:11px;letter-spacing:1px;color:var(--gold);margin-bottom:3px;display:flex;align-items:center;gap:8px;}
+.edition-comment-text{font-size:13px;color:var(--text);line-height:1.6;}
+.edition-comment-delete{font-size:10px;color:var(--muted);cursor:pointer;margin-left:auto;padding:2px 6px;border:1px solid transparent;transition:all .15s;}
+.edition-comment-delete:hover{color:#e55;border-color:#e55;}
+.community-review-row{padding:12px 0;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s;}
+.community-review-row:hover{background:rgba(255,255,255,.02);}
+.community-review-meta{display:flex;align-items:center;gap:8px;margin-bottom:4px;}
+.community-review-handle{font-size:11px;color:var(--gold);letter-spacing:.5px;}
+.community-review-text{font-size:12px;color:var(--muted);line-height:1.55;font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.startlist-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;margin-top:12px;}
+.startlist-rider-card{display:flex;align-items:center;gap:9px;padding:8px 10px;border:1px solid var(--border);transition:border-color .15s;cursor:pointer;}
+.startlist-rider-card:hover{border-color:var(--gold-dim);}
+.startlist-rider-photo{width:32px;height:42px;object-fit:cover;object-position:top;flex-shrink:0;background:var(--card-bg);}
+.startlist-rider-photo-placeholder{width:32px;height:42px;display:flex;align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;font-size:12px;color:#fff;flex-shrink:0;}
+.startlist-rider-name{font-size:11px;font-weight:500;line-height:1.3;}
+.startlist-rider-team{font-size:10px;color:var(--muted);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .rider-page-header{display:flex;gap:24px;padding:28px 28px 20px;border-bottom:1px solid var(--border);align-items:flex-end;}
 .rider-page-photo{width:100px;aspect-ratio:2/3;object-fit:cover;object-position:center top;flex-shrink:0;}
 .rider-page-photo-placeholder{width:100px;aspect-ratio:2/3;display:flex;align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;font-size:32px;color:#fff;flex-shrink:0;}
@@ -926,7 +945,7 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 
   /* add bottom padding so content isn't hidden behind mobile nav */
   .page.active,.page{padding-bottom:64px;}
-  #page-rider,#page-race,#page-review,#page-stage,#page-followers{padding-bottom:0;}
+  #page-rider,#page-race,#page-review,#page-stage,#page-edition,#page-followers{padding-bottom:0;}
 
   /* mobile nav visible */
   .mob-nav{display:block;}
@@ -1358,6 +1377,20 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
     <div class="race-sub-layout">
       <div class="rsp-main" id="stage-main"></div>
       <div class="rsp-sidebar" id="stage-sidebar"></div>
+    </div>
+  </div>
+</div>
+
+<!-- EDITION PAGE (specific race-year) -->
+<div id="page-edition" class="page">
+  <div style="background:var(--bg);padding:12px 24px;border-bottom:1px solid var(--border);flex-shrink:0;display:flex;align-items:center;gap:12px;">
+    <button class="bs" style="font-size:10px;" onclick="navBack()">← Back</button>
+    <div id="edition-breadcrumb" style="font-size:10px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;"></div>
+  </div>
+  <div class="race-scroll-body">
+    <div class="race-sub-layout">
+      <div class="rsp-main" id="edition-main"></div>
+      <div class="rsp-sidebar" id="edition-sidebar"></div>
     </div>
   </div>
 </div>
@@ -1847,9 +1880,9 @@ function showPage(p){
     document.querySelectorAll('.tier-btn').forEach((x,i)=>x.classList.toggle('active',i===0));
     if(aDiscSection==='riders') resetRiderSearch();
   }
-  // Reset sub-page scroll when leaving race/stage/rider/review pages
-  if(['race','stage','rider','review'].includes(aPg) && !['race','stage','rider','review'].includes(p)){
-    ['#page-race .race-scroll-body','#page-stage .race-scroll-body','#page-rider .rider-scroll-body','#page-review .race-scroll-body'].forEach(sel=>{
+  // Reset sub-page scroll when leaving race/stage/rider/review/edition pages
+  if(['race','stage','rider','review','edition'].includes(aPg) && !['race','stage','rider','review','edition'].includes(p)){
+    ['#page-race .race-scroll-body','#page-stage .race-scroll-body','#page-rider .rider-scroll-body','#page-review .race-scroll-body','#page-edition .race-scroll-body'].forEach(sel=>{
       const el=document.querySelector(sel); if(el) el.scrollTop=0;
     });
   }
@@ -1868,6 +1901,7 @@ function showPage(p){
     else if(p !== 'discover') history.replaceState(null, '', `#/${p}`);
   }
   if(p!=='discover') curRacePageId=null;
+  if(p!=='edition'){ _curEditionSlug=null; _curEditionYear=null; }
   if(p==='log') renderLogPage();
   else if(p==='top') renderLeaderboard();
   else if(p==='stats'){
@@ -2276,7 +2310,7 @@ function availYears(id){
 // ════════════════════════════════════════════════════════
 //  RENDER ALL
 // ════════════════════════════════════════════════════════
-function renderAll(){renderGrid();renderSidebar();updateStats();if(curRacePageId) openRacePage(curRacePageId, null, false);}
+function renderAll(){renderGrid();renderSidebar();updateStats();if(curRacePageId) openRacePage(curRacePageId, null, false); if(_curEditionSlug && _curEditionYear && aPg==='edition') openEditionPage(_curEditionSlug, _curEditionYear, false);}
 
 function filteredRaces(){
   const filtered = RACES.filter(r=>{
@@ -2376,6 +2410,7 @@ function renderGrid(){
 //  RACE SUBPAGE
 // ════════════════════════════════════════════════════════
 let curRacePageId = null;
+let _curEditionSlug = null, _curEditionYear = null;
 async function openRacePage(id, preferYear, pushHistory=true){
   curRacePageId = id;
   const r=RACES.find(x=>x.id===id); if(!r) return;
@@ -2476,7 +2511,7 @@ async function openRacePage(id, preferYear, pushHistory=true){
   if(raceScrollBody) raceScrollBody.scrollTop = 0;
 
   // Sidebar: year selector + results — build first with loading state
-  document.getElementById('rsp-sidebar').innerHTML=`<div class="sb-title">Race Results</div>
+  document.getElementById('rsp-sidebar').innerHTML=`<div class="sb-title">Editions</div>
     <div class="skeleton" style="width:100%;height:32px;border-radius:3px;margin-bottom:16px;"></div>
     ${Array(5).fill(`<div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:center;">
       <div class="skeleton" style="width:20px;height:14px;border-radius:2px;flex-shrink:0;"></div>
@@ -2491,14 +2526,21 @@ async function openRacePage(id, preferYear, pushHistory=true){
   history.replaceState(null, '', bestYear ? `#/race/${id}/${bestYear}` : `#/race/${id}`);
 
   // Build sidebar with real years
-  document.getElementById('rsp-sidebar').innerHTML=`<div class="sb-title">Race Results</div>
-    <div style="margin-bottom:16px;"><label class="flbl">Show year:</label>
-    <select class="ysel" id="rsp-yr-sel" onchange="renderRSPResults('${id}',parseInt(this.value))" style="width:100%;">
+  document.getElementById('rsp-sidebar').innerHTML=`<div class="sb-title">Editions</div>
+    <div style="margin-bottom:16px;"><label class="flbl">Jump to edition:</label>
+    <select class="ysel" id="rsp-yr-sel" onchange="openEditionPage('${id}',parseInt(this.value))" style="width:100%;">
       ${years.map(y=>`<option value="${y}"${y===bestYear?' selected':''}>  ${y}</option>`).join('')}
     </select></div>
+    <button class="bp" style="width:100%;margin-bottom:16px;" onclick="openEditionPage('${id}',${bestYear||years[0]})">View ${bestYear||years[0]} Edition →</button>
     <div id="rsp-results"></div>`;
 
-  if(years.length) renderRSPResults(id, bestYear||years[0]);
+  if(years.length) {
+    // Sidebar shows edition navigator; quick preview of winner in sidebar results div
+    const el = document.getElementById('rsp-results');
+    if(el){
+      el.innerHTML = `<div style="font-size:11px;color:var(--muted);line-height:1.8;">Select an edition above to see full results, startlist, and community discussion.</div>`;
+    }
+  }
 }
 
 async function renderRSPResults(id, year){
@@ -2706,8 +2748,455 @@ async function fetchRaceResults(slug, year){
 }
 
 // ════════════════════════════════════════════════════════
-//  STAGE PAGE
+//  EDITION PAGE  (specific race × year)
 // ════════════════════════════════════════════════════════
+
+// Cache for edition comments so rapid re-renders don't re-fetch
+const _editionCommentsCache = {};
+
+async function openEditionPage(slug, year, pushHistory=true){
+  year = parseInt(year);
+  const r = RACES.find(x=>x.id===slug);
+  if(!r){ toast('Race not found'); return; }
+
+  _curEditionSlug = slug;
+  _curEditionYear = year;
+
+  if(pushHistory){ _appHistoryDepth++; history.pushState(null,'',`#/edition/${slug}/${year}`); }
+
+  // Switch to edition page immediately with loading state
+  document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));
+  document.getElementById('page-edition').classList.add('active');
+  document.querySelectorAll('.nav-a,.mob-nav-btn').forEach(x=>x.classList.remove('active'));
+
+  const breadcrumbEl = document.getElementById('edition-breadcrumb');
+  if(breadcrumbEl) breadcrumbEl.textContent = `${r.name} · ${year}`;
+
+  // Reset scroll
+  const scrollEl = document.querySelector('#page-edition .race-scroll-body');
+  if(scrollEl) scrollEl.scrollTop = 0;
+
+  document.getElementById('edition-main').innerHTML = `<div style="padding:40px;color:var(--muted);">Loading…</div>`;
+  document.getElementById('edition-sidebar').innerHTML = '';
+
+  // ── Fetch data in parallel ──────────────────────────────────────────────
+  const isStageRace = r.type === 'Grand Tour' || r.type === 'Stage Race';
+
+  const [result, stages, raceDate, communityReviews, editionComments] = await Promise.all([
+    fetchRaceResults(slug, year),
+    isStageRace ? loadStages(slug, year) : Promise.resolve(null),
+    ensureRaceDateSingle(slug, year),
+    fetchEditionCommunityReviews(slug, year),
+    fetchEditionComments(slug, year),
+  ]);
+
+  // ── Main column ──────────────────────────────────────────────────────────
+  const rl = userLog[slug] || {};
+  const watches = (rl.watches || []).filter(w => w.year === year);
+  const watchIdxMap = {}; // year-watch to global watchIdx
+  (userLog[slug]?.watches || []).forEach((w,i)=>{ if(w.year===year) watchIdxMap[i]=i; });
+  const globalWatchIdxes = (userLog[slug]?.watches||[]).map((w,i)=>w.year===year?i:null).filter(x=>x!==null);
+
+  // Championship gradient handling
+  let gradient = r.gradient;
+  let flag = r.flag;
+  if(r.type === 'championship'){
+    const cd = getChampData(r);
+    gradient = cd.gradient;
+    flag = cd.flag;
+  }
+
+  let mainHTML = `
+    <div class="rsp-banner" style="background:${gradient};position:relative;overflow:hidden;">
+      ${r.logoUrl ? `<div style="position:absolute;right:16px;top:50%;transform:translateY(-50%);height:75%;max-width:38%;display:flex;align-items:center;justify-content:center;"><img src="${r.logoUrl}" alt="${r.name}" style="max-height:100%;max-width:100%;object-fit:contain;filter:drop-shadow(0 2px 8px rgba(0,0,0,.6));opacity:.92;" onerror="this.parentElement.remove()"></div>` : ''}
+      <div style="position:relative;z-index:1;">
+        <div class="edition-subhead">${r.type} · ${flag} ${r.country}</div>
+        <div class="rsp-ttl">${r.name}</div>
+        <span class="rsp-sub" style="font-size:14px;">${year} Edition${raceDate?' · '+fmtDate(raceDate):''}</span>
+      </div>
+    </div>
+    <div style="margin-bottom:16px;">${sgBadgesHTML(slug)}</div>
+
+    <div style="display:flex;gap:10px;margin-bottom:28px;flex-wrap:wrap;">
+      <button class="bp" onclick="openLogModalForEdition('${slug}',${year})">+ Log This Edition</button>
+      <button class="bwl ${watchlist.includes(slug)?'on':''}" id="edition-wl-btn"
+        onclick="toggleWL('${slug}');this.classList.toggle('on',watchlist.includes('${slug}'));this.textContent=watchlist.includes('${slug}')?'★ In Watchlist':'+ Watchlist';">
+        ${watchlist.includes(slug)?'★ In Watchlist':'+ Watchlist'}
+      </button>
+      <button class="bs" style="font-size:10px;" onclick="openRacePage('${slug}',${year})">All Editions ↗</button>
+    </div>`;
+
+  // Your logs for this edition
+  if(watches.length){
+    mainHTML += `<div class="rsp-section"><div class="rsp-st">Your Log</div>`;
+    watches.forEach((w) => {
+      const globalIdx = (userLog[slug]?.watches||[]).findIndex(x=>x===w);
+      mainHTML += `<div class="log-entry-card">
+        <div class="lec-head">
+          <div>
+            <div class="lec-year">${year} Edition</div>
+            <div class="stars" style="margin:4px 0;">${starsHTML(w.rating||0,13)}</div>
+          </div>
+          <div class="lec-date">${w.date?fmtDate(w.date):''}<br>${w.live?'<span style="font-size:8px;color:var(--live);border:1px solid var(--live);padding:1px 5px;">LIVE</span>':''}</div>
+        </div>
+        ${w.review?`<div class="lec-review">"${w.review}"</div>`:''}
+        <div class="lec-actions">
+          <button class="bs" style="font-size:9px;padding:5px 10px;" onclick="openLogModal('${slug}',${globalIdx})">Edit</button>
+          <button class="bdanger" onclick="confirmDeleteWatch('${slug}',${globalIdx})">Delete</button>
+        </div>
+      </div>`;
+    });
+    mainHTML += `</div>`;
+  }
+
+  // Stage logs for this edition
+  if(isStageRace){
+    const raceStageEntries = allStageEntries().filter(e=>e.raceId===slug && e.year===year);
+    if(raceStageEntries.length){
+      mainHTML += `<div class="rsp-section" style="margin-top:8px;"><div class="rsp-st">Your Stage Logs</div>`;
+      raceStageEntries.sort((a,b)=>a.stageNum-b.stageNum).forEach(e=>{
+        const sl = e.stageLog;
+        const stLabel = e.stageNum===0?'Prologue':`Stage ${sl.stageLabel||e.stageNum}`;
+        mainHTML += `<div class="log-entry-card" style="cursor:pointer;" onclick="openStagePage('${slug}',${year},${e.stageNum})">
+          <div class="lec-head">
+            <div>
+              <div class="lec-year" style="font-size:13px;">${stLabel}</div>
+              <div class="stars" style="margin:3px 0;">${starsHTML(sl.rating||0,11)}</div>
+            </div>
+          </div>
+          ${sl.review?`<div class="lec-review">"${sl.review}"</div>`:''}
+        </div>`;
+      });
+      mainHTML += `</div>`;
+    }
+  }
+
+  // Community reviews for this edition
+  mainHTML += renderEditionCommunityReviewsHTML(communityReviews, slug, year);
+
+  // Edition comments
+  mainHTML += renderEditionCommentsHTML(slug, year, editionComments);
+
+  document.getElementById('edition-main').innerHTML = mainHTML;
+
+  // Attach edition comment submit handler
+  const commentInput = document.getElementById('edition-comment-input');
+  if(commentInput){
+    commentInput.addEventListener('keydown', e=>{
+      if(e.key==='Enter' && (e.ctrlKey||e.metaKey)) submitEditionComment(slug, year);
+    });
+  }
+
+  // ── Sidebar: results + startlist ────────────────────────────────────────
+  renderEditionSidebar(slug, year, r, result, stages, isStageRace);
+}
+
+// ── Helper: ensure a single race date is fetched ──────────────────────────
+async function ensureRaceDateSingle(slug, year){
+  if(RACE_DATES[slug]?.[year]) return RACE_DATES[slug][year];
+  const { data } = await sb.from('race_dates').select('race_date').eq('race_id',slug).eq('year',year).limit(1);
+  const date = data?.[0]?.race_date || null;
+  if(date){ RACE_DATES[slug] = RACE_DATES[slug]||{}; RACE_DATES[slug][year]=date; }
+  return date;
+}
+
+// ── Helper: fetch most recent community reviews for this edition ──────────
+async function fetchEditionCommunityReviews(slug, year){
+  const { data } = await sb.from('race_logs')
+    .select('user_id, rating, review, date_watched, watched_live, profiles(handle,display_name)')
+    .eq('slug', slug)
+    .eq('year', year)
+    .not('review','is',null)
+    .neq('review','')
+    .order('created_at',{ascending:false})
+    .limit(6);
+  return data || [];
+}
+
+// ── Render community reviews HTML ─────────────────────────────────────────
+function renderEditionCommunityReviewsHTML(reviews, slug, year){
+  if(!reviews.length) return '';
+  let html = `<div class="rsp-section"><div class="rsp-st">Community Reviews</div>`;
+  reviews.forEach((row,i) => {
+    const handle = row.profiles?.handle || '';
+    const name = row.profiles?.display_name || handle;
+    if(!handle) return;
+    // Find the n-th review by this user for this race/year
+    html += `<div class="community-review-row" onclick="navToReview('${handle}','${slug}',${year},1)">
+      <div class="community-review-meta">
+        <span class="community-review-handle">@${handle}</span>
+        ${row.rating?starsHTML(row.rating,10):''}
+        ${row.watched_live?'<span style="font-size:8px;color:#e55;border:1px solid #e55;padding:1px 4px;">LIVE</span>':''}
+        ${row.date_watched?`<span style="font-size:10px;color:var(--muted);margin-left:auto;">${fmtDate(row.date_watched)}</span>`:''}
+      </div>
+      <div class="community-review-text">"${row.review}"</div>
+    </div>`;
+  });
+  html += `</div>`;
+  return html;
+}
+
+// ── Fetch edition comments ────────────────────────────────────────────────
+async function fetchEditionComments(slug, year){
+  const key = `${slug}-${year}`;
+  if(_editionCommentsCache[key]) return _editionCommentsCache[key];
+  const { data } = await sb.from('edition_comments')
+    .select('id,user_id,handle,display_name,text,created_at')
+    .eq('race_slug',slug).eq('year',year)
+    .order('created_at',{ascending:true});
+  const result = data || [];
+  _editionCommentsCache[key] = result;
+  return result;
+}
+
+// ── Render edition comments HTML ──────────────────────────────────────────
+function renderEditionCommentsHTML(slug, year, comments){
+  const myUid = currentUser?.id;
+  const myHandle = profile?.handle || '';
+
+  let commentItems = '';
+  if(!comments.length){
+    commentItems = `<div style="color:var(--muted);font-size:12px;padding:12px 0;">No comments yet. Start the discussion!</div>`;
+  } else {
+    commentItems = comments.map(c=>{
+      const isOwn = c.user_id === myUid;
+      return `<div class="edition-comment" id="ec-${c.id}">
+        <div class="edition-comment-author">
+          <span style="cursor:pointer;" onclick="openUserPage('${c.handle}')">${c.handle||c.display_name||'User'}</span>
+          <span style="color:var(--muted);font-weight:400;font-size:10px;">${fmtDate((c.created_at||'').split('T')[0])}</span>
+          ${isOwn?`<button class="edition-comment-delete" onclick="deleteEditionComment('${slug}',${year},'${c.id}')">✕</button>`:''}
+        </div>
+        <div class="edition-comment-text">${c.text}</div>
+      </div>`;
+    }).join('');
+  }
+
+  const inputArea = currentUser
+    ? `<div style="margin-top:16px;">
+        <textarea class="rv-comment-input" id="edition-comment-input" placeholder="Join the discussion…"></textarea>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <button class="bs" onclick="submitEditionComment('${slug}',${year})">Post</button>
+          <span style="font-size:10px;color:var(--muted);align-self:center;">Ctrl+Enter to post</span>
+        </div>
+      </div>`
+    : `<div style="color:var(--muted);font-size:12px;margin-top:16px;"><button class="bs" style="font-size:10px;" onclick="openAuthModal()">Sign in to comment</button></div>`;
+
+  return `<div class="rsp-section">
+    <div class="rsp-st">Edition Discussion <span style="color:var(--muted);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:400;">${comments.length||''}</span></div>
+    <div id="edition-comments-list">${commentItems}</div>
+    ${inputArea}
+  </div>`;
+}
+
+// ── Submit edition comment ────────────────────────────────────────────────
+async function submitEditionComment(slug, year){
+  if(!currentUser){ toast('Sign in to comment'); return; }
+  const input = document.getElementById('edition-comment-input');
+  const text = input?.value?.trim();
+  if(!text){ toast('Write something first'); return; }
+  input.value='';
+  input.disabled=true;
+
+  const myHandle = profile?.handle || currentUser.email.split('@')[0];
+  const myName = profile?.name || myHandle;
+
+  const { data, error } = await sb.from('edition_comments').insert({
+    race_slug: slug,
+    year: parseInt(year),
+    user_id: currentUser.id,
+    handle: myHandle,
+    display_name: myName,
+    text,
+  }).select().single();
+
+  input.disabled=false;
+  if(error){ toast('Error posting comment'); console.error(error); return; }
+
+  // Update cache and re-render comments list
+  const key = `${slug}-${year}`;
+  if(_editionCommentsCache[key]) _editionCommentsCache[key].push(data);
+  else _editionCommentsCache[key] = [data];
+
+  const listEl = document.getElementById('edition-comments-list');
+  if(listEl){
+    const myUid = currentUser.id;
+    const newItem = document.createElement('div');
+    newItem.className = 'edition-comment';
+    newItem.id = `ec-${data.id}`;
+    newItem.innerHTML = `<div class="edition-comment-author">
+      <span>${myHandle}</span>
+      <span style="color:var(--muted);font-weight:400;font-size:10px;">${fmtDate(data.created_at?.split('T')[0]||'')}</span>
+      <button class="edition-comment-delete" onclick="deleteEditionComment('${slug}',${year},'${data.id}')">✕</button>
+    </div>
+    <div class="edition-comment-text">${data.text}</div>`;
+    // Remove "no comments yet" placeholder if present
+    const placeholder = listEl.querySelector('div[style*="No comments"]');
+    if(placeholder) placeholder.remove();
+    listEl.appendChild(newItem);
+    newItem.scrollIntoView({behavior:'smooth',block:'nearest'});
+  }
+}
+
+// ── Delete edition comment ────────────────────────────────────────────────
+async function deleteEditionComment(slug, year, commentId){
+  if(!currentUser) return;
+  const { error } = await sb.from('edition_comments').delete().eq('id',commentId).eq('user_id',currentUser.id);
+  if(error){ toast('Error deleting comment'); return; }
+  // Remove from cache
+  const key = `${slug}-${year}`;
+  if(_editionCommentsCache[key]) _editionCommentsCache[key] = _editionCommentsCache[key].filter(c=>c.id!==commentId);
+  // Remove from DOM
+  const el = document.getElementById(`ec-${commentId}`);
+  if(el) el.remove();
+}
+
+// ── Open log modal pre-set to a specific year ─────────────────────────────
+async function openLogModalForEdition(slug, year){
+  await openLogModal(slug);
+  // Set year select and trigger date update
+  const yrSel = document.getElementById('lm-year');
+  if(yrSel){
+    yrSel.value = year;
+    // Pre-fill date with race date if available
+    const raceDate = RACE_DATES[slug]?.[year] || await ensureRaceDateSingle(slug, year);
+    if(raceDate) document.getElementById('lm-date').value = raceDate;
+    await renderLogFormBody();
+  }
+}
+
+// ── Render edition sidebar: results + startlist ───────────────────────────
+function renderEditionSidebar(slug, year, r, result, stages, isStageRace){
+  const el = document.getElementById('edition-sidebar'); if(!el) return;
+  const TYPE_ICON = {mountain:'⛰',tt:'⏱',ttt:'⏱⏱',cobbled:'◫',sprint:'━',hilly:'∧'};
+  const TYPE_COL  = {mountain:'#c0392b',tt:'#1a3a8c',ttt:'#1a3a8c',cobbled:'#7b5e2a',sprint:'#1a5c2a',hilly:'#555'};
+  const top10 = result?.top10;
+
+  let html = `<div class="sb-title">Results</div>`;
+
+  if(top10 && top10.length){
+    html += `<div style="margin-bottom:20px;">`;
+    top10.forEach((entry,i)=>{
+      const name = typeof entry==='string'?entry:(entry.rider||entry.rider_name||'');
+      const time = typeof entry==='object'?(entry.time||entry.gap||''):'';
+      html += `<div class="top10-row">
+        <span class="t10-pos">${i+1}</span>
+        <span class="t10-name" style="cursor:pointer;" onclick="navToRider('${name}')" onmouseover="this.style.color='var(--gold)'" onmouseout="this.style.color=''">${formatRiderName(name)}</span>
+        ${(i===0?time:(typeof entry==='object'?entry.gap||'':''))?`<span style="font-size:10px;color:var(--muted);margin-left:auto;">${i===0?time:(typeof entry==='object'?entry.gap||'':'')}</span>`:''}
+      </div>`;
+    });
+    html += `</div>`;
+  } else {
+    html += `<div style="font-size:12px;color:var(--muted);margin-bottom:20px;font-style:italic;">No results for ${year}.<br>
+      <a href="https://www.procyclingstats.com/race/${slug}/${year}" target="_blank" style="color:var(--gold-dim);">View on PCS ↗</a></div>`;
+  }
+
+  // Stage list for stage races
+  if(isStageRace && stages && stages.length){
+    html += `<div class="sb-title" style="margin-top:4px;">Stages</div>`;
+    stages.forEach(s=>{
+      const icon = TYPE_ICON[s.type]||'';
+      const col  = TYPE_COL[s.type]||'#555';
+      const label = s.num===0?'P':(s.label||s.num);
+      const winner = s.winner ? formatRiderName(s.winner) : '';
+      html += `<div style="border-left:2px solid ${col};padding:5px 0 5px 8px;margin-bottom:4px;cursor:pointer;transition:opacity .15s;" onmouseover="this.style.opacity='.7'" onmouseout="this.style.opacity='1'" onclick="openStagePage('${slug}',${year},${s.num})">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="font-family:'Bebas Neue',sans-serif;font-size:12px;color:var(--gold);min-width:16px;">${label}</span>
+          <span style="font-size:10px;color:var(--muted);">${icon}</span>
+          <span style="font-size:10px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${s.departure&&s.arrival?`${s.departure}→${s.arrival}`:s.date?fmtDate(s.date):''}</span>
+        </div>
+        ${winner?`<div style="font-size:9px;color:var(--muted);padding-left:22px;">★ ${winner}</div>`:''}
+      </div>`;
+    });
+  }
+
+  // Startlist toggle
+  html += `<div style="margin-top:20px;">
+    <div class="sb-title">Startlist</div>
+    <button class="bs" id="edition-sl-btn" style="width:100%;margin-bottom:10px;" onclick="toggleEditionStartlist('${slug}',${year})">Show Startlist ▾</button>
+    <div id="edition-startlist-container"></div>
+  </div>`;
+
+  el.innerHTML = html;
+}
+
+// ── Startlist toggle ──────────────────────────────────────────────────────
+let _editionStartlistLoaded = {};
+async function toggleEditionStartlist(slug, year){
+  const container = document.getElementById('edition-startlist-container');
+  const btn = document.getElementById('edition-sl-btn');
+  if(!container || !btn) return;
+
+  if(container.children.length > 0){
+    container.innerHTML='';
+    btn.textContent='Show Startlist ▾';
+    return;
+  }
+
+  btn.textContent='Loading…';
+  btn.disabled=true;
+
+  const key=`${slug}-${year}`;
+  let rows = _editionStartlistLoaded[key];
+  if(!rows){
+    const { data } = await sb.from('startlists')
+      .select('rider_name,team_name,nationality,image_url')
+      .eq('race_slug',slug).eq('year',year)
+      .order('team_name').order('rider_name');
+    rows = data || [];
+    _editionStartlistLoaded[key] = rows;
+  }
+
+  btn.textContent='Hide Startlist ▴';
+  btn.disabled=false;
+
+  if(!rows.length){
+    container.innerHTML=`<div style="font-size:11px;color:var(--muted);">No startlist data for ${year}.</div>`;
+    return;
+  }
+
+  // Group by team
+  const byTeam = {};
+  rows.forEach(r=>{ if(!byTeam[r.team_name]) byTeam[r.team_name]=[]; byTeam[r.team_name].push(r); });
+
+  // Search input + grid
+  let html = `<input type="text" placeholder="Search startlist…" class="rv-comment-input" style="min-height:unset;padding:8px 12px;margin-bottom:10px;font-size:11px;"
+    oninput="filterEditionStartlist(this.value,'${slug}',${year})">
+    <div id="edition-sl-grid" class="startlist-grid">`;
+
+  rows.forEach(rider=>{
+    const col = riderColor(rider.rider_name);
+    const ini = riderInitials(rider.rider_name);
+    const hasImg = rider.image_url && rider.image_url!=='none';
+    const thumb = hasImg
+      ? `<img src="${rider.image_url}" class="startlist-rider-photo" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
+        + `<div class="startlist-rider-photo-placeholder" style="background:${col};color:#fff;display:none;">${ini}</div>`
+      : `<div class="startlist-rider-photo-placeholder" style="background:${col};color:#fff;">${ini}</div>`;
+    html += `<div class="startlist-rider-card" data-name="${rider.rider_name.toLowerCase()}" data-team="${(rider.team_name||'').toLowerCase()}" onclick="navToRider('${rider.rider_name}')">
+      ${thumb}
+      <div style="min-width:0;">
+        <div class="startlist-rider-name">${formatRiderName(rider.rider_name)}</div>
+        <div class="startlist-rider-team">${rider.team_name||''}</div>
+        ${rider.nationality?`<div style="font-size:9px;color:var(--muted);">${rider.nationality}</div>`:''}
+      </div>
+    </div>`;
+  });
+  html += `</div>`;
+  container.innerHTML = html;
+}
+
+function filterEditionStartlist(q, slug, year){
+  const grid = document.getElementById('edition-sl-grid'); if(!grid) return;
+  const lq = q.toLowerCase().trim();
+  grid.querySelectorAll('.startlist-rider-card').forEach(card=>{
+    const match = !lq || card.dataset.name.includes(lq) || card.dataset.team.includes(lq);
+    card.style.display = match ? '' : 'none';
+  });
+}
+
+// ════════════════════════════════════════════════════════
+//  STAGE PAGE  (stage edition comments added below stage-main)
+// ════════════════════════════════════════════════════════
+
 
 // Helper: get the logged stage entry for a given race/year/stageNum
 function getUserStageLog(raceId, year, stageNum){
@@ -2822,6 +3311,21 @@ async function openStagePage(raceId, year, stageNum, pushHistory=true){
 
   document.getElementById('stage-main').innerHTML = mainHTML;
 
+  // ── Stage edition comments (appended below stage content) ────────────────
+  fetchStageEditionComments(raceId, year, stageNum).then(comments=>{
+    const stageMain = document.getElementById('stage-main');
+    if(!stageMain) return;
+    const commentsDiv = document.createElement('div');
+    commentsDiv.innerHTML = renderStageEditionCommentsHTML(raceId, year, stageNum, comments);
+    stageMain.appendChild(commentsDiv.firstElementChild);
+    const commentInput = document.getElementById('stage-comment-input');
+    if(commentInput){
+      commentInput.addEventListener('keydown', e=>{
+        if(e.key==='Enter' && (e.ctrlKey||e.metaKey)) submitStageEditionComment(raceId, year, stageNum);
+      });
+    }
+  });
+
   // ── Sidebar: top 10 ──────────────────────────────────────────────────────
   let sbHTML = '';
 
@@ -2862,6 +3366,99 @@ async function openStagePage(raceId, year, stageNum, pushHistory=true){
 
   if(!sbHTML) sbHTML=`<div style="font-size:11px;color:var(--muted);">No result data yet.</div>`;
   document.getElementById('stage-sidebar').innerHTML = sbHTML;
+}
+
+// ── Stage edition comments ────────────────────────────────────────────────
+const _stageCommentsCache = {};
+async function fetchStageEditionComments(raceId, year, stageNum){
+  const key=`${raceId}-${year}-${stageNum}`;
+  if(_stageCommentsCache[key]) return _stageCommentsCache[key];
+  const { data } = await sb.from('stage_edition_comments')
+    .select('id,user_id,handle,display_name,text,created_at')
+    .eq('race_slug',raceId).eq('year',year).eq('stage_num',stageNum)
+    .order('created_at',{ascending:true});
+  const result = data||[];
+  _stageCommentsCache[key]=result;
+  return result;
+}
+
+function renderStageEditionCommentsHTML(raceId, year, stageNum, comments){
+  const myUid = currentUser?.id;
+  let items = '';
+  if(!comments.length){
+    items=`<div style="color:var(--muted);font-size:12px;padding:12px 0;">No comments yet. Be the first!</div>`;
+  } else {
+    items=comments.map(c=>{
+      const isOwn=c.user_id===myUid;
+      return `<div class="edition-comment" id="sc-${c.id}">
+        <div class="edition-comment-author">
+          <span style="cursor:pointer;" onclick="openUserPage('${c.handle}')">${c.handle||c.display_name||'User'}</span>
+          <span style="color:var(--muted);font-weight:400;font-size:10px;">${fmtDate((c.created_at||'').split('T')[0])}</span>
+          ${isOwn?`<button class="edition-comment-delete" onclick="deleteStageEditionComment('${raceId}',${year},${stageNum},'${c.id}')">✕</button>`:''}
+        </div>
+        <div class="edition-comment-text">${c.text}</div>
+      </div>`;
+    }).join('');
+  }
+  const inputArea = currentUser
+    ? `<div style="margin-top:16px;">
+        <textarea class="rv-comment-input" id="stage-comment-input" placeholder="Comment on this stage…"></textarea>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <button class="bs" onclick="submitStageEditionComment('${raceId}',${year},${stageNum})">Post</button>
+          <span style="font-size:10px;color:var(--muted);align-self:center;">Ctrl+Enter to post</span>
+        </div>
+      </div>`
+    : `<div style="font-size:12px;color:var(--muted);margin-top:16px;"><button class="bs" style="font-size:10px;" onclick="openAuthModal()">Sign in to comment</button></div>`;
+
+  return `<div class="rsp-section" style="margin-top:24px;">
+    <div class="rsp-st">Stage Discussion <span style="color:var(--muted);font-family:'DM Sans',sans-serif;font-size:13px;font-weight:400;">${comments.length||''}</span></div>
+    <div id="stage-comments-list">${items}</div>
+    ${inputArea}
+  </div>`;
+}
+
+async function submitStageEditionComment(raceId, year, stageNum){
+  if(!currentUser){ toast('Sign in to comment'); return; }
+  const input=document.getElementById('stage-comment-input');
+  const text=input?.value?.trim();
+  if(!text){ toast('Write something first'); return; }
+  input.value=''; input.disabled=true;
+  const myHandle=profile?.handle||currentUser.email.split('@')[0];
+  const myName=profile?.name||myHandle;
+  const { data, error } = await sb.from('stage_edition_comments').insert({
+    race_slug:raceId, year:parseInt(year), stage_num:parseInt(stageNum),
+    user_id:currentUser.id, handle:myHandle, display_name:myName, text,
+  }).select().single();
+  input.disabled=false;
+  if(error){ toast('Error posting comment'); console.error(error); return; }
+  const key=`${raceId}-${year}-${stageNum}`;
+  if(_stageCommentsCache[key]) _stageCommentsCache[key].push(data);
+  else _stageCommentsCache[key]=[data];
+  const listEl=document.getElementById('stage-comments-list');
+  if(listEl){
+    const newItem=document.createElement('div');
+    newItem.className='edition-comment';
+    newItem.id=`sc-${data.id}`;
+    newItem.innerHTML=`<div class="edition-comment-author">
+      <span>${myHandle}</span>
+      <span style="color:var(--muted);font-weight:400;font-size:10px;">${fmtDate(data.created_at?.split('T')[0]||'')}</span>
+      <button class="edition-comment-delete" onclick="deleteStageEditionComment('${raceId}',${year},${stageNum},'${data.id}')">✕</button>
+    </div>
+    <div class="edition-comment-text">${data.text}</div>`;
+    const placeholder=listEl.querySelector('div[style*="No comments"]');
+    if(placeholder) placeholder.remove();
+    listEl.appendChild(newItem);
+    newItem.scrollIntoView({behavior:'smooth',block:'nearest'});
+  }
+}
+
+async function deleteStageEditionComment(raceId, year, stageNum, commentId){
+  if(!currentUser) return;
+  const { error }=await sb.from('stage_edition_comments').delete().eq('id',commentId).eq('user_id',currentUser.id);
+  if(error){ toast('Error'); return; }
+  const key=`${raceId}-${year}-${stageNum}`;
+  if(_stageCommentsCache[key]) _stageCommentsCache[key]=_stageCommentsCache[key].filter(c=>c.id!==commentId);
+  const el=document.getElementById(`sc-${commentId}`); if(el) el.remove();
 }
 
 // ── Stage Log Modal (reuses the race log modal elements) ──────────────────
@@ -3296,6 +3893,10 @@ async function saveLog(){
   const savedIdx = curWatchIdx;
   closeMO('log-mo');
   toast(`${savedYear} logged ✓`);
+  // Re-render current subpage in place
+  if(aPg==='edition' && _curEditionSlug===savedId && _curEditionYear===savedYear){
+    openEditionPage(savedId, savedYear, false);
+  }
   renderAll();
   // Save to Supabase in background
   if(currentUser){
@@ -3412,7 +4013,7 @@ function renderSidebar(){
       </div>`;
     }
     const r=RACES.find(x=>x.id===item.id); if(!r) return '';
-    return `<div class="sle" onclick="openRacePage('${item.id}')">
+    return `<div class="sle" onclick="navToRace('${item.id}',${item.w.year||'null'})">
       <div class="sle-name">${r.name}</div>
       <div class="sle-yr">${item.w.from?`${item.w.from}–${item.w.to}`:item.w.year} Edition</div>
       <div class="sle-d">${item.w.date?fmtDate(item.w.date):''}</div>
@@ -3508,7 +4109,7 @@ function renderLogPage(){
     const {id,w} = item;
     const r=RACES.find(x=>x.id===id);
     const yrLabel=w.from?`${w.from}–${w.to}`:w.year;
-    return `<div class="lpe" onclick="openRacePage('${id}')">
+    return `<div class="lpe" onclick="navToRace('${id}',${w.year||'null'})">
       <div class="lpe-sw" style="background:${r.gradient}"></div>
       <div class="lpe-info">
         <div class="lpe-race">${r.name}</div>
@@ -4254,6 +4855,7 @@ function confirmDeleteWatch(id,idx){
   if(!w) return;
   showConfirm('Delete Log',`Delete your log for <strong>${r.name} ${w.year}</strong>?`,async ()=>{
     const dbId = w.id;
+    const deletedYear = w.year;
     userLog[id].watches.splice(idx,1);
     if(!userLog[id].watches.length) delete userLog[id];
     persist();
@@ -4261,7 +4863,12 @@ function confirmDeleteWatch(id,idx){
       const { error } = await sb.from('race_logs').delete().eq('id', dbId).eq('user_id', currentUser.id);
       if(error) console.error('Delete from DB failed:', error);
     }
-    openRacePage(id, null, false); renderAll(); toast('Deleted');
+    if(aPg==='edition' && _curEditionSlug===id && _curEditionYear===deletedYear){
+      openEditionPage(id, deletedYear, false);
+    } else {
+      openRacePage(id, null, false);
+    }
+    renderAll(); toast('Deleted');
   });
 }
 
@@ -4545,7 +5152,7 @@ function renderProfile(){
     const fr = profile.favRace;
     const race = RACES.find(x=>x.id===fr.id);
     const label = fr.stageNum ? `Stage ${fr.stageNum}, ${fr.year} edition` : `${fr.year} edition`;
-    favRaceEl.innerHTML = `<div class="fav-race-card filled" onclick="openRacePage('${fr.id}', ${fr.year})" style="cursor:pointer;">
+    favRaceEl.innerHTML = `<div class="fav-race-card filled" onclick="navToRace('${fr.id}', ${fr.year})" style="cursor:pointer;">
       <div class="fav-race-swatch" style="background:${race?race.gradient:'var(--border)'}"></div>
       <div class="fav-race-info">
         <div class="fav-race-name">${race?race.name:'Unknown race'}</div>
@@ -4587,7 +5194,7 @@ function renderProfile(){
       } else {
         const w = item.w;
         const dateStr = w.date ? fmtDate(w.date) : (w.year||'');
-        return `<div class="recent-activity-card" onclick="openRacePage('${item.id}')">
+        return `<div class="recent-activity-card" onclick="navToRace('${item.id}',${w.year||'null'})">
           <div class="ra-swatch" style="background:${r.gradient}"></div>
           <div>
             <div class="ra-name">${r.name} <span style="font-weight:400;color:var(--muted);">${w.year}</span></div>
@@ -4915,7 +5522,9 @@ function handleRoute(hash){
     showPage('discover'); return;
   }
   const parts = hash.replace(/^#\//, '').split('/');
-  if(parts[0] === 'race' && parts[1]) {
+  if(parts[0] === 'edition' && parts[1] && parts[2]) {
+    openEditionPage(parts[1], parseInt(parts[2]), false);
+  } else if(parts[0] === 'race' && parts[1]) {
     const slug = parts[1];
     const year = parts[2] ? parseInt(parts[2]) : null;
     openRacePage(slug, year, false);
@@ -5157,7 +5766,8 @@ function openRacePageBySlug(id, preferYear){
 }
 
 function navToRace(id, year){
-  openRacePage(id, year, true);
+  if(year) openEditionPage(id, year, true);
+  else openRacePage(id, null, true);
 }
 
 function navToRider(displayOrRawName){
@@ -6381,7 +6991,7 @@ async function openUserPage(userId, handle, pushHistory=true){
   const favRaceEl=document.getElementById('upage-fav-race-display');
   const favRaceId=p.fav_race_slug, favRaceObj=favRaceId?RACES.find(r=>r.id===favRaceId):null;
   favRaceEl.innerHTML = favRaceObj
-    ? `<div class="fav-race-card filled" onclick="openRacePage('${favRaceId}',${p.fav_race_year||'null'})" style="cursor:pointer;">
+    ? `<div class="fav-race-card filled" onclick="navToRace('${favRaceId}',${p.fav_race_year||'null'})" style="cursor:pointer;">
         <div class="fav-race-swatch" style="background:${favRaceObj.gradient||'var(--border)'}"></div>
         <div class="fav-race-info"><div class="fav-race-name">${favRaceObj.name}</div><div class="fav-race-sub">${p.fav_race_year?p.fav_race_year+' edition':''}</div><div style="margin-top:6px;font-size:10px;color:var(--muted);letter-spacing:1px;">★ All-time favourite</div></div>
        </div>`
@@ -6402,7 +7012,7 @@ async function openUserPage(userId, handle, pushHistory=true){
     const dateStr=w.date?fmtDate(w.date):(w.year||'');
     const isStage = w.type==='stage';
     const stageLabel = isStage ? ` · Stage ${w.stageNum}` : '';
-    const onclick = isStage ? `openStagePage('${id}',${w.year},${w.stageNum})` : `openRacePage('${id}')`;
+    const onclick = isStage ? `openStagePage('${id}',${w.year},${w.stageNum})` : `navToRace('${id}',${w.year})`;
     return `<div class="recent-activity-card" onclick="${onclick}">
       <div class="ra-swatch" style="background:${r.gradient}"></div>
       <div><div class="ra-name">${r.name} <span style="font-weight:400;color:var(--muted);">${w.year}${stageLabel}</span></div>
@@ -6449,7 +7059,7 @@ function openUserLog(userId, displayName, logs, filter){
       const name = race?.name || log.slug;
       const stars = log.rating ? `★ ${parseFloat(log.rating).toFixed(1)}` : '';
       const date  = log.date_watched ? log.date_watched.slice(0,10) : '';
-      return `<div class="lbi" style="cursor:pointer;" onclick="openRacePage('${log.slug}')">
+      return `<div class="lbi" style="cursor:pointer;" onclick="navToRace('${log.slug}',${log.year||'null'})">
         <div class="lbsw" style="background:${race?.gradient||'var(--border)'}"></div>
         <div class="lbinfo">
           <div class="lbname">${name} <span style="color:var(--muted);font-size:13px;">${log.year||''}</span></div>
