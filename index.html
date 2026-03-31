@@ -110,16 +110,77 @@
   }
 
   // ── Sign up ───────────────────────────────────────────────────────────────
+  function sanitizeHandle(raw){
+    return raw.toLowerCase().replace(/\s+/g,'').replace(/[^a-z0-9_]/g,'').slice(0,24);
+  }
+
+  function suggestHandle(){
+    const nameEl = document.getElementById('su-name');
+    const handleEl = document.getElementById('su-handle');
+    if(!nameEl || !handleEl) return;
+    // Only auto-fill if user hasn't manually edited the handle field
+    if(!handleEl.dataset.userEdited){
+      handleEl.value = sanitizeHandle(nameEl.value);
+      checkHandleAvailability();
+    }
+  }
+
+  let _handleCheckTimer = null;
+  function checkHandleAvailability(){
+    const handleEl = document.getElementById('su-handle');
+    const statusEl = document.getElementById('su-handle-status');
+    if(!handleEl || !statusEl) return;
+    handleEl.dataset.userEdited = '1';
+    const raw = handleEl.value;
+    const clean = sanitizeHandle(raw);
+    // Keep input clean
+    if(raw !== clean) { handleEl.value = clean; }
+    if(!clean){
+      statusEl.textContent = '';
+      return;
+    }
+    if(clean.length < 3){
+      statusEl.style.color = 'var(--muted)';
+      statusEl.textContent = 'Username must be at least 3 characters';
+      return;
+    }
+    statusEl.style.color = 'var(--muted)';
+    statusEl.textContent = 'Checking…';
+    clearTimeout(_handleCheckTimer);
+    _handleCheckTimer = setTimeout(async () => {
+      const { data } = await sb.from('profiles').select('user_id').eq('handle', clean).maybeSingle();
+      const statusEl2 = document.getElementById('su-handle-status');
+      if(!statusEl2) return;
+      if(data){
+        statusEl2.style.color = '#e55';
+        statusEl2.textContent = '✗ @' + clean + ' is already taken';
+      } else {
+        statusEl2.style.color = '#4caf50';
+        statusEl2.textContent = '✓ @' + clean + ' is available';
+      }
+    }, 400);
+  }
+
   async function signUpEmail() {
     const name     = document.getElementById('su-name').value.trim();
     const email    = document.getElementById('su-email').value.trim();
     const password = document.getElementById('su-password').value;
+    const handleEl = document.getElementById('su-handle');
+    const handle   = sanitizeHandle(handleEl ? handleEl.value : name);
 
     if (!name)               { toast('Please enter your name');     return; }
+    if (!handle || handle.length < 3) { toast('Please choose a username (min 3 characters)'); return; }
     if (!email)              { toast('Please enter your email');    return; }
     if (password.length < 6) { toast('Password min 6 characters'); return; }
 
-    const handle = name.toLowerCase().replace(/\s+/g,'').replace(/[^a-z0-9_]/g,'').slice(0,24) || 'cyclist';
+    // Check handle availability one final time before submitting
+    const { data: existingHandle } = await sb.from('profiles').select('user_id').eq('handle', handle).maybeSingle();
+    if(existingHandle){
+      toast('@' + handle + ' is already taken — please choose another');
+      const statusEl = document.getElementById('su-handle-status');
+      if(statusEl){ statusEl.style.color='#e55'; statusEl.textContent = '✗ @' + handle + ' is already taken'; }
+      return;
+    }
 
     const { data, error } = await sb.auth.signUp({
       email,
@@ -414,7 +475,17 @@
       <div id="auth-form-up" style="display:none;">
         <label class="flbl">Your Name</label>
         <input type="text" class="dinp" id="su-name"
-          style="width:100%;margin-bottom:12px;" placeholder="Eddy Merckx" autocomplete="off">
+          style="width:100%;margin-bottom:12px;" placeholder="Eddy Merckx" autocomplete="off"
+          oninput="suggestHandle()">
+        <label class="flbl">Username</label>
+        <div style="position:relative;margin-bottom:4px;">
+          <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:13px;pointer-events:none;">@</span>
+          <input type="text" class="dinp" id="su-handle"
+            style="width:100%;padding-left:22px;box-sizing:border-box;" placeholder="eddymerckx"
+            autocomplete="off" oninput="checkHandleAvailability()"
+            onkeydown="if(event.key==='Enter') signUpEmail()">
+        </div>
+        <div id="su-handle-status" style="font-size:10px;letter-spacing:.5px;margin-bottom:12px;min-height:14px;"></div>
         <label class="flbl">Email</label>
         <input type="email" class="dinp" id="su-email"
           style="width:100%;margin-bottom:12px;" placeholder="your@email.com" autocomplete="off">
@@ -5766,13 +5837,15 @@ window.addEventListener('popstate', () => handleRoute(location.hash));
 // ════════════════════════════════════════════════════════
 function navToReview(handle, raceId, year, n){
   n = n || 1;
-  const hash = `#/review/${handle}/${raceId}/${year}${n>1?'/'+n:''}`;
-  _appHistoryDepth++; history.pushState(null, '', hash);
-  openReviewPage(handle, raceId, year, n);
+  openReviewPage(handle, raceId, year, n, true);
 }
 
 async function openReviewPage(handle, raceId, year, n, pushHistory=true){
   n = n || 1;
+  if(pushHistory){
+    const hash = `#/review/${handle}/${raceId}/${year}${n>1?'/'+n:''}`;
+    _appHistoryDepth++; history.pushState(null, '', hash);
+  }
   document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));
   document.getElementById('page-review').classList.add('active');
   document.querySelectorAll('.nav-a').forEach(x=>x.classList.remove('active'));
@@ -6818,7 +6891,7 @@ function renderNotifList(){
     if(n.type === 'follow' && n.actor_handle) onclick = `onclick="closeNotifDrawer();openUserPage(null,'${n.actor_handle}')"`;
     else if((n.type === 'like' || n.type === 'comment') && n.review_key){
       const [rh, ri, ry, rn] = n.review_key.split('/');
-      onclick = `onclick="closeNotifDrawer();openReviewPage('${rh}','${ri}',${ry||0},${rn||1})"`;
+      onclick = `onclick="closeNotifDrawer();navToReview('${rh}','${ri}',${ry||0},${rn||1})"`;
     } else if(n.actor_handle) onclick = `onclick="closeNotifDrawer();openUserPage(null,'${n.actor_handle}')"`;
 
     return `<div class="notif-item${unreadClass}" ${onclick}>
@@ -7238,7 +7311,7 @@ async function openUserPage(userId, handle, pushHistory=true){
     // Compute review number: 1-indexed position among all reviews for this race, sorted by ts
     const reviewsForRace = all.filter(([rid,rw])=>rid===id && rw.review && rw.review.trim()).sort((a,b)=>(a[1].ts||0)-(b[1].ts||0));
     const n = Math.max(1, reviewsForRace.findIndex(([,rw])=>rw.ts===w.ts) + 1);
-    return `<div class="review-card" onclick="openReviewPage('${upageHandle}','${id}',${w.year},${n})">
+    return `<div class="review-card" onclick="navToReview('${upageHandle}','${id}',${w.year},${n})">
       <div class="review-race">${r.name} ${w.year}${stageLabel}${w.rating?` · ★ ${w.rating}`:''}</div>
       <div class="review-text">"${w.review.slice(0,220)}${w.review.length>220?'…':''}"</div>
       <div style="font-size:10px;color:var(--muted);margin-top:6px;letter-spacing:.5px;">View review →</div>
