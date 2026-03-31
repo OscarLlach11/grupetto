@@ -3168,7 +3168,7 @@ async function toggleEditionStartlist(slug, year){
     const ini = riderInitials(rider.rider_name);
     const hasImg = rider.image_url && rider.image_url!=='none';
     const thumb = hasImg
-      ? `<img src="${rider.image_url}" class="startlist-rider-photo" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
+      ? `<img src="${rider.image_url}" class="startlist-rider-photo" onerror="_imgError(this,0)">`
         + `<div class="startlist-rider-photo-placeholder" style="background:${col};color:#fff;display:none;">${ini}</div>`
       : `<div class="startlist-rider-photo-placeholder" style="background:${col};color:#fff;">${ini}</div>`;
     html += `<div class="startlist-rider-card" data-name="${rider.rider_name.toLowerCase()}" data-team="${(rider.team_name||'').toLowerCase()}" onclick="navToRider('${rider.rider_name}')">
@@ -4354,8 +4354,8 @@ function renderRiderCard(rider){
   // Only show "Retired" if not seen in a startlist in the past 2 seasons
   const teamLabel = (!lastYear || CUR_YEAR - lastYear > 2) ? 'Retired' : (rider.team_name || '');
   const thumb = imgSrc
-    ? `<img src="${imgSrc}" style="width:100%;height:100%;object-fit:cover;object-position:center top;"
-         onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+    ? `<img src="${imgSrc}" data-src="${imgSrc}" style="width:100%;height:100%;object-fit:cover;object-position:center top;" loading="lazy" decoding="async"
+         onerror="_imgError(this,0)">
        <div style="display:none;width:100%;height:100%;background:${col};align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;font-size:22px;color:#fff;">${ini}</div>`
     : `<div style="width:100%;height:100%;background:${col};display:flex;align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;font-size:22px;color:#fff;">${ini}</div>`;
   return `<div style="cursor:pointer;border:1px solid var(--border);overflow:hidden;transition:border-color .15s;" data-rider="${encodedName}" onclick="navToRider(decodeURIComponent(this.dataset.rider))" onmouseover="this.style.borderColor='var(--gold)'" onmouseout="this.style.borderColor='var(--border)'">
@@ -4594,110 +4594,102 @@ async function executeRiderSearch(){
 
   grid.innerHTML = '<div style="color:var(--muted);font-size:12px;grid-column:1/-1;">Searching…</div>';
 
-  // Build DB queries. The DB stores "LASTNAME Firstname Middlename".
-  // A user might type:
-  //   "pogacar"       → last name fragment  → ilike '%POGACAR%'   ✓ direct match
-  //   "tadej"         → first name fragment → ilike '% tadej%' won't work; need suffix match
-  //   "tadej pog"     → first + partial last → need to reverse
-  //   "wout van aert" → first + multi-word last
-  //
-  // Strategy:
-  //   1. Always search %q% (catches last name matches)
-  //   2. If query contains a space, also try reversed ("VAN AERT Wout" from "wout van aert")
-  //   3. Client-side re-rank: exact first-name prefix > exact last-name prefix > partial
-  //   4. Filter client-side so display name (first last) contains the query terms
+  // DB stores names as "LASTNAME Firstname" (e.g. "MARTIN Dan", "VAN AERT Wout").
+  // Strategy: fire one query per word in the search term, then intersect results client-side.
+  // This correctly handles:
+  //   "dan"         → rows containing "dan"  → "MARTIN Dan" ✓
+  //   "martin"      → rows containing "martin" → "MARTIN Dan" ✓
+  //   "dan martin"  → intersect(rows with "dan") ∩ intersect(rows with "martin") → "MARTIN Dan" ✓
+  //   "pogacar"     → rows containing "pogacar" → "POGAČAR Tadej" ✓ (ilike is accent-insensitive on most DBs)
 
   const qLower = q.toLowerCase();
   const qWords = qLower.split(/\s+/).filter(Boolean);
 
-  // Query 1: last-name / direct match
-  const p1 = sb.from('startlists')
-    .select('rider_name,team_name,nationality,image_url,year')
-    .ilike('rider_name', `%${q}%`)
-    .order('year', {ascending:false}).limit(100);
+  // Fire one DB query per unique word
+  const wordQueries = await Promise.all(
+    qWords.map(word =>
+      sb.from('startlists')
+        .select('rider_name,team_name,nationality,image_url,year')
+        .ilike('rider_name', `%${word}%`)
+        .order('year', {ascending:false})
+        .limit(200)
+        .then(res => res.data || [])
+    )
+  );
 
-  // Query 2: if multi-word, try reversed order (user typed "tadej pogacar")
-  // Reverse: last word(s) become the DB-format first part
-  let p2Promise = Promise.resolve({ data: [] });
-  if(qWords.length >= 2){
-    // Try "LAST First" by uppercasing all but last word as last name
-    // e.g. "wout van aert" → "VAN AERT wout" → search "%VAN AERT%wout%" not easy in SQL
-    // Instead: search for each word individually and intersect client-side
-    // Simple: search for the last word of the query (likely the last name) + first word
-    const lastWord = qWords[qWords.length - 1];
-    const firstWord = qWords[0];
-    p2Promise = sb.from('startlists')
-      .select('rider_name,team_name,nationality,image_url,year')
-      .ilike('rider_name', `%${lastWord}%`)
-      .order('year', {ascending:false}).limit(100);
-  }
+  // Also do a direct full-string query in case the user typed something that matches verbatim
+  const directRows = q.includes(' ')
+    ? (await sb.from('startlists')
+        .select('rider_name,team_name,nationality,image_url,year')
+        .ilike('rider_name', `%${q}%`)
+        .order('year', {ascending:false})
+        .limit(100)
+        .then(res => res.data || []))
+    : [];
 
-  // Query 3: if single word, also try it as a first-name (it appears after the all-caps block)
-  // e.g. "tadej" → need rows where rider_name ends with " tadej" or contains " tadej "
-  // PostgREST ilike is case-insensitive so "%tadej%" already works — covered by query 1.
+  // Build a Set of rider_names that appear in ALL per-word result sets (intersection)
+  const nameSets = wordQueries.map(rows => new Set(rows.map(r => r.rider_name.toLowerCase())));
+  const intersected = nameSets.length
+    ? nameSets.reduce((acc, s) => new Set([...acc].filter(x => s.has(x))))
+    : new Set();
 
-  const [r1, r2raw] = await Promise.all([p1, p2Promise]);
-  const r2 = r2raw;
+  // Also include any direct full-string hits
+  directRows.forEach(r => intersected.add(r.rider_name.toLowerCase()));
 
-  // Merge all rows, deduplicate by rider_name
-  const allRows = [...(r1.data||[]), ...(r2.data||[])];
-  const deduped = new Map();
+  // Collect all raw rows from all queries + direct, keep best row per rider_name
+  // "Best" = has image > most recent year
+  const allRows = [...wordQueries.flat(), ...directRows];
+  const bestRow = new Map();
+  const latestRow = new Map();
   allRows.forEach(r => {
     const key = r.rider_name.toLowerCase();
-    const prev = deduped.get(key);
-    if(!prev){ deduped.set(key, r); return; }
+    if(!intersected.has(key)) return; // skip rows that didn't pass the intersection
+    // Track latest year for team/nationality
+    if(!latestRow.has(key) || r.year > (latestRow.get(key).year || 0)){
+      latestRow.set(key, r);
+    }
+    // Track best row: prefer one with image, then most recent
+    const prev = bestRow.get(key);
+    if(!prev){ bestRow.set(key, r); return; }
     const rHasImg  = r.image_url && r.image_url !== 'none';
     const pvHasImg = prev.image_url && prev.image_url !== 'none';
-    if(rHasImg && !pvHasImg){ deduped.set(key, r); return; }
-    if(r.year > prev.year) deduped.set(key, r);
+    if(rHasImg && !pvHasImg){ bestRow.set(key, r); return; }
+    if(!rHasImg && pvHasImg) return;
+    if(r.year > prev.year) bestRow.set(key, r);
   });
 
-  // For each unique rider, compute display name and check if query matches
-  const candidates = Array.from(deduped.values()).map(r => {
+  // Build candidate list with parsed display names
+  const candidates = Array.from(bestRow.values()).map(r => {
     const parsed = _parseRiderName(r.rider_name);
-    return { ...r, _parsed: parsed };
+    const latest = latestRow.get(r.rider_name.toLowerCase()) || r;
+    return { ...r, _parsed: parsed, team_name: latest.team_name,
+             nationality: latest.nationality, last_year: latest.year || r.year };
   });
 
-  // Client-side filter: all query words must appear somewhere in the display name or DB name
+  // Final client-side filter: all query words must appear in the display name or raw DB name
   const matched = candidates.filter(r => {
     const haystack = (r._parsed.display + ' ' + r.rider_name).toLowerCase();
     return qWords.every(w => haystack.includes(w));
   });
 
-  // Rank: display name starts with query > display name contains query > last name starts with query
+  // Rank: display starts with full query > display contains full query > partial word match
   matched.sort((a, b) => {
     const da = a._parsed.display.toLowerCase();
     const db_ = b._parsed.display.toLowerCase();
-    const aStarts = da.startsWith(qLower) ? 0 : (da.includes(qLower) ? 1 : 2);
-    const bStarts = db_.startsWith(qLower) ? 0 : (db_.includes(qLower) ? 1 : 2);
-    if(aStarts !== bStarts) return aStarts - bStarts;
+    const score = n => n.startsWith(qLower) ? 0 : (n.includes(qLower) ? 1 : 2);
+    const diff = score(da) - score(db_);
+    if(diff !== 0) return diff;
     return da.localeCompare(db_);
   });
 
-  // Deduplicate to most-recent entry per rider across years
-  const seenYear = new Map();
-  const seenLatest = new Map();
-  allRows.forEach(r => {
-    const key = r.rider_name.toLowerCase();
-    if(!seenYear.has(key) || r.year > seenYear.get(key)){
-      seenYear.set(key, r.year); seenLatest.set(key, r);
-    }
-  });
-  const unique = matched.map(r => {
-    const key = r.rider_name.toLowerCase();
-    const latest = seenLatest.get(key) || r;
-    return { ...r, team_name: latest.team_name, nationality: latest.nationality,
-             last_year: seenYear.get(key) || r.year };
-  });
-
-  if(!unique.length){
+  if(!matched.length){
     grid.innerHTML = '<div style="color:var(--muted);font-size:12px;grid-column:1/-1;">No riders found for "' + q + '".</div>';
     if(label) label.textContent = 'Riders';
     return;
   }
 
-  if(label) label.textContent = `${unique.length} result${unique.length!==1?'s':''}`;
-  grid.innerHTML = unique.map(r => renderRiderCard(r)).join('');
+  if(label) label.textContent = `${matched.length} result${matched.length!==1?'s':''}`;
+  grid.innerHTML = matched.map(r => renderRiderCard(r)).join('');
 }
 
 // Reset rider search input and restore featured riders when leaving the section
@@ -5068,6 +5060,26 @@ function persistProfile(){ localStorage.setItem('g3-profile', JSON.stringify(pro
 const RIDER_PALETTE = ['#1a3a8c','#00594a','#c0392b','#9a8430','#4527a0','#00838f','#6d4c41','#1a4db3'];
 function riderColor(name){ let h=0; for(let c of name) h=(h*31+c.charCodeAt(0))&0xffff; return RIDER_PALETTE[h % RIDER_PALETTE.length]; }
 function riderInitials(name){ return name.split(' ').filter(Boolean).map(w=>w[0]).slice(0,2).join('').toUpperCase(); }
+
+// ── Rider image retry helper ──────────────────────────────────────────────────
+// Called from onerror on every rider <img>. Retries up to 2 times with
+// increasing delays; on final failure hides the img and shows the initials
+// fallback sibling element.
+function _imgError(img, retries){
+  retries = retries || 0;
+  if(retries < 2){
+    setTimeout(function(){
+      var src = img.getAttribute('data-src') || img.src;
+      img.src = '';
+      img.src = src;
+      img.onerror = function(){ _imgError(img, retries + 1); };
+    }, 1000 * (retries + 1));
+  } else {
+    img.style.display = 'none';
+    var fb = img.nextElementSibling;
+    if(fb) fb.style.display = 'flex';
+  }
+}
 // Parse PCS DB format: "UPPERCASE Last Middle First"
 // Words in ALL-CAPS (possibly with accented chars) = last name.
 // First word that is NOT all-caps starts the given name.
@@ -5225,7 +5237,7 @@ function renderProfile(){
       const ini = riderInitials(name);
       const photoHtml = imgSrc
         ? `<img class="fav-rider-photo" src="${imgSrc}" alt="${name}"
-             onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+             onerror="_imgError(this,0)">
            <div class="fav-rider-photo-placeholder" style="display:none;">
              <div class="fav-rider-icon" style="background:${col};color:#fff;">${ini}</div>
            </div>`
@@ -5399,7 +5411,7 @@ function renderEPRiders(){
       const imgSrc = rider.imageUrl && rider.imageUrl !== 'none' ? rider.imageUrl : null;
       const col = riderColor(name); const ini = riderInitials(name);
       const photo = imgSrc
-        ? `<img src="${imgSrc}" style="width:100%;height:100%;object-fit:cover;object-position:center top;" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div style="display:none;width:100%;height:100%;background:${col};align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;font-size:18px;color:#fff;">${ini}</div>`
+        ? `<img src="${imgSrc}" style="width:100%;height:100%;object-fit:cover;object-position:center top;" onerror="_imgError(this,0)"><div style="display:none;width:100%;height:100%;background:${col};align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;font-size:18px;color:#fff;">${ini}</div>`
         : `<div style="width:100%;height:100%;background:${col};display:flex;align-items:center;justify-content:center;font-family:'Bebas Neue',sans-serif;font-size:18px;color:#fff;">${ini}</div>`;
       return `<div onclick="openRiderPicker(${i})" style="width:90px;aspect-ratio:2/3;position:relative;cursor:pointer;border:1px solid var(--border-light);overflow:hidden;flex-shrink:0;" title="Change rider">
         ${photo}
@@ -5525,7 +5537,7 @@ async function searchRidersFromSupabase(q){
     const meta = [r.team_name, r.nationality].filter(Boolean).join(' · ');
     const thumb = imgSrc
       ? `<img src="${imgSrc}" style="width:36px;height:36px;object-fit:cover;object-position:top;border-radius:2px;flex-shrink:0;"
-           onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
+           onerror="_imgError(this,0)">`
         + `<div class="picker-item-icon" style="background:${col};color:#fff;display:none;">${ini}</div>`
       : `<div class="picker-item-icon" style="background:${col};color:#fff;">${ini}</div>`;
     return '<div class="picker-item" onclick="selectFavRiderByIdx('+idx+')">'
@@ -5994,7 +6006,7 @@ async function renderRiderPage(inputName){
 
   const photoHtml = imgSrc
     ? `<img class="rider-page-photo" src="${imgSrc}" alt="${displayName}"
-         onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+         onerror="_imgError(this,0)">
        <div class="rider-page-photo-placeholder" style="display:none;background:${col};">${ini}</div>`
     : `<div class="rider-page-photo-placeholder" style="background:${col};">${ini}</div>`;
 
@@ -6492,7 +6504,7 @@ function renderMemberCards(members){
       const col = riderColor(r.name);
       const ini2 = riderInitials(r.name);
       const img = r.image_url && r.image_url !== 'none'
-        ? `<img src="${r.image_url}" style="width:100%;height:100%;object-fit:cover;object-position:center top;" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
+        ? `<img src="${r.image_url}" style="width:100%;height:100%;object-fit:cover;object-position:center top;" onerror="_imgError(this,0)">`
           + `<div class="member-rider-initials" style="display:none;background:${col};">${ini2}</div>`
         : `<div class="member-rider-initials" style="background:${col};">${ini2}</div>`;
       const encodedName = encodeURIComponent(r.name);
@@ -7119,7 +7131,7 @@ async function openUserPage(userId, handle, pushHistory=true){
       const imgSrc = (imgMap[name]?.image_url && imgMap[name].image_url!=='none') ? imgMap[name].image_url : favRiderImgs[name];
       const hasImg = imgSrc && imgSrc !== 'none';
       return `<div class="fav-rider-slot filled" onclick="navToRider('${name.replace(/'/g,"\\'")}')">
-        ${hasImg?`<img class="fav-rider-photo" src="${imgSrc}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`:'' }
+        ${hasImg?`<img class="fav-rider-photo" src="${imgSrc}" onerror="_imgError(this,0)">`:'' }
         <div class="fav-rider-photo-placeholder" style="display:${hasImg?'none':'flex'};background:${col};"><div class="fav-rider-icon" style="background:${col};color:#fff;">${ini2}</div></div>
         <div class="fav-rider-name-overlay">${formatRiderName(name)}</div>
       </div>`;
