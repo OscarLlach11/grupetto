@@ -4594,25 +4594,33 @@ async function executeRiderSearch(){
 
   grid.innerHTML = '<div style="color:var(--muted);font-size:12px;grid-column:1/-1;">Searching…</div>';
 
-  // DB stores "LASTNAME Firstname" (e.g. "MARTIN Dan", "VAN AERT Wout").
+  // DB stores "LASTNAME Firstname" e.g. "MARTIN Dan", "VAN DEN BROECK Jurgen".
   //
-  // Search strategy:
-  //   1. Per-word queries: each word in the user's input is searched independently
-  //      with %word%, results are intersected — this guarantees both "Dan" and
-  //      "Martin" appear in every returned row (handles single-word searches too).
-  //   2. DB-format variant queries: the user's full input is converted to DB order
-  //      ("Dan Martin" → "%MARTIN Dan%", "Martin Dan" → "%MARTIN Dan%") and queried
-  //      directly. This catches exact full-name matches cleanly.
-  //   3. All result sets are merged, best row per rider kept (image > recency).
-  //   4. No client-side word filter needed — the DB intersection already guarantees
-  //      every word is present.
+  // The challenge: common short words like "van", "den", "de", "le" appear in
+  // hundreds of names — querying %van% alone returns 400+ rows and the target
+  // rider may be cut off. But every word in the query IS present in the DB name,
+  // so the approach is:
+  //
+  //   1. ANCHOR queries: use only longer words (≥4 chars) for DB intersection.
+  //      These are rare enough that 400 rows captures all matches.
+  //   2. DB-FORMAT variant queries: convert the full input to every possible
+  //      "LASTNAME Firstname" permutation (all split points, both directions)
+  //      and query each as a substring. One will match the actual DB string.
+  //   3. MERGE & POST-FILTER: combine all results, then client-side filter
+  //      requiring ALL query words to appear in the raw DB name (case-insensitive).
+  //      Short words are checked here, not in the DB query.
 
   const qLower = q.toLowerCase();
   const qWords = q.trim().split(/\s+/).filter(Boolean);
+  const qWordsLower = qWords.map(w => w.toLowerCase());
 
-  // 1. Per-word intersection queries (case-insensitive via ilike)
-  const perWordRows = await Promise.all(
-    qWords.map(word =>
+  // 1. Anchor queries — only words with ≥4 chars (skip "van", "den", "de", "le", etc.)
+  const anchorWords = qWords.filter(w => w.length >= 4);
+  // If all words are short (e.g. "Van De"), use the longest one as anchor
+  const queryWords = anchorWords.length > 0 ? anchorWords : [qWords.reduce((a,b) => a.length >= b.length ? a : b)];
+
+  const anchorRows = await Promise.all(
+    queryWords.map(word =>
       sb.from('startlists')
         .select('rider_name,team_name,nationality,image_url,year')
         .ilike('rider_name', `%${word}%`)
@@ -4622,33 +4630,36 @@ async function executeRiderSearch(){
     )
   );
 
-  // Intersect: only keep rider_names present in ALL per-word result sets
-  const nameSets = perWordRows.map(rows => new Set(rows.map(r => r.rider_name.toLowerCase())));
-  const intersected = nameSets.reduce((acc, s) => new Set([...acc].filter(x => s.has(x))));
+  // Intersect anchor results
+  const anchorSets = anchorRows.map(rows => new Set(rows.map(r => r.rider_name.toLowerCase())));
+  const fromAnchors = anchorSets.reduce((acc, s) => new Set([...acc].filter(x => s.has(x))));
 
-  // 2. DB-format variant queries — convert "Dan Martin" → "MARTIN Dan" etc.
+  // 2. DB-format variant queries — exhaustive split-point permutations
   const dbVariants = _queryToDbVariants(q);
-  const variantRows = await Promise.all(
+  const variantRows = (await Promise.all(
     dbVariants.map(v =>
       sb.from('startlists')
         .select('rider_name,team_name,nationality,image_url,year')
         .ilike('rider_name', `%${v}%`)
         .order('year', {ascending:false})
-        .limit(100)
+        .limit(50)
         .then(res => res.data || [])
     )
-  );
-  // All variant hits are valid — add them to the intersected set
-  variantRows.flat().forEach(r => intersected.add(r.rider_name.toLowerCase()));
+  )).flat();
 
-  // 3. Merge all rows, keep best row per rider (image preferred, then most recent year)
-  const allRows = [...perWordRows.flat(), ...variantRows.flat()];
+  // Union: everything from anchors intersection + everything from variant queries
+  const allRows = [...anchorRows.flat(), ...variantRows];
+  const candidateNames = new Set([
+    ...fromAnchors,
+    ...variantRows.map(r => r.rider_name.toLowerCase())
+  ]);
+
+  // 3. Build best-row map (image preferred, then most recent year)
   const bestRow   = new Map();
   const latestRow = new Map();
-
   allRows.forEach(r => {
     const key = r.rider_name.toLowerCase();
-    if(!intersected.has(key)) return;
+    if(!candidateNames.has(key)) return;
     if(!latestRow.has(key) || r.year > (latestRow.get(key).year || 0)) latestRow.set(key, r);
     const prev = bestRow.get(key);
     if(!prev){ bestRow.set(key, r); return; }
@@ -4659,21 +4670,25 @@ async function executeRiderSearch(){
     if(r.year > prev.year) bestRow.set(key, r);
   });
 
-  // 4. Build display list — parse DB name to "Firstname LASTNAME" for display
-  const results = Array.from(bestRow.values()).map(r => {
-    const parsed = _parseRiderName(r.rider_name);
-    const latest = latestRow.get(r.rider_name.toLowerCase()) || r;
-    return { ...r, _display: parsed.display, _parsed: parsed,
-             team_name: latest.team_name, nationality: latest.nationality,
-             last_year: latest.year || r.year };
-  });
+  // 4. Post-filter: ALL query words must appear in the raw DB name (handles short words)
+  const results = Array.from(bestRow.values())
+    .filter(r => {
+      const dbLower = r.rider_name.toLowerCase();
+      return qWordsLower.every(w => dbLower.includes(w));
+    })
+    .map(r => {
+      const parsed = _parseRiderName(r.rider_name);
+      const latest = latestRow.get(r.rider_name.toLowerCase()) || r;
+      return { ...r, _display: parsed.display, _parsed: parsed,
+               team_name: latest.team_name, nationality: latest.nationality,
+               last_year: latest.year || r.year };
+    });
 
   // 5. Rank: display starts with query > display contains query > alphabetical
-  const qLowerTrim = qLower.trim();
   results.sort((a, b) => {
     const da = a._display.toLowerCase();
     const db_ = b._display.toLowerCase();
-    const score = n => n.startsWith(qLowerTrim) ? 0 : (n.includes(qLowerTrim) ? 1 : 2);
+    const score = n => n.startsWith(qLower) ? 0 : (n.includes(qLower) ? 1 : 2);
     const diff = score(da) - score(db_);
     return diff !== 0 ? diff : da.localeCompare(db_);
   });
@@ -5121,34 +5136,34 @@ function formatRiderName(name){
   return _parseRiderName(name).display || _toTitleCase(name);
 }
 
-// Convert a user-typed query (any casing, any word order) into a DB-style
-// search string: "Dan Martin" → "MARTIN Dan", "dan martin" → "MARTIN Dan",
-// "MARTIN DAN" → "MARTIN Dan", "martin dan" → "MARTIN Dan".
-// This is used to build ilike queries that match the DB's "LASTNAME Firstname" format.
+// Generate every possible DB-format string from a user query by trying all split points
+// from both directions.
 //
-// The heuristic: if the query has 2+ words, assume the LAST word(s) are the
-// last name in the DB (stored all-caps) and the first word(s) are the first name.
-// We uppercase the last-name portion and title-case the first-name portion.
-// We also try the reverse (first word = last name) so both "Dan Martin" and
-// "Martin Dan" are handled correctly.
+// DB format is always "LASTNAME Firstname" where LASTNAME words are uppercase.
+// Given "jurgen van den broeck", we try every possible assignment of words to
+// last-name vs first-name, from both ends:
+//   From back:  last i words = last name → "BROECK Jurgen van den",
+//               "DEN BROECK Jurgen van", "VAN DEN BROECK Jurgen" ✓, "JURGEN VAN DEN BROECK"
+//   From front: first i words = last name → "JURGEN van den broeck",
+//               "JURGEN VAN den broeck", "JURGEN VAN DEN broeck", "JURGEN VAN DEN BROECK"
+//
+// One of these will be an ilike substring match for the actual DB name.
 function _queryToDbVariants(q){
   const words = q.trim().split(/\s+/).filter(Boolean);
   if(words.length === 0) return [];
-  if(words.length === 1){
-    // Single word: could be last name or first name — just return it as-is
-    return [words[0]];
+  if(words.length === 1) return [words[0]];
+  const variants = new Set();
+  for(let i = 1; i <= words.length; i++){
+    // Last i words as last name (DB puts last name first, first name after)
+    const lastPart  = words.slice(words.length - i).map(w => w.toUpperCase()).join(' ');
+    const firstPart = words.slice(0, words.length - i).join(' ');
+    variants.add(firstPart ? lastPart + ' ' + firstPart : lastPart);
+    // First i words as last name
+    const lastPart2  = words.slice(0, i).map(w => w.toUpperCase()).join(' ');
+    const firstPart2 = words.slice(i).join(' ');
+    variants.add(firstPart2 ? lastPart2 + ' ' + firstPart2 : lastPart2);
   }
-  // Multi-word: generate both possible splits so either word order works.
-  // Variant A: last word(s) = last name → e.g. "Dan Martin" → "MARTIN Dan"
-  const variantA_last  = words[words.length - 1].toUpperCase();
-  const variantA_first = words.slice(0, words.length - 1).map(_toTitleCase).join(' ');
-  // Variant B: first word(s) = last name → e.g. "Martin Dan" → "MARTIN Dan" (same result here)
-  const variantB_last  = words[0].toUpperCase();
-  const variantB_first = words.slice(1).map(_toTitleCase).join(' ');
-  // Return both, deduplicated
-  const a = variantA_last + ' ' + variantA_first; // "MARTIN Dan"
-  const b = variantB_last + ' ' + variantB_first; // "MARTIN Dan" (same if already correct order)
-  return a === b ? [a] : [a, b];
+  return [...variants];
 }
 
 function renderProfile(){
@@ -5506,10 +5521,14 @@ async function searchRidersFromSupabase(q){
 
   const qLower = q.toLowerCase();
   const qWords = q.trim().split(/\s+/).filter(Boolean);
+  const qWordsLower = qWords.map(w => w.toLowerCase());
 
-  // Per-word queries — intersect so all words must appear in the DB name
-  const perWordRows = await Promise.all(
-    qWords.map(word =>
+  // Anchor: longer words only (≥4 chars) — short particles like "van"/"den" match too many rows
+  const anchorWords = qWords.filter(w => w.length >= 4);
+  const queryWords  = anchorWords.length > 0 ? anchorWords : [qWords.reduce((a,b) => a.length >= b.length ? a : b)];
+
+  const anchorRows = await Promise.all(
+    queryWords.map(word =>
       sb.from('startlists')
         .select('rider_name, team_name, nationality, rider_url, image_url')
         .ilike('rider_name', `%${word}%`)
@@ -5517,31 +5536,39 @@ async function searchRidersFromSupabase(q){
         .then(res => res.data || [])
     )
   );
-  const nameSets = perWordRows.map(rows => new Set(rows.map(r => r.rider_name.toLowerCase())));
-  const intersected = nameSets.reduce((acc, s) => new Set([...acc].filter(x => s.has(x))));
+  const anchorSets = anchorRows.map(rows => new Set(rows.map(r => r.rider_name.toLowerCase())));
+  const fromAnchors = anchorSets.reduce((acc, s) => new Set([...acc].filter(x => s.has(x))));
 
-  // DB-format variant queries ("Dan Martin" → "%MARTIN Dan%")
+  // DB-format variant queries — exhaustive split-point permutations
   const dbVariants = _queryToDbVariants(q);
-  const variantRows = await Promise.all(
+  const variantRows = (await Promise.all(
     dbVariants.map(v =>
       sb.from('startlists')
         .select('rider_name, team_name, nationality, rider_url, image_url')
         .ilike('rider_name', `%${v}%`)
-        .order('rider_name').limit(100)
+        .order('rider_name').limit(50)
         .then(res => res.data || [])
     )
-  );
-  variantRows.flat().forEach(r => intersected.add(r.rider_name.toLowerCase()));
+  )).flat();
 
-  // Merge all rows, deduplicate keeping best (image > order of appearance)
-  const allRows = [...perWordRows.flat(), ...variantRows.flat()];
+  const candidateNames = new Set([
+    ...fromAnchors,
+    ...variantRows.map(r => r.rider_name.toLowerCase())
+  ]);
+
+  const allRows = [...anchorRows.flat(), ...variantRows];
   const seen = new Map();
   allRows.forEach(r => {
     const key = r.rider_name.toLowerCase();
-    if(!intersected.has(key)) return;
+    if(!candidateNames.has(key)) return;
     if(!seen.has(key)) seen.set(key, r);
   });
-  let unique = Array.from(seen.values());
+
+  // Post-filter: ALL query words must appear in raw DB name (catches short words like "van")
+  let unique = Array.from(seen.values()).filter(r => {
+    const dbLower = r.rider_name.toLowerCase();
+    return qWordsLower.every(w => dbLower.includes(w));
+  });
 
   // Sort: display name starts with query first, then alphabetical
   unique.sort((a, b) => {
