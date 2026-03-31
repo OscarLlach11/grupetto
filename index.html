@@ -100,7 +100,7 @@
     if(typeof updateNotifBadge === 'function') updateNotifBadge();
     if(typeof closeNotifDrawer === 'function') closeNotifDrawer();
     // Clear feed cache so next user doesn't see stale data
-    try { sessionStorage.removeItem(`g3-feed:${currentUser?.id}`); } catch(e){}
+    try { localStorage.removeItem(`g3-feed:${currentUser?.id}`); } catch(e){}
     profile    = {
       name: 'Cyclist',
       handle: 'velocipedist',
@@ -1013,7 +1013,7 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 @media(max-width:820px){
   /* layout */
   .main-layout,.race-sub-layout{grid-template-columns:1fr;}
-  .sidebar,.rsp-sidebar{display:none;}
+  .sidebar,.rsp-sidebar{display:none;} #edition-year-sel{max-width:90px;}
   .profile-layout{grid-template-columns:1fr;}
   .profile-sidebar{border-right:none;border-bottom:1px solid var(--border);padding:24px 20px 16px;}
   .profile-main{padding:20px;}
@@ -1465,9 +1465,14 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:16px 4
 
 <!-- EDITION PAGE (specific race-year) -->
 <div id="page-edition" class="page">
-  <div style="background:var(--bg);padding:12px 24px;border-bottom:1px solid var(--border);flex-shrink:0;display:flex;align-items:center;gap:12px;">
+  <div style="background:var(--bg);padding:12px 24px;border-bottom:1px solid var(--border);flex-shrink:0;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
     <button class="bs" style="font-size:10px;" onclick="navBack()">← Back</button>
-    <div id="edition-breadcrumb" style="font-size:10px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;"></div>
+    <div id="edition-breadcrumb" style="font-size:10px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;flex:1;min-width:80px;"></div>
+    <div style="display:flex;align-items:center;gap:6px;">
+      <button class="bs" id="edition-prev-btn" style="font-size:11px;padding:5px 10px;" onclick="editionNavYear(-1)">‹</button>
+      <select id="edition-year-sel" class="ysel" style="font-size:11px;padding:4px 6px;" onchange="editionNavYear(0,parseInt(this.value))"></select>
+      <button class="bs" id="edition-next-btn" style="font-size:11px;padding:5px 10px;" onclick="editionNavYear(1)">›</button>
+    </div>
   </div>
   <div class="race-scroll-body">
     <div class="race-sub-layout">
@@ -2492,7 +2497,34 @@ function renderGrid(){
 //  RACE SUBPAGE
 // ════════════════════════════════════════════════════════
 let curRacePageId = null;
-let _curEditionSlug = null, _curEditionYear = null;
+let _curEditionSlug = null, _curEditionYear = null, _curEditionYears = [];
+
+// ── Year nav for edition page ─────────────────────────────────────────────
+function editionNavYear(dir, specificYear){
+  const years = _curEditionYears;
+  if(!years.length || !_curEditionSlug) return;
+  let target;
+  if(specificYear !== undefined){
+    target = specificYear;
+  } else {
+    const idx = years.indexOf(_curEditionYear);
+    const newIdx = idx + dir; // years sorted desc, so -1 = newer, +1 = older
+    if(newIdx < 0 || newIdx >= years.length) return;
+    target = years[newIdx];
+  }
+  openEditionPage(_curEditionSlug, target, true);
+}
+
+function updateEditionYearNav(years, currentYear){
+  _curEditionYears = years;
+  const sel = document.getElementById('edition-year-sel');
+  const prevBtn = document.getElementById('edition-prev-btn');
+  const nextBtn = document.getElementById('edition-next-btn');
+  if(!sel) return;
+  sel.innerHTML = years.map(y => `<option value="${y}"${y===currentYear?' selected':''}>${y}</option>`).join('');
+  if(prevBtn) prevBtn.disabled = years.indexOf(currentYear) <= 0;
+  if(nextBtn) nextBtn.disabled = years.indexOf(currentYear) >= years.length - 1;
+}
 async function openRacePage(id, preferYear, pushHistory=true){
   curRacePageId = id;
   const r=RACES.find(x=>x.id===id); if(!r) return;
@@ -2592,14 +2624,6 @@ async function openRacePage(id, preferYear, pushHistory=true){
   const raceScrollBody = document.querySelector('#page-race .race-scroll-body');
   if(raceScrollBody) raceScrollBody.scrollTop = 0;
 
-  // Sidebar: year selector + results — build first with loading state
-  document.getElementById('rsp-sidebar').innerHTML=`<div class="sb-title">Editions</div>
-    <div class="skeleton" style="width:100%;height:32px;border-radius:3px;margin-bottom:16px;"></div>
-    ${Array(5).fill(`<div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:center;">
-      <div class="skeleton" style="width:20px;height:14px;border-radius:2px;flex-shrink:0;"></div>
-      <div class="skeleton" style="flex:1;height:12px;border-radius:2px;"></div>
-    </div>`).join('')}`;
-
   showPage('race');
 
   // Fetch available years AFTER showing the page (auth may now be ready)
@@ -2607,21 +2631,20 @@ async function openRacePage(id, preferYear, pushHistory=true){
   const bestYear = preferYear && years.includes(preferYear) ? preferYear : years[0];
   history.replaceState(null, '', bestYear ? `#/race/${id}/${bestYear}` : `#/race/${id}`);
 
-  // Build sidebar with real years
-  document.getElementById('rsp-sidebar').innerHTML=`<div class="sb-title">Editions</div>
+  const isMobileRace = window.innerWidth <= 820;
+  const editionsHTML = `<div class="sb-title">Editions</div>
     <div style="margin-bottom:16px;"><label class="flbl">Jump to edition:</label>
     <select class="ysel" id="rsp-yr-sel" onchange="openEditionPage('${id}',parseInt(this.value))" style="width:100%;">
       ${years.map(y=>`<option value="${y}"${y===bestYear?' selected':''}>  ${y}</option>`).join('')}
     </select></div>
-    <button class="bp" style="width:100%;margin-bottom:16px;" onclick="openEditionPage('${id}',${bestYear||years[0]})">View ${bestYear||years[0]} Edition →</button>
-    <div id="rsp-results"></div>`;
+    <button class="bp" style="width:100%;margin-bottom:16px;" onclick="openEditionPage('${id}',${bestYear||years[0]})">View ${bestYear||years[0]} Edition →</button>`;
 
-  if(years.length) {
-    // Sidebar shows edition navigator; quick preview of winner in sidebar results div
-    const el = document.getElementById('rsp-results');
-    if(el){
-      el.innerHTML = `<div style="font-size:11px;color:var(--muted);line-height:1.8;">Select an edition above to see full results, startlist, and community discussion.</div>`;
-    }
+  if(isMobileRace){
+    // On mobile: sidebar is hidden, so append editions nav to bottom of main
+    const mainEl = document.getElementById('rsp-main');
+    if(mainEl) mainEl.insertAdjacentHTML('beforeend', `<div class="rsp-section" style="border-top:1px solid var(--border);margin-top:24px;padding-top:20px;">${editionsHTML}</div>`);
+  } else {
+    document.getElementById('rsp-sidebar').innerHTML = editionsHTML + `<div id="rsp-results"><div style="font-size:11px;color:var(--muted);line-height:1.8;">Select an edition above to see full results, startlist, and community discussion.</div></div>`;
   }
 }
 
@@ -2864,13 +2887,17 @@ async function openEditionPage(slug, year, pushHistory=true){
   // ── Fetch data in parallel ──────────────────────────────────────────────
   const isStageRace = r.type === 'Grand Tour' || r.type === 'Stage Race';
 
-  const [result, stages, raceDate, communityReviews, editionComments] = await Promise.all([
+  const [result, stages, raceDate, communityReviews, editionComments, availYears] = await Promise.all([
     fetchRaceResults(slug, year),
     isStageRace ? loadStages(slug, year) : Promise.resolve(null),
     ensureRaceDateSingle(slug, year),
     fetchEditionCommunityReviews(slug, year),
     fetchEditionComments(slug, year),
+    fetchAvailYears(slug),
   ]);
+
+  // Populate year nav
+  updateEditionYearNav(availYears, year);
 
   // ── Main column ──────────────────────────────────────────────────────────
   const rl = userLog[slug] || {};
@@ -3148,12 +3175,21 @@ async function openLogModalForEdition(slug, year){
 
 // ── Render edition sidebar: results + startlist ───────────────────────────
 function renderEditionSidebar(slug, year, r, result, stages, isStageRace){
-  const el = document.getElementById('edition-sidebar'); if(!el) return;
+  const isMobile = window.innerWidth <= 820;
+  // On mobile, sidebar is hidden — inject content into main column instead
+  const el = isMobile
+    ? document.getElementById('edition-main')
+    : document.getElementById('edition-sidebar');
+  if(!el) return;
+
   const TYPE_ICON = {mountain:'⛰',tt:'⏱',ttt:'⏱⏱',cobbled:'◫',sprint:'━',hilly:'∧'};
   const TYPE_COL  = {mountain:'#c0392b',tt:'#1a3a8c',ttt:'#1a3a8c',cobbled:'#7b5e2a',sprint:'#1a5c2a',hilly:'#555'};
   const top10 = result?.top10;
 
-  let html = `<div class="sb-title">Results</div>`;
+  // On mobile, wrap in a section and append; on desktop, replace sidebar
+  let html = isMobile
+    ? `<div class="rsp-section" style="border-top:1px solid var(--border);margin-top:24px;padding-top:20px;"><div class="sb-title">Results</div>`
+    : `<div class="sb-title">Results</div>`;
 
   if(top10 && top10.length){
     html += `<div style="margin-bottom:20px;">`;
@@ -3198,7 +3234,12 @@ function renderEditionSidebar(slug, year, r, result, stages, isStageRace){
     <div id="edition-startlist-container"></div>
   </div>`;
 
-  el.innerHTML = html;
+  if(isMobile){
+    html += `</div>`; // close rsp-section wrapper
+    el.insertAdjacentHTML('beforeend', html);
+  } else {
+    el.innerHTML = html;
+  }
 }
 
 // ── Startlist toggle ──────────────────────────────────────────────────────
@@ -3447,7 +3488,14 @@ async function openStagePage(raceId, year, stageNum, pushHistory=true){
   }
 
   if(!sbHTML) sbHTML=`<div style="font-size:11px;color:var(--muted);">No result data yet.</div>`;
-  document.getElementById('stage-sidebar').innerHTML = sbHTML;
+
+  const isMobileStage = window.innerWidth <= 820;
+  if(isMobileStage){
+    const stageMainEl = document.getElementById('stage-main');
+    if(stageMainEl) stageMainEl.insertAdjacentHTML('afterbegin', `<div class="rsp-section" style="border-bottom:1px solid var(--border);margin-bottom:24px;padding-bottom:20px;">${sbHTML}</div>`);
+  } else {
+    document.getElementById('stage-sidebar').innerHTML = sbHTML;
+  }
 }
 
 // ── Stage edition comments ────────────────────────────────────────────────
@@ -6587,22 +6635,39 @@ async function enrichMembersWithRiderImages(members){
   )];
   if(!allRiderNames.length) return members;
 
-  // Use ilike per rider — .in() silently fails with accented characters
+  // Batch all rider lookups in ONE query using .in() on normalised names,
+  // then fall back to per-rider ilike only for names that returned no result.
   const riderImgMap = {};
-  await Promise.all(allRiderNames.map(async name => {
-    const { data: rows } = await sb.from('startlists')
-      .select('rider_name,image_url,year')
-      .ilike('rider_name', name)
-      .order('year', {ascending:false})
-      .limit(20);
-    (rows||[]).forEach(r => {
-      const hasImg = r.image_url && r.image_url !== 'none';
-      const key = r.rider_name.toLowerCase();
-      const prev = riderImgMap[key];
-      if(!prev || (hasImg && (!prev.image_url || prev.image_url === 'none')))
-        riderImgMap[key] = r;
-    });
-  }));
+  const { data: batchRows } = await sb.from('startlists')
+    .select('rider_name,image_url,year')
+    .in('rider_name', allRiderNames)
+    .order('year', {ascending:false})
+    .limit(500);
+  (batchRows||[]).forEach(r => {
+    const hasImg = r.image_url && r.image_url !== 'none';
+    const key = r.rider_name.toLowerCase();
+    const prev = riderImgMap[key];
+    if(!prev || (hasImg && (!prev.image_url || prev.image_url === 'none')))
+      riderImgMap[key] = r;
+  });
+  // For any names not matched by .in() (e.g. accented chars), fall back to ilike
+  const missed = allRiderNames.filter(n => !riderImgMap[n.toLowerCase()]);
+  if(missed.length){
+    await Promise.all(missed.map(async name => {
+      const { data: rows } = await sb.from('startlists')
+        .select('rider_name,image_url,year')
+        .ilike('rider_name', name)
+        .order('year', {ascending:false})
+        .limit(10);
+      (rows||[]).forEach(r => {
+        const hasImg = r.image_url && r.image_url !== 'none';
+        const key = r.rider_name.toLowerCase();
+        const prev = riderImgMap[key];
+        if(!prev || (hasImg && (!prev.image_url || prev.image_url === 'none')))
+          riderImgMap[key] = r;
+      });
+    }));
+  }
 
   return members.map(m => ({
     ...m,
@@ -6981,7 +7046,10 @@ async function loadFollowingFeed(){
 
   // ── Instant render from cache ─────────────────────────────────────────
   const cacheKey = `g3-feed:${currentUser.id}`;
-  const cached = sessionStorage.getItem(cacheKey);
+  // Use localStorage so feed survives tab close (5-min TTL)
+  const _feedRaw = localStorage.getItem(cacheKey);
+  const _feedEntry = _feedRaw ? (() => { try{ return JSON.parse(_feedRaw); }catch(e){ return null; } })() : null;
+  const cached = _feedEntry && _feedEntry.expires > Date.now() ? _feedEntry.html : null;
   if(cached){
     list.innerHTML = cached;
     section.style.display = 'block';
@@ -7076,8 +7144,8 @@ async function loadFollowingFeed(){
     </div>`;
   }).join('');
 
-  // Save to sessionStorage for instant render on next load
-  try { sessionStorage.setItem(cacheKey, list.innerHTML); } catch(e){}
+  // Save to localStorage for instant render on next load (5-min TTL)
+  try { localStorage.setItem(cacheKey, JSON.stringify({ html: list.innerHTML, expires: Date.now() + 5*60*1000 })); } catch(e){}
 
   section.style.display = 'block';
 }
