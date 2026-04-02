@@ -196,7 +196,10 @@
     const { data, error } = await sb.auth.signUp({
       email,
       password,
-      options: { data: { display_name: name, handle } }
+      options: {
+        data: { display_name: name, handle },
+        emailRedirectTo: 'https://palmares.pro'
+      }
     });
 
     if (error) {
