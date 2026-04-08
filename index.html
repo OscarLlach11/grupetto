@@ -2985,7 +2985,6 @@ async function openEditionPage(slug, year, pushHistory=true){
 
   // ── Stages section in main column (stage races only) ────────────────────
   if(isStageRace && stages && stages.length){
-    const TYPE_ICON  = {mountain:'⛰',tt:'⏱',ttt:'⏱⏱',cobbled:'◫',sprint:'━',hilly:'∧'};
     const TYPE_COL   = {mountain:'#c0392b',tt:'#1a3a8c',ttt:'#1a3a8c',cobbled:'#7b5e2a',sprint:'#1a5c2a',hilly:'#555'};
     const TYPE_LABEL = {mountain:'Mountain',tt:'Time Trial',ttt:'Team TTT',cobbled:'Cobbled',sprint:'Sprint',hilly:'Hilly'};
 
@@ -2995,7 +2994,6 @@ async function openEditionPage(slug, year, pushHistory=true){
     stages.forEach(s => {
       const userStage = getUserStageLog(slug, year, s.num);
       const isLogged  = !!userStage;
-      const icon   = TYPE_ICON[s.stage_type || s.type] || '';
       const col    = TYPE_COL[s.stage_type || s.type]  || '#444';
       const typeLabel = TYPE_LABEL[s.stage_type || s.type] || '';
       const dist   = s.distance_km ? `${s.distance_km} km` : '';
@@ -3004,6 +3002,17 @@ async function openEditionPage(slug, year, pushHistory=true){
       const winner = s.winner ? formatRiderName(s.winner) : '';
       const label  = s.num === 0 ? 'P' : (s.stage_label || s.label || s.num);
       const stageRating = userStage?.rating || 0;
+      const hasReview = !!(userStage?.review);
+
+      // Rating badge — same style as rider profile race list, clickable to stage page
+      const ratingBadge = stageRating
+        ? `<div onclick="event.stopPropagation();openStagePage('${slug}',${year},${s.num})"
+              style="display:flex;align-items:center;gap:4px;background:rgba(232,200,74,0.08);border:1px solid rgba(232,200,74,0.2);padding:3px 8px;cursor:pointer;flex-shrink:0;">
+             <span style="color:var(--gold);font-size:11px;">★</span>
+             <span style="color:var(--gold);font-size:12px;font-family:'Bebas Neue',sans-serif;letter-spacing:1px;">${stageRating}</span>
+           </div>` : '';
+      const loggedBadge = isLogged
+        ? `<div style="font-size:9px;color:var(--muted);border:1px solid var(--border);padding:3px 7px;letter-spacing:1.5px;font-family:'Bebas Neue',sans-serif;flex-shrink:0;">LOGGED</div>` : '';
 
       mainHTML += `<div style="display:flex;align-items:stretch;border:1px solid var(--border);cursor:pointer;transition:border-color .15s,background .15s;"
           onmouseover="this.style.borderColor='var(--gold-dim)';this.style.background='rgba(255,255,255,.02)'"
@@ -3020,8 +3029,8 @@ async function openEditionPage(slug, year, pushHistory=true){
             </div>
             ${winner ? `<div style="font-size:11px;color:var(--muted);margin-top:3px;">★ ${winner}</div>` : ''}
           </div>
-          <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
-            ${isLogged ? `<div style="text-align:right;">${stageRating ? `<div style="font-size:10px;color:var(--gold);">${'★'.repeat(stageRating)}${'☆'.repeat(5-stageRating)}</div>` : ''}<span style="font-size:8px;color:var(--gold-dim);border:1px solid var(--gold-dim);padding:1px 5px;">LOGGED</span></div>` : ''}
+          <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+            ${ratingBadge}${loggedBadge}
             <span style="font-size:12px;color:var(--muted);">›</span>
           </div>
         </div>
@@ -6273,6 +6282,29 @@ async function renderRiderPage(inputName){
           .ilike('rider_name', rawName).order('year', { ascending: false });
         if(error) console.warn('trophy fetch error:', error.message);
         gcWinRows = data || [];
+
+        // ── Fallback: scan race_results.top10[0] for wins not yet in rider_wins ──
+        // This catches any year where populate_rider_wins.py hasn't been re-run yet.
+        const knownKeys = new Set(gcWinRows.map(r => `${r.race_slug}|${r.year}`));
+        const { data: allResults } = await sb.from('race_results')
+          .select('slug,year,top10').order('year', { ascending: false });
+        if(allResults){
+          const nameLower = rawName.toLowerCase();
+          allResults.forEach(r => {
+            const winner = Array.isArray(r.top10) && r.top10.length ? r.top10[0] : null;
+            if(!winner) return;
+            const winnerStr = typeof winner === 'string' ? winner : (winner.rider || winner.rider_name || '');
+            if(!winnerStr) return;
+            // Match by last-name substring (case-insensitive) — handles format differences
+            const parts = nameLower.split(/\s+/).filter(w => w.length >= 4);
+            const winLower = winnerStr.toLowerCase();
+            const matches = parts.length > 0 && parts.every(p => winLower.includes(p));
+            if(matches && !knownKeys.has(`${r.slug}|${r.year}`)){
+              gcWinRows.push({ race_slug: r.slug, year: r.year });
+              knownKeys.add(`${r.slug}|${r.year}`);
+            }
+          });
+        }
       } catch(e) { console.warn('trophy cabinet error (non-fatal):', e); }
     })(),
     (async () => {
