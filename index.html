@@ -2677,7 +2677,7 @@ async function renderRSPResults(id, year){
       const time = typeof entry === 'object' ? (entry.time||entry.gap||'') : '';
       html += `<div class="top10-row">
         <span class="t10-pos">${i+1}</span>
-        <span class="t10-name" data-rider="${encodeURIComponent(name)}" style="cursor:pointer;" onclick="navToRider(decodeURIComponent(this.dataset.rider))" onmouseover="this.style.color='var(--gold)'" onmouseout="this.style.color=''">${formatRiderName(name)}</span>
+        <span class="t10-name" data-rider="${encodeURIComponent(name)}" style="cursor:pointer;" onclick="navToRider(decodeURIComponent(this.dataset.rider))" onmouseover="this.style.color='var(--gold)'" onmouseout="this.style.color=''">${formatResultName(name)}</span>
         ${time?`<span style="font-size:10px;color:var(--muted);margin-left:auto;">${time}</span>`:''}
       </div>`;
     });
@@ -2983,6 +2983,57 @@ async function openEditionPage(slug, year, pushHistory=true){
     }
   }
 
+  // ── Stages section in main column (stage races only) ────────────────────
+  if(isStageRace && stages && stages.length){
+    const TYPE_ICON  = {mountain:'⛰',tt:'⏱',ttt:'⏱⏱',cobbled:'◫',sprint:'━',hilly:'∧'};
+    const TYPE_COL   = {mountain:'#c0392b',tt:'#1a3a8c',ttt:'#1a3a8c',cobbled:'#7b5e2a',sprint:'#1a5c2a',hilly:'#555'};
+    const TYPE_LABEL = {mountain:'Mountain',tt:'Time Trial',ttt:'Team TTT',cobbled:'Cobbled',sprint:'Sprint',hilly:'Hilly'};
+
+    mainHTML += `<div class="rsp-section"><div class="rsp-st">Stages</div>
+      <div style="display:grid;grid-template-columns:1fr;gap:4px;">`;
+
+    stages.forEach(s => {
+      const userStage = getUserStageLog(slug, year, s.num);
+      const isLogged  = !!userStage;
+      const icon   = TYPE_ICON[s.stage_type || s.type] || '';
+      const col    = TYPE_COL[s.stage_type || s.type]  || '#444';
+      const typeLabel = TYPE_LABEL[s.stage_type || s.type] || '';
+      const dist   = s.distance_km ? `${s.distance_km} km` : '';
+      const route  = s.departure && s.arrival ? `${s.departure} → ${s.arrival}` : '';
+      const dateStr= s.date || s.stage_date ? fmtDate(s.date || s.stage_date) : '';
+      const winner = s.winner ? formatRiderName(s.winner) : '';
+      const label  = s.num === 0 ? 'P' : (s.stage_label || s.label || s.num);
+      const stageRating = userStage?.rating || 0;
+
+      mainHTML += `<div style="display:flex;align-items:stretch;border:1px solid var(--border);cursor:pointer;transition:border-color .15s,background .15s;"
+          onmouseover="this.style.borderColor='var(--gold-dim)';this.style.background='rgba(255,255,255,.02)'"
+          onmouseout="this.style.borderColor='var(--border)';this.style.background=''"
+          onclick="openStagePage('${slug}',${year},${s.num})">
+        <div style="width:3px;background:${col};flex-shrink:0;"></div>
+        <div style="flex:1;padding:10px 14px;min-width:0;display:flex;align-items:center;gap:12px;">
+          <span style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--gold);min-width:28px;line-height:1;">${label}</span>
+          <div style="flex:1;min-width:0;">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <span style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${route || dateStr}</span>
+              ${typeLabel ? `<span style="font-size:9px;letter-spacing:1px;text-transform:uppercase;color:${col};border:1px solid ${col};padding:1px 5px;flex-shrink:0;">${typeLabel}</span>` : ''}
+              ${dist ? `<span style="font-size:10px;color:var(--muted);flex-shrink:0;">${dist}</span>` : ''}
+            </div>
+            ${winner ? `<div style="font-size:11px;color:var(--muted);margin-top:3px;">★ ${winner}</div>` : ''}
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+            ${isLogged ? `<div style="text-align:right;">${stageRating ? `<div style="font-size:10px;color:var(--gold);">${'★'.repeat(stageRating)}${'☆'.repeat(5-stageRating)}</div>` : ''}<span style="font-size:8px;color:var(--gold-dim);border:1px solid var(--gold-dim);padding:1px 5px;">LOGGED</span></div>` : ''}
+            <span style="font-size:12px;color:var(--muted);">›</span>
+          </div>
+        </div>
+      </div>`;
+    });
+
+    mainHTML += `</div></div>`;
+  } else if(isStageRace){
+    mainHTML += `<div class="rsp-section"><div class="rsp-st">Stages</div>
+      <div style="font-size:12px;color:var(--muted);font-style:italic;">Stage data not yet available for ${year}.</div></div>`;
+  }
+
   // Community reviews for this edition
   mainHTML += renderEditionCommunityReviewsHTML(communityReviews, slug, year);
 
@@ -3185,8 +3236,6 @@ function renderEditionSidebar(slug, year, r, result, stages, isStageRace){
     : document.getElementById('edition-sidebar');
   if(!el) return;
 
-  const TYPE_ICON = {mountain:'⛰',tt:'⏱',ttt:'⏱⏱',cobbled:'◫',sprint:'━',hilly:'∧'};
-  const TYPE_COL  = {mountain:'#c0392b',tt:'#1a3a8c',ttt:'#1a3a8c',cobbled:'#7b5e2a',sprint:'#1a5c2a',hilly:'#555'};
   const top10 = result?.top10;
 
   // On mobile, wrap in a section and append; on desktop, replace sidebar
@@ -3201,7 +3250,7 @@ function renderEditionSidebar(slug, year, r, result, stages, isStageRace){
       const time = typeof entry==='object'?(entry.time||entry.gap||''):'';
       html += `<div class="top10-row">
         <span class="t10-pos">${i+1}</span>
-        <span class="t10-name" style="cursor:pointer;" onclick="navToRider('${name}')" onmouseover="this.style.color='var(--gold)'" onmouseout="this.style.color=''">${formatRiderName(name)}</span>
+        <span class="t10-name" style="cursor:pointer;" onclick="navToRider('${name}')" onmouseover="this.style.color='var(--gold)'" onmouseout="this.style.color=''">${formatResultName(name)}</span>
         ${(i===0?time:(typeof entry==='object'?entry.gap||'':''))?`<span style="font-size:10px;color:var(--muted);margin-left:auto;">${i===0?time:(typeof entry==='object'?entry.gap||'':'')}</span>`:''}
       </div>`;
     });
@@ -3209,25 +3258,6 @@ function renderEditionSidebar(slug, year, r, result, stages, isStageRace){
   } else {
     html += `<div style="font-size:12px;color:var(--muted);margin-bottom:20px;font-style:italic;">No results for ${year}.<br>
       <a href="https://www.procyclingstats.com/race/${slug}/${year}" target="_blank" style="color:var(--gold-dim);">View on PCS ↗</a></div>`;
-  }
-
-  // Stage list for stage races
-  if(isStageRace && stages && stages.length){
-    html += `<div class="sb-title" style="margin-top:4px;">Stages</div>`;
-    stages.forEach(s=>{
-      const icon = TYPE_ICON[s.type]||'';
-      const col  = TYPE_COL[s.type]||'#555';
-      const label = s.num===0?'P':(s.label||s.num);
-      const winner = s.winner ? formatRiderName(s.winner) : '';
-      html += `<div style="border-left:2px solid ${col};padding:5px 0 5px 8px;margin-bottom:4px;cursor:pointer;transition:opacity .15s;" onmouseover="this.style.opacity='.7'" onmouseout="this.style.opacity='1'" onclick="openStagePage('${slug}',${year},${s.num})">
-        <div style="display:flex;align-items:center;gap:6px;">
-          <span style="font-family:'Bebas Neue',sans-serif;font-size:12px;color:var(--gold);min-width:16px;">${label}</span>
-          <span style="font-size:10px;color:var(--muted);">${icon}</span>
-          <span style="font-size:10px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${s.departure&&s.arrival?`${s.departure}→${s.arrival}`:s.date?fmtDate(s.date):''}</span>
-        </div>
-        ${winner?`<div style="font-size:9px;color:var(--muted);padding-left:22px;">★ ${winner}</div>`:''}
-      </div>`;
-    });
   }
 
   // Startlist toggle
@@ -5267,6 +5297,24 @@ function _parseRiderName(dbName){
 function formatRiderName(name){
   if(!name) return '';
   return _parseRiderName(name).display || _toTitleCase(name);
+}
+
+// Format names from race_results.top10 which are stored as "Lastname Firstname"
+// (Title Case, not uppercase) — e.g. "Vingegaard Jonas" → "Jonas Vingegaard"
+// Handles multi-word last names by treating the last word(s) before the first
+// non-uppercased segment as the last name. Since these names aren't all-caps,
+// we use a simple heuristic: last contiguous word is the first name.
+function formatResultName(name){
+  if(!name) return '';
+  // First try the standard DB uppercase parser — works if name happens to be uppercase
+  const parsed = _parseRiderName(name);
+  if(parsed.first) return parsed.display;
+  // Fallback: "Lastname Firstname" split — last word = first name, rest = last name
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if(parts.length < 2) return name;
+  const firstName = parts[parts.length - 1];
+  const lastName  = parts.slice(0, parts.length - 1).join(' ');
+  return firstName + ' ' + lastName;
 }
 
 // Generate every possible DB-format string from a user query by trying all split points
