@@ -2961,28 +2961,6 @@ async function openEditionPage(slug, year, pushHistory=true){
     mainHTML += `</div>`;
   }
 
-  // Stage logs for this edition
-  if(isStageRace){
-    const raceStageEntries = allStageEntries().filter(e=>e.raceId===slug && e.year===year);
-    if(raceStageEntries.length){
-      mainHTML += `<div class="rsp-section" style="margin-top:8px;"><div class="rsp-st">Your Stage Logs</div>`;
-      raceStageEntries.sort((a,b)=>a.stageNum-b.stageNum).forEach(e=>{
-        const sl = e.stageLog;
-        const stLabel = e.stageNum===0?'Prologue':`Stage ${sl.stageLabel||e.stageNum}`;
-        mainHTML += `<div class="log-entry-card" style="cursor:pointer;" onclick="openStagePage('${slug}',${year},${e.stageNum})">
-          <div class="lec-head">
-            <div>
-              <div class="lec-year" style="font-size:13px;">${stLabel}</div>
-              <div class="stars" style="margin:3px 0;">${starsHTML(sl.rating||0,11)}</div>
-            </div>
-          </div>
-          ${sl.review?`<div class="lec-review">"${sl.review}"</div>`:''}
-        </div>`;
-      });
-      mainHTML += `</div>`;
-    }
-  }
-
   // ── Stages section in main column (stage races only) ────────────────────
   if(isStageRace && stages && stages.length){
     const TYPE_COL   = {mountain:'#c0392b',tt:'#1a3a8c',ttt:'#1a3a8c',cobbled:'#7b5e2a',sprint:'#1a5c2a',hilly:'#555'};
