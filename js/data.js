@@ -300,7 +300,7 @@ let wholeLive=false;
 // ════════════════════════════════════════════════════════
 //  INIT
 // ════════════════════════════════════════════════════════
-document.addEventListener('DOMContentLoaded', async () => {
+(async () => {
   // Show loading overlay while bootstrapping
   const overlay = document.createElement('div');
   overlay.id = 'app-loading';
@@ -343,7 +343,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Fade out overlay
   overlay.style.opacity = '0';
   setTimeout(() => overlay.remove(), 320);
-});
+})();
 
 // ════════════════════════════════════════════════════════
 //  NAVIGATION
