@@ -13,16 +13,17 @@ async function renderMembersPage(){
   }
 
   // 2. localStorage cache — fast, stale-while-revalidate
+  // Only use cache if it has ridersWithImages (new format); bust old format silently
   const lsCached = cacheGet('members');
-  if(lsCached){
+  if(lsCached && lsCached[0]?.ridersWithImages !== undefined){
     _membersCache = lsCached;
     renderMemberCards(lsCached);
     // Revalidate silently in background
-    _fetchMembers().then(async fresh => {
+    _fetchMembers().then(fresh => {
       if(fresh){
-        _membersCache = fresh; // rider images already included by _fetchMembers
-        cacheSet('members', enriched, 15);
-        renderMemberCards(enriched);
+        _membersCache = fresh;
+        cacheSet('members', fresh, 15);
+        renderMemberCards(fresh);
       }
     });
     return;
