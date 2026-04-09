@@ -118,6 +118,47 @@ async function loadFollowingFeed(){
 
   if(!feed.length){ section.style.display='none'; return; }
 
+  list.innerHTML = feed.map(item => {
+    const p = profMap[item.user_id] || {};
+    const race = RACES.find(r => r.id === item.slug);
+    const raceName = race?.name || item.slug;
+    const gradient = race?.gradient || 'linear-gradient(135deg,#1a1a1a,#333)';
+    const logoUrl = race?.logoUrl || null;
+    const ini = (p.display_name||'?').split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
+    const avatarHTML = p.avatar_url ? `<img src="${p.avatar_url}">` : ini;
+    const dateLabel = item.date ? fmtDate(item.date.slice(0,10)) : '';
+    const isStage = item.type === 'stage';
+    const onclick = isStage
+      ? `openStagePage('${item.slug}',${item.year},${item.stageNum})`
+      : `openRacePage('${item.slug}')`;
+
+    const posterBg = logoUrl
+      ? `<div class="feed-poster-bg" style="background:${gradient};display:flex;align-items:center;justify-content:center;">
+           <img src="${logoUrl}" alt="${raceName}" style="max-width:78%;max-height:65%;object-fit:contain;filter:drop-shadow(0 2px 8px rgba(0,0,0,.55));" onerror="this.style.display='none'">
+         </div>`
+      : `<div class="feed-poster-bg" style="background:${gradient}"><div class="feed-poster-title">${raceName}</div></div>`;
+
+    return `<div class="feed-item" onclick="${onclick}">
+      <div class="feed-poster">
+        ${posterBg}
+        <div style="position:absolute;bottom:0;left:0;right:0;padding:6px 8px;background:linear-gradient(transparent,rgba(0,0,0,.75));font-size:10px;letter-spacing:1px;color:rgba(255,255,255,.8);">${item.year}${isStage ? ' · S'+item.stageNum : ''}</div>
+        ${isStage ? '<div class="feed-poster-stage">STAGE</div>' : ''}
+      </div>
+      <div class="feed-user">
+        <div class="feed-avatar" onclick="event.stopPropagation();openUserPage('${item.user_id}')">${avatarHTML}</div>
+        <span class="feed-username" onclick="event.stopPropagation();openUserPage('${item.user_id}')">${p.display_name||'Cyclist'}</span>
+      </div>
+      <div class="feed-stars">${item.rating ? starsHTML(item.rating, 9) : ''}</div>
+      <div class="feed-date">${dateLabel}</div>
+    </div>`;
+  }).join('');
+
+  // Save to localStorage for instant render on next load (5-min TTL)
+  try { localStorage.setItem(cacheKey, JSON.stringify({ html: list.innerHTML, expires: Date.now() + 5*60*1000 })); } catch(e){}
+
+  section.style.display = 'block';
+}
+
 // ── User profile page ──────────────────────────────────────────────────────
 let _upageUserId = null;
 let _upageLoading = false;
