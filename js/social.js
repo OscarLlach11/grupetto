@@ -53,22 +53,22 @@ async function loadFollowingFeed(){
   if(!_followingIds.size) await loadFollowingIds();
   if(!_followingIds.size){ section.style.display='none'; return; }
 
-  // ── Instant render from cache ─────────────────────────────────────────
   const cacheKey = `g3-feed:${currentUser.id}`;
-  // Use localStorage so feed survives tab close (5-min TTL)
+
+  // ── Instant render from localStorage cache (5-min TTL) ───────────────
   const _feedRaw = localStorage.getItem(cacheKey);
   const _feedEntry = _feedRaw ? (() => { try{ return JSON.parse(_feedRaw); }catch(e){ return null; } })() : null;
   const cached = _feedEntry && _feedEntry.expires > Date.now() ? _feedEntry.html : null;
   if(cached){
     list.innerHTML = cached;
     section.style.display = 'block';
+    return; // stale-while-revalidate: serve cache instantly, skip refetch until TTL expires
   }
 
   const followArr = [..._followingIds];
 
-  // Fetch race logs (with nested stage_logs) in one query
-  // Joining stage_logs through race_logs avoids needing a separate stage_logs SELECT RLS policy
-  const [raceLogsRes, stageLogsRes] = await Promise.all([
+  // ── Fire all 3 queries in parallel ───────────────────────────────────
+  const [raceLogsRes, stageLogsRes, profilesRes] = await Promise.all([
     sb.from('race_logs')
       .select('id, user_id, slug, year, rating, date_watched, created_at')
       .in('user_id', followArr)
@@ -81,11 +81,16 @@ async function loadFollowingFeed(){
       .not('race_slug', 'is', null)
       .order('created_at', {ascending: false})
       .limit(20),
+    sb.from('profiles')
+      .select('user_id,display_name,handle,avatar_url')
+      .in('user_id', followArr),
   ]);
+
   if(raceLogsRes.error) console.error('feed race_logs error:', raceLogsRes.error);
   if(stageLogsRes.error) console.error('feed stage_logs error:', stageLogsRes.error);
   const raceLogs = raceLogsRes.data;
   const stageLogs = stageLogsRes.data;
+  const profMap = Object.fromEntries((profilesRes.data||[]).map(p => [p.user_id, p]));
 
   // Normalise into a unified list
   const items = [];
@@ -112,52 +117,6 @@ async function loadFollowingFeed(){
   }).slice(0, 15);
 
   if(!feed.length){ section.style.display='none'; return; }
-
-  // Get profiles
-  const uids = [...new Set(feed.map(i => i.user_id))];
-  const { data: profiles } = await sb.from('profiles').select('user_id,display_name,handle,avatar_url').in('user_id', uids);
-  const profMap = Object.fromEntries((profiles||[]).map(p => [p.user_id, p]));
-
-  list.innerHTML = feed.map(item => {
-    const p = profMap[item.user_id] || {};
-    const race = RACES.find(r => r.id === item.slug);
-    const raceName = race?.name || item.slug;
-    const gradient = race?.gradient || 'linear-gradient(135deg,#1a1a1a,#333)';
-    const logoUrl = race?.logoUrl || null;
-    const ini = (p.display_name||'?').split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
-    const avatarHTML = p.avatar_url ? `<img src="${p.avatar_url}">` : ini;
-    const dateLabel = item.date ? fmtDate(item.date.slice(0,10)) : '';
-    const isStage = item.type === 'stage';
-    const onclick = isStage
-      ? `openStagePage('${item.slug}',${item.year},${item.stageNum})`
-      : `openRacePage('${item.slug}')`;
-
-    const posterBg = logoUrl
-      ? `<div class="feed-poster-bg" style="background:${gradient};display:flex;align-items:center;justify-content:center;">
-           <img src="${logoUrl}" alt="${raceName}" style="max-width:78%;max-height:65%;object-fit:contain;filter:drop-shadow(0 2px 8px rgba(0,0,0,.55));" onerror="this.style.display='none'">
-         </div>`
-      : `<div class="feed-poster-bg" style="background:${gradient}"><div class="feed-poster-title">${raceName}</div></div>`;
-
-    return `<div class="feed-item" onclick="${onclick}">
-      <div class="feed-poster">
-        ${posterBg}
-        <div style="position:absolute;bottom:0;left:0;right:0;padding:6px 8px;background:linear-gradient(transparent,rgba(0,0,0,.75));font-size:10px;letter-spacing:1px;color:rgba(255,255,255,.8);">${item.year}${isStage ? ' · S'+item.stageNum : ''}</div>
-        ${isStage ? '<div class="feed-poster-stage">STAGE</div>' : ''}
-      </div>
-      <div class="feed-user">
-        <div class="feed-avatar" onclick="event.stopPropagation();openUserPage('${item.user_id}')">${avatarHTML}</div>
-        <span class="feed-username" onclick="event.stopPropagation();openUserPage('${item.user_id}')">${p.display_name||'Cyclist'}</span>
-      </div>
-      <div class="feed-stars">${item.rating ? starsHTML(item.rating, 9) : ''}</div>
-      <div class="feed-date">${dateLabel}</div>
-    </div>`;
-  }).join('');
-
-  // Save to localStorage for instant render on next load (5-min TTL)
-  try { localStorage.setItem(cacheKey, JSON.stringify({ html: list.innerHTML, expires: Date.now() + 5*60*1000 })); } catch(e){}
-
-  section.style.display = 'block';
-}
 
 // ── User profile page ──────────────────────────────────────────────────────
 let _upageUserId = null;
