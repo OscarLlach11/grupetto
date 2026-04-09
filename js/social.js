@@ -1,4 +1,3 @@
-
 async function openFollowersPage(mode){ // mode = 'followers' | 'following'
   if(!currentUser) { openAuthModal(); return; }
   const uid = currentUser.id;
@@ -459,4 +458,3 @@ function sgBadgesHTML(id){
   const sgs = race?.subgenres || [];
   return sgs.map(sg=>`<span class="sg-badge ${SG_CLASS[sg]||''}">${SG_LABELS[sg]||sg}</span>`).join('');
 }
-</script>
