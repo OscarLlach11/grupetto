@@ -298,9 +298,9 @@ let formRating=0, stRatings={}; // stage ratings keyed by stage number
 let wholeLive=false;
 
 // ════════════════════════════════════════════════════════
-//  INIT
+//  INIT — called by index.html after all scripts have loaded
 // ════════════════════════════════════════════════════════
-(async () => {
+async function bootApp() {
   // Show loading overlay while bootstrapping
   const overlay = document.createElement('div');
   overlay.id = 'app-loading';
@@ -343,7 +343,7 @@ let wholeLive=false;
   // Fade out overlay
   overlay.style.opacity = '0';
   setTimeout(() => overlay.remove(), 320);
-})();
+}
 
 // ════════════════════════════════════════════════════════
 //  NAVIGATION
