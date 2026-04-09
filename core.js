@@ -1,4 +1,4 @@
-  const SUPABASE_URL = 'https://pkbxgeloejmnblwpsuch.supabase.co';
+const SUPABASE_URL = 'https://pkbxgeloejmnblwpsuch.supabase.co';
   const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBrYnhnZWxvZWptbmJsd3BzdWNoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI4MTU0MDcsImV4cCI6MjA4ODM5MTQwN30.2JbsShp7ZIQ4qs-kgF7_O4wWZDTgQ_qDdI9X9SFjnWA';
   var sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -483,7 +483,6 @@
   let _appDataReady;
   const appDataReady = new Promise(resolve => { _appDataReady = resolve; });
 
-  document.addEventListener('DOMContentLoaded', async () => {
-    await appDataReady; // wait for loadAppData() to finish before any rendering
-    await initAuth();
-  });
+  // Scripts load at bottom of <body> so DOM is already ready — no DOMContentLoaded needed.
+  // data.js calls _appDataReady() after loadAppData() completes, which resolves this promise.
+  appDataReady.then(() => initAuth());
