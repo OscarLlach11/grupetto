@@ -44,9 +44,6 @@
   gtag('config', 'G-67KD9D5PPH');
 </script>
 
-<!-- Core: Supabase client, auth, nav — must load before all app scripts -->
-<script src="core.js"></script>
-
 <body>
 
 <nav>
@@ -662,7 +659,8 @@
   </div>
 </div>
 
-<!-- APP SCRIPTS — load order matters (each file depends on globals set by earlier files) -->
+<!-- APP SCRIPTS — load order matters: core first, then app files -->
+<script src="core.js"></script>
 <script src="js/data.js"></script>
 <script src="js/discover.js"></script>
 <script src="js/race.js"></script>
