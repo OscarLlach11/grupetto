@@ -20,8 +20,7 @@ async function renderMembersPage(){
     // Revalidate silently in background
     _fetchMembers().then(async fresh => {
       if(fresh){
-        const enriched = await enrichMembersWithRiderImages(fresh);
-        _membersCache = enriched;
+        _membersCache = fresh; // rider images already included by _fetchMembers
         cacheSet('members', enriched, 15);
         renderMemberCards(enriched);
       }
@@ -46,27 +45,80 @@ async function renderMembersPage(){
     grid.innerHTML = '<div style="color:var(--muted);font-size:12px;grid-column:1/-1;">No members found. Make sure the profiles table has a public SELECT policy in Supabase.</div>';
     return;
   }
-  _membersCache = await enrichMembersWithRiderImages(sorted);
+  _membersCache = sorted; // rider images already included by _fetchMembers
   cacheSet('members', _membersCache, 15);
   renderMemberCards(_membersCache);
 }
 
 async function _fetchMembers(){
+  // Fire profiles + follow counts in parallel
   const [{ data: profiles, error: profErr }, { data: followCounts }] = await Promise.all([
     sb.from('profiles').select('user_id,display_name,handle,avatar_url,fav_riders').not('display_name', 'is', null).limit(20),
     sb.from('follows').select('following_id').limit(5000),
   ]);
   if(profErr) console.error('profiles fetch error:', profErr.message, profErr.code);
   if(!profiles?.length) return null;
+
+  let sorted;
   if(followCounts?.length){
     const counts = {};
     followCounts.forEach(r => { counts[r.following_id] = (counts[r.following_id]||0) + 1; });
-    return profiles
+    sorted = profiles
       .map(p => ({ ...p, followerCount: counts[p.user_id] || 0 }))
       .sort((a, b) => b.followerCount - a.followerCount)
       .slice(0, 5);
+  } else {
+    sorted = profiles.slice(0, 5).map(p => ({ ...p, followerCount: null }));
   }
-  return profiles.slice(0, 5).map(p => ({ ...p, followerCount: null }));
+
+  // Extract all fav_rider names from the top 5 results
+  const getRiderName = r => (r && typeof r === 'object') ? (r.name||'') : (r||'');
+  const allRiderNames = [...new Set(
+    sorted.flatMap(m => (m.fav_riders||[]).map(getRiderName).filter(Boolean))
+  )];
+
+  // Fetch rider images in parallel with nothing (we already have profiles) — no extra wait
+  if(allRiderNames.length){
+    const { data: batchRows } = await sb.from('startlists')
+      .select('rider_name,image_url,year')
+      .in('rider_name', allRiderNames)
+      .order('year', {ascending:false})
+      .limit(500);
+    const riderImgMap = {};
+    (batchRows||[]).forEach(r => {
+      const hasImg = r.image_url && r.image_url !== 'none';
+      const key = r.rider_name.toLowerCase();
+      const prev = riderImgMap[key];
+      if(!prev || (hasImg && (!prev.image_url || prev.image_url === 'none'))) riderImgMap[key] = r;
+    });
+    // ilike fallback for accented names
+    const missed = allRiderNames.filter(n => !riderImgMap[n.toLowerCase()]);
+    if(missed.length){
+      await Promise.all(missed.map(async name => {
+        const { data: rows } = await sb.from('startlists')
+          .select('rider_name,image_url,year').ilike('rider_name', name)
+          .order('year', {ascending:false}).limit(10);
+        (rows||[]).forEach(r => {
+          const hasImg = r.image_url && r.image_url !== 'none';
+          const key = r.rider_name.toLowerCase();
+          const prev = riderImgMap[key];
+          if(!prev || (hasImg && (!prev.image_url || prev.image_url === 'none'))) riderImgMap[key] = r;
+        });
+      }));
+    }
+    // Attach image URLs directly onto sorted members
+    sorted = sorted.map(m => ({
+      ...m,
+      fav_riders: (m.fav_riders||[]).map(r => {
+        const name = getRiderName(r);
+        const imgRow = riderImgMap[name.toLowerCase()];
+        const imageUrl = imgRow?.image_url && imgRow.image_url !== 'none' ? imgRow.image_url : (typeof r === 'object' ? r.imageUrl||r.url||null : null);
+        return typeof r === 'object' ? { ...r, imageUrl } : { name: r, imageUrl };
+      })
+    }));
+  }
+
+  return sorted;
 }
 
 async function enrichMembersWithRiderImages(members){
