@@ -2677,7 +2677,7 @@ async function renderRSPResults(id, year){
       const time = typeof entry === 'object' ? (entry.time||entry.gap||'') : '';
       html += `<div class="top10-row">
         <span class="t10-pos">${i+1}</span>
-        <span class="t10-name" data-rider="${encodeURIComponent(name)}" style="cursor:pointer;" onclick="navToRider(decodeURIComponent(this.dataset.rider))" onmouseover="this.style.color='var(--gold)'" onmouseout="this.style.color=''">${formatResultName(name)}</span>
+        <span class="t10-name" data-rider="${encodeURIComponent(name)}" style="cursor:pointer;" onclick="navToRider(decodeURIComponent(this.dataset.rider))" onmouseover="this.style.color='var(--gold)'" onmouseout="this.style.color=''">${formatRiderName(name)}</span>
         ${time?`<span style="font-size:10px;color:var(--muted);margin-left:auto;">${time}</span>`:''}
       </div>`;
     });
@@ -2961,64 +2961,26 @@ async function openEditionPage(slug, year, pushHistory=true){
     mainHTML += `</div>`;
   }
 
-  // ── Stages section in main column (stage races only) ────────────────────
-  if(isStageRace && stages && stages.length){
-    const TYPE_COL   = {mountain:'#c0392b',tt:'#1a3a8c',ttt:'#1a3a8c',cobbled:'#7b5e2a',sprint:'#1a5c2a',hilly:'#555'};
-    const TYPE_LABEL = {mountain:'Mountain',tt:'Time Trial',ttt:'Team TTT',cobbled:'Cobbled',sprint:'Sprint',hilly:'Hilly'};
-
-    mainHTML += `<div class="rsp-section"><div class="rsp-st">Stages</div>
-      <div style="display:grid;grid-template-columns:1fr;gap:4px;">`;
-
-    stages.forEach(s => {
-      const userStage = getUserStageLog(slug, year, s.num);
-      const isLogged  = !!userStage;
-      const col    = TYPE_COL[s.stage_type || s.type]  || '#444';
-      const typeLabel = TYPE_LABEL[s.stage_type || s.type] || '';
-      const dist   = s.distance_km ? `${s.distance_km} km` : '';
-      const route  = s.departure && s.arrival ? `${s.departure} → ${s.arrival}` : '';
-      const dateStr= s.date || s.stage_date ? fmtDate(s.date || s.stage_date) : '';
-      const winner = s.winner ? formatRiderName(s.winner) : '';
-      const label  = s.num === 0 ? 'P' : (s.stage_label || s.label || s.num);
-      const stageRating = userStage?.rating || 0;
-      const hasReview = !!(userStage?.review);
-
-      // Rating badge — same style as rider profile race list, clickable to stage page
-      const ratingBadge = stageRating
-        ? `<div onclick="event.stopPropagation();openStagePage('${slug}',${year},${s.num})"
-              style="display:flex;align-items:center;gap:4px;background:rgba(232,200,74,0.08);border:1px solid rgba(232,200,74,0.2);padding:3px 8px;cursor:pointer;flex-shrink:0;">
-             <span style="color:var(--gold);font-size:11px;">★</span>
-             <span style="color:var(--gold);font-size:12px;font-family:'Bebas Neue',sans-serif;letter-spacing:1px;">${stageRating}</span>
-           </div>` : '';
-      const loggedBadge = isLogged
-        ? `<div style="font-size:9px;color:var(--muted);border:1px solid var(--border);padding:3px 7px;letter-spacing:1.5px;font-family:'Bebas Neue',sans-serif;flex-shrink:0;">LOGGED</div>` : '';
-
-      mainHTML += `<div style="display:flex;align-items:stretch;border:1px solid var(--border);cursor:pointer;transition:border-color .15s,background .15s;"
-          onmouseover="this.style.borderColor='var(--gold-dim)';this.style.background='rgba(255,255,255,.02)'"
-          onmouseout="this.style.borderColor='var(--border)';this.style.background=''"
-          onclick="openStagePage('${slug}',${year},${s.num})">
-        <div style="width:3px;background:${col};flex-shrink:0;"></div>
-        <div style="flex:1;padding:10px 14px;min-width:0;display:flex;align-items:center;gap:12px;">
-          <span style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--gold);min-width:28px;line-height:1;">${label}</span>
-          <div style="flex:1;min-width:0;">
-            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-              <span style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${route || dateStr}</span>
-              ${typeLabel ? `<span style="font-size:9px;letter-spacing:1px;text-transform:uppercase;color:${col};border:1px solid ${col};padding:1px 5px;flex-shrink:0;">${typeLabel}</span>` : ''}
-              ${dist ? `<span style="font-size:10px;color:var(--muted);flex-shrink:0;">${dist}</span>` : ''}
+  // Stage logs for this edition
+  if(isStageRace){
+    const raceStageEntries = allStageEntries().filter(e=>e.raceId===slug && e.year===year);
+    if(raceStageEntries.length){
+      mainHTML += `<div class="rsp-section" style="margin-top:8px;"><div class="rsp-st">Your Stage Logs</div>`;
+      raceStageEntries.sort((a,b)=>a.stageNum-b.stageNum).forEach(e=>{
+        const sl = e.stageLog;
+        const stLabel = e.stageNum===0?'Prologue':`Stage ${sl.stageLabel||e.stageNum}`;
+        mainHTML += `<div class="log-entry-card" style="cursor:pointer;" onclick="openStagePage('${slug}',${year},${e.stageNum})">
+          <div class="lec-head">
+            <div>
+              <div class="lec-year" style="font-size:13px;">${stLabel}</div>
+              <div class="stars" style="margin:3px 0;">${starsHTML(sl.rating||0,11)}</div>
             </div>
-            ${winner ? `<div style="font-size:11px;color:var(--muted);margin-top:3px;">★ ${winner}</div>` : ''}
           </div>
-          <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
-            ${ratingBadge}${loggedBadge}
-            <span style="font-size:12px;color:var(--muted);">›</span>
-          </div>
-        </div>
-      </div>`;
-    });
-
-    mainHTML += `</div></div>`;
-  } else if(isStageRace){
-    mainHTML += `<div class="rsp-section"><div class="rsp-st">Stages</div>
-      <div style="font-size:12px;color:var(--muted);font-style:italic;">Stage data not yet available for ${year}.</div></div>`;
+          ${sl.review?`<div class="lec-review">"${sl.review}"</div>`:''}
+        </div>`;
+      });
+      mainHTML += `</div>`;
+    }
   }
 
   // Community reviews for this edition
@@ -3223,6 +3185,8 @@ function renderEditionSidebar(slug, year, r, result, stages, isStageRace){
     : document.getElementById('edition-sidebar');
   if(!el) return;
 
+  const TYPE_ICON = {mountain:'⛰',tt:'⏱',ttt:'⏱⏱',cobbled:'◫',sprint:'━',hilly:'∧'};
+  const TYPE_COL  = {mountain:'#c0392b',tt:'#1a3a8c',ttt:'#1a3a8c',cobbled:'#7b5e2a',sprint:'#1a5c2a',hilly:'#555'};
   const top10 = result?.top10;
 
   // On mobile, wrap in a section and append; on desktop, replace sidebar
@@ -3237,7 +3201,7 @@ function renderEditionSidebar(slug, year, r, result, stages, isStageRace){
       const time = typeof entry==='object'?(entry.time||entry.gap||''):'';
       html += `<div class="top10-row">
         <span class="t10-pos">${i+1}</span>
-        <span class="t10-name" style="cursor:pointer;" onclick="navToRider('${name}')" onmouseover="this.style.color='var(--gold)'" onmouseout="this.style.color=''">${formatResultName(name)}</span>
+        <span class="t10-name" style="cursor:pointer;" onclick="navToRider('${name}')" onmouseover="this.style.color='var(--gold)'" onmouseout="this.style.color=''">${formatRiderName(name)}</span>
         ${(i===0?time:(typeof entry==='object'?entry.gap||'':''))?`<span style="font-size:10px;color:var(--muted);margin-left:auto;">${i===0?time:(typeof entry==='object'?entry.gap||'':'')}</span>`:''}
       </div>`;
     });
@@ -3245,6 +3209,25 @@ function renderEditionSidebar(slug, year, r, result, stages, isStageRace){
   } else {
     html += `<div style="font-size:12px;color:var(--muted);margin-bottom:20px;font-style:italic;">No results for ${year}.<br>
       <a href="https://www.procyclingstats.com/race/${slug}/${year}" target="_blank" style="color:var(--gold-dim);">View on PCS ↗</a></div>`;
+  }
+
+  // Stage list for stage races
+  if(isStageRace && stages && stages.length){
+    html += `<div class="sb-title" style="margin-top:4px;">Stages</div>`;
+    stages.forEach(s=>{
+      const icon = TYPE_ICON[s.type]||'';
+      const col  = TYPE_COL[s.type]||'#555';
+      const label = s.num===0?'P':(s.label||s.num);
+      const winner = s.winner ? formatRiderName(s.winner) : '';
+      html += `<div style="border-left:2px solid ${col};padding:5px 0 5px 8px;margin-bottom:4px;cursor:pointer;transition:opacity .15s;" onmouseover="this.style.opacity='.7'" onmouseout="this.style.opacity='1'" onclick="openStagePage('${slug}',${year},${s.num})">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="font-family:'Bebas Neue',sans-serif;font-size:12px;color:var(--gold);min-width:16px;">${label}</span>
+          <span style="font-size:10px;color:var(--muted);">${icon}</span>
+          <span style="font-size:10px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${s.departure&&s.arrival?`${s.departure}→${s.arrival}`:s.date?fmtDate(s.date):''}</span>
+        </div>
+        ${winner?`<div style="font-size:9px;color:var(--muted);padding-left:22px;">★ ${winner}</div>`:''}
+      </div>`;
+    });
   }
 
   // Startlist toggle
@@ -5281,27 +5264,14 @@ function _parseRiderName(dbName){
 }
 
 // Display-only: convert DB "MARTIN Dan" → "Dan Martin"
+// Also handles plain "First Last" names (no all-caps words) by returning them as-is with title case.
 function formatRiderName(name){
   if(!name) return '';
-  return _parseRiderName(name).display || _toTitleCase(name);
-}
-
-// Format names from race_results.top10 which are stored as "Lastname Firstname"
-// (Title Case, not uppercase) — e.g. "Vingegaard Jonas" → "Jonas Vingegaard"
-// Handles multi-word last names by treating the last word(s) before the first
-// non-uppercased segment as the last name. Since these names aren't all-caps,
-// we use a simple heuristic: last contiguous word is the first name.
-function formatResultName(name){
-  if(!name) return '';
-  // First try the standard DB uppercase parser — works if name happens to be uppercase
-  const parsed = _parseRiderName(name);
-  if(parsed.first) return parsed.display;
-  // Fallback: "Lastname Firstname" split — last word = first name, rest = last name
   const parts = name.trim().split(/\s+/).filter(Boolean);
-  if(parts.length < 2) return name;
-  const firstName = parts[parts.length - 1];
-  const lastName  = parts.slice(0, parts.length - 1).join(' ');
-  return firstName + ' ' + lastName;
+  // If no word is all-caps, name is already in display order (e.g. "Tadej Pogacar")
+  const hasAllCapsWord = parts.some(w => _isAllCaps(w));
+  if(!hasAllCapsWord) return parts.map(_toTitleCase).join(' ');
+  return _parseRiderName(name).display || _toTitleCase(name);
 }
 
 // Generate every possible DB-format string from a user query by trying all split points
@@ -6260,29 +6230,6 @@ async function renderRiderPage(inputName){
           .ilike('rider_name', rawName).order('year', { ascending: false });
         if(error) console.warn('trophy fetch error:', error.message);
         gcWinRows = data || [];
-
-        // ── Fallback: scan race_results.top10[0] for wins not yet in rider_wins ──
-        // This catches any year where populate_rider_wins.py hasn't been re-run yet.
-        const knownKeys = new Set(gcWinRows.map(r => `${r.race_slug}|${r.year}`));
-        const { data: allResults } = await sb.from('race_results')
-          .select('slug,year,top10').order('year', { ascending: false });
-        if(allResults){
-          const nameLower = rawName.toLowerCase();
-          allResults.forEach(r => {
-            const winner = Array.isArray(r.top10) && r.top10.length ? r.top10[0] : null;
-            if(!winner) return;
-            const winnerStr = typeof winner === 'string' ? winner : (winner.rider || winner.rider_name || '');
-            if(!winnerStr) return;
-            // Match by last-name substring (case-insensitive) — handles format differences
-            const parts = nameLower.split(/\s+/).filter(w => w.length >= 4);
-            const winLower = winnerStr.toLowerCase();
-            const matches = parts.length > 0 && parts.every(p => winLower.includes(p));
-            if(matches && !knownKeys.has(`${r.slug}|${r.year}`)){
-              gcWinRows.push({ race_slug: r.slug, year: r.year });
-              knownKeys.add(`${r.slug}|${r.year}`);
-            }
-          });
-        }
       } catch(e) { console.warn('trophy cabinet error (non-fatal):', e); }
     })(),
     (async () => {
