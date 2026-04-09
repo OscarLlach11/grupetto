@@ -3188,7 +3188,7 @@ async function openLogModalForEdition(slug, year){
 }
 
 // ── Render edition sidebar: results + startlist ───────────────────────────
-function renderEditionSidebar(slug, year, r, result, stages, isStageRace){
+async function renderEditionSidebar(slug, year, r, result, stages, isStageRace){
   const isMobile = window.innerWidth <= 820;
   // On mobile, sidebar is hidden — inject content into main column instead
   const el = isMobile
