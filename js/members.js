@@ -106,15 +106,13 @@ async function _fetchMembers(){
         });
       }));
     }
-    // Attach image URLs directly onto sorted members
+    // Attach image URLs in ridersWithImages format expected by renderMemberCards
     sorted = sorted.map(m => ({
       ...m,
-      fav_riders: (m.fav_riders||[]).map(r => {
-        const name = getRiderName(r);
-        const imgRow = riderImgMap[name.toLowerCase()];
-        const imageUrl = imgRow?.image_url && imgRow.image_url !== 'none' ? imgRow.image_url : (typeof r === 'object' ? r.imageUrl||r.url||null : null);
-        return typeof r === 'object' ? { ...r, imageUrl } : { name: r, imageUrl };
-      })
+      ridersWithImages: (m.fav_riders||[]).map(getRiderName).filter(Boolean).map(name => ({
+        name,
+        image_url: riderImgMap[name.toLowerCase()]?.image_url || null,
+      }))
     }));
   }
 
