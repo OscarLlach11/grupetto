@@ -3966,18 +3966,26 @@ async function openLogModal(id, watchIdx=null){
 
   // If editing existing watch
   const rl=userLog[id]||{};
-  if(watchIdx!==null&&rl.watches&&rl.watches[watchIdx]){
+  const isEditing=(watchIdx!==null&&rl.watches&&rl.watches[watchIdx]);
+  if(isEditing){
     const w=rl.watches[watchIdx];
     document.getElementById('lm-year').value=w.year;
+    document.getElementById('lm-year').disabled=true; // lock year: use "+ Add Another Watch" for a new entry
     document.getElementById('lm-date').value=w.date||TODAY;
     wholeLive=w.live||false;
     formRating=w.rating||0;
     stRatings=Object.fromEntries(Object.entries(w.stages||{}).map(([k,v])=>[parseInt(k),v.rating||0]));
     document.getElementById('lm-live').classList.toggle('on',wholeLive);
   } else {
+    document.getElementById('lm-year').disabled=false;
     document.getElementById('lm-date').value=TODAY;
     document.getElementById('lm-live').classList.remove('on');
   }
+  // Update save button label and rewatch button visibility
+  const saveBtn=document.querySelector('#log-mo .bp[onclick="saveLog()"]');
+  if(saveBtn) saveBtn.textContent=isEditing?'Save Changes':'Save Log';
+  const rewatchBtn=document.getElementById('add-rewatch-btn');
+  if(rewatchBtn) rewatchBtn.style.display=isEditing?'none':'inline-block';
 
   await renderLogFormBody();
   openMO('log-mo');
@@ -4052,9 +4060,15 @@ async function renderLogFormBody(){
 
 async function addRewatch(){
   curWatchIdx=null; formRating=0; stRatings={};
+  document.getElementById('lm-year').disabled=false;
   document.getElementById('lm-date').value=TODAY;
   document.getElementById('lm-live').classList.remove('on');
   wholeLive=false;
+  // Restore "new log" button state
+  const saveBtn=document.querySelector('#log-mo .bp[onclick="saveLog()"]');
+  if(saveBtn) saveBtn.textContent='Save Log';
+  const rewatchBtn=document.getElementById('add-rewatch-btn');
+  if(rewatchBtn) rewatchBtn.style.display='inline-block';
   await renderLogFormBody();
   toast('New watch — fill in and save');
 }
@@ -4069,7 +4083,9 @@ async function saveLog(){
   const rl=userLog[curId];
   const entry={year,date,live:wholeLive,rating:formRating,review,stages:{},ts:Date.now()};
   if(curWatchIdx!==null&&rl.watches[curWatchIdx]){
-    entry.stages=rl.watches[curWatchIdx].stages||{};
+    const existing=rl.watches[curWatchIdx];
+    entry.stages=existing.stages||{};
+    if(existing.id) entry.id=existing.id; // preserve DB row id so Supabase does UPDATE not INSERT
     rl.watches[curWatchIdx]=entry;
   } else {
     rl.watches.push(entry);
