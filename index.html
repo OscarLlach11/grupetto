@@ -2972,26 +2972,62 @@ async function openEditionPage(slug, year, pushHistory=true){
     mainHTML += `</div>`;
   }
 
-  // Stage logs for this edition
-  if(isStageRace){
-    const raceStageEntries = allStageEntries().filter(e=>e.raceId===slug && e.year===year);
-    if(raceStageEntries.length){
-      mainHTML += `<div class="rsp-section" style="margin-top:8px;"><div class="rsp-st">Your Stage Logs</div>`;
-      raceStageEntries.sort((a,b)=>a.stageNum-b.stageNum).forEach(e=>{
-        const sl = e.stageLog;
-        const stLabel = e.stageNum===0?'Prologue':`Stage ${sl.stageLabel||e.stageNum}`;
-        mainHTML += `<div class="log-entry-card" style="cursor:pointer;" onclick="openStagePage('${slug}',${year},${e.stageNum})">
-          <div class="lec-head">
-            <div>
-              <div class="lec-year" style="font-size:13px;">${stLabel}</div>
-              <div class="stars" style="margin:3px 0;">${starsHTML(sl.rating||0,11)}</div>
+  // ── Stages section in main column (stage races only) ────────────────────
+  if(isStageRace && stages && stages.length){
+    const TYPE_COL   = {mountain:'#c0392b',tt:'#1a3a8c',ttt:'#1a3a8c',cobbled:'#7b5e2a',sprint:'#1a5c2a',hilly:'#555'};
+    const TYPE_LABEL = {mountain:'Mountain',tt:'Time Trial',ttt:'Team TTT',cobbled:'Cobbled',sprint:'Sprint',hilly:'Hilly'};
+
+    mainHTML += `<div class="rsp-section"><div class="rsp-st">Stages</div>
+      <div style="display:grid;grid-template-columns:1fr;gap:4px;">`;
+
+    stages.forEach(s => {
+      const userStage = getUserStageLog(slug, year, s.num);
+      const isLogged  = !!userStage;
+      const col    = TYPE_COL[s.stage_type || s.type]  || '#444';
+      const typeLabel = TYPE_LABEL[s.stage_type || s.type] || '';
+      const dist   = s.distance_km ? `${s.distance_km} km` : '';
+      const route  = s.departure && s.arrival ? `${s.departure} → ${s.arrival}` : '';
+      const dateStr= s.date || s.stage_date ? fmtDate(s.date || s.stage_date) : '';
+      const winner = s.winner ? formatRiderName(s.winner) : '';
+      const label  = s.num === 0 ? 'P' : (s.stage_label || s.label || s.num);
+      const stageRating = userStage?.rating || 0;
+
+      const ratingBadge = stageRating
+        ? `<div onclick="event.stopPropagation();openStagePage('${slug}',${year},${s.num})"
+              style="display:flex;align-items:center;gap:4px;background:rgba(232,200,74,0.08);border:1px solid rgba(232,200,74,0.2);padding:3px 8px;cursor:pointer;flex-shrink:0;">
+             <span style="color:var(--gold);font-size:11px;">★</span>
+             <span style="color:var(--gold);font-size:12px;font-family:'Bebas Neue',sans-serif;letter-spacing:1px;">${stageRating}</span>
+           </div>` : '';
+      const loggedBadge = isLogged
+        ? `<div style="font-size:9px;color:var(--muted);border:1px solid var(--border);padding:3px 7px;letter-spacing:1.5px;font-family:'Bebas Neue',sans-serif;flex-shrink:0;">LOGGED</div>` : '';
+
+      mainHTML += `<div style="display:flex;align-items:stretch;border:1px solid var(--border);cursor:pointer;transition:border-color .15s,background .15s;"
+          onmouseover="this.style.borderColor='var(--gold-dim)';this.style.background='rgba(255,255,255,.02)'"
+          onmouseout="this.style.borderColor='var(--border)';this.style.background=''"
+          onclick="openStagePage('${slug}',${year},${s.num})">
+        <div style="width:3px;background:${col};flex-shrink:0;"></div>
+        <div style="flex:1;padding:10px 14px;min-width:0;display:flex;align-items:center;gap:12px;">
+          <span style="font-family:'Bebas Neue',sans-serif;font-size:20px;color:var(--gold);min-width:28px;line-height:1;">${label}</span>
+          <div style="flex:1;min-width:0;">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <span style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${route || dateStr}</span>
+              ${typeLabel ? `<span style="font-size:9px;letter-spacing:1px;text-transform:uppercase;color:${col};border:1px solid ${col};padding:1px 5px;flex-shrink:0;">${typeLabel}</span>` : ''}
+              ${dist ? `<span style="font-size:10px;color:var(--muted);flex-shrink:0;">${dist}</span>` : ''}
             </div>
+            ${winner ? `<div style="font-size:11px;color:var(--muted);margin-top:3px;">★ ${winner}</div>` : ''}
           </div>
-          ${sl.review?`<div class="lec-review">"${sl.review}"</div>`:''}
-        </div>`;
-      });
-      mainHTML += `</div>`;
-    }
+          <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+            ${ratingBadge}${loggedBadge}
+            <span style="font-size:12px;color:var(--muted);">›</span>
+          </div>
+        </div>
+      </div>`;
+    });
+
+    mainHTML += `</div></div>`;
+  } else if(isStageRace){
+    mainHTML += `<div class="rsp-section"><div class="rsp-st">Stages</div>
+      <div style="font-size:12px;color:var(--muted);font-style:italic;">Stage data not yet available for ${year}.</div></div>`;
   }
 
   // Community reviews for this edition
