@@ -1760,7 +1760,12 @@ async function getAllRiders(){
   const { data } = await sb.from('startlists').select('rider_name').order('rider_name');
   if(!data?.length) return [];
   const seen = new Set();
-  return data.map(r => r.rider_name).filter(n => { if(seen.has(n)) return false; seen.add(n); return true; });
+  return data.map(r => r.rider_name).filter(n => {
+    if(seen.has(n)) return false;
+    seen.add(n);
+    _registerDbName(n); // populate name normalisation map
+    return true;
+  });
 }
 
 // ── cleanSlug: strips apostrophes/special chars from DB slugs ──────────────
@@ -2671,6 +2676,12 @@ async function renderRSPResults(id, year){
 
   // ── Overall GC / race result ─────────────────────────────────────────────
   if(top10 && Array.isArray(top10) && top10.length){
+    // Pre-populate _riderNameMap for any names not yet registered
+    const unmapped = top10.map(e => typeof e==='string'?e:(e.rider||e.rider_name||'')).filter(n => n && !_riderNameMap.has(n.trim().toLowerCase()));
+    if(unmapped.length){
+      const { data: slRows } = await sb.from('startlists').select('rider_name').in('rider_name', unmapped).limit(50);
+      if(slRows) slRows.forEach(r => _registerDbName(r.rider_name));
+    }
     html += `<div style="font-family:'Bebas Neue',sans-serif;font-size:13px;letter-spacing:2px;color:var(--ml);margin-bottom:10px;">${year} Final Result</div><div>`;
     top10.forEach((entry, i) => {
       const name = typeof entry === 'string' ? entry : (entry.rider || entry.rider_name || '');
@@ -3188,6 +3199,15 @@ function renderEditionSidebar(slug, year, r, result, stages, isStageRace){
   const TYPE_ICON = {mountain:'⛰',tt:'⏱',ttt:'⏱⏱',cobbled:'◫',sprint:'━',hilly:'∧'};
   const TYPE_COL  = {mountain:'#c0392b',tt:'#1a3a8c',ttt:'#1a3a8c',cobbled:'#7b5e2a',sprint:'#1a5c2a',hilly:'#555'};
   const top10 = result?.top10;
+
+  // Pre-populate _riderNameMap for top10 names not yet registered
+  if(top10 && top10.length){
+    const unmapped = top10.map(e=>typeof e==='string'?e:(e.rider||e.rider_name||'')).filter(n=>n&&!_riderNameMap.has(n.trim().toLowerCase()));
+    if(unmapped.length){
+      const { data: slRows } = await sb.from('startlists').select('rider_name').in('rider_name', unmapped).limit(50);
+      if(slRows) slRows.forEach(r=>_registerDbName(r.rider_name));
+    }
+  }
 
   // On mobile, wrap in a section and append; on desktop, replace sidebar
   let html = isMobile
@@ -4505,6 +4525,20 @@ let _featuredRidersCache = null;
 // In-flight fetch promise — stored so renderRiders can await it rather than start a second fetch
 let _featuredRidersFetchPromise = null;
 
+// ── Rider name normalisation map ──────────────────────────────────────────────
+// Maps lowercase title-case name (e.g. "pogacar tadej") → canonical DB format ("POGACAR Tadej")
+// Populated lazily from any startlists fetch. Used by formatRiderName() to fix
+// race_results.top10 names that are stored in plain "Lastname Firstname" title case.
+const _riderNameMap = new Map();
+function _registerDbName(dbName){
+  if(!dbName) return;
+  // Key 1: exact lowercase of the DB name ("pogacar tadej" from "POGACAR Tadej")
+  _riderNameMap.set(dbName.toLowerCase(), dbName);
+  // Key 2: title-case version of the DB name ("Pogacar Tadej") — matches race_results format
+  const titleCase = dbName.split(/\s+/).map(_toTitleCase).join(' ').toLowerCase();
+  _riderNameMap.set(titleCase, dbName);
+}
+
 // ── Rider page data preload cache ────────────────────────────────────────────
 // Maps lowercase rider_name (DB format) → Promise<rows[]>
 // Preloaded for featured riders and fav riders so clicking is instant.
@@ -4521,6 +4555,7 @@ async function _preloadRiderData(dbName){
       .ilike('rider_name', dbName)
       .order('year', { ascending: false })
       .limit(200);
+    if(data) data.forEach(r => _registerDbName(r.rider_name));
     return data && data.length ? data : null;
   })();
   _riderPageCache.set(key, promise);
@@ -5264,14 +5299,19 @@ function _parseRiderName(dbName){
 }
 
 // Display-only: convert DB "MARTIN Dan" → "Dan Martin"
-// Also handles plain "First Last" names (no all-caps words) by returning them as-is with title case.
+// Also handles plain "Lastname Firstname" title-case names from race_results.top10
+// by looking them up in _riderNameMap (populated from startlists fetches).
 function formatRiderName(name){
   if(!name) return '';
   const parts = name.trim().split(/\s+/).filter(Boolean);
-  // If no word is all-caps, name is already in display order (e.g. "Tadej Pogacar")
   const hasAllCapsWord = parts.some(w => _isAllCaps(w));
-  if(!hasAllCapsWord) return parts.map(_toTitleCase).join(' ');
-  return _parseRiderName(name).display || _toTitleCase(name);
+  // Already in DB format — parse and flip
+  if(hasAllCapsWord) return _parseRiderName(name).display || _toTitleCase(name);
+  // Look up in the name map (populated from startlists) to get proper DB format, then flip
+  const canonical = _riderNameMap.get(name.trim().toLowerCase());
+  if(canonical) return _parseRiderName(canonical).display || _toTitleCase(canonical);
+  // Fallback: return as-is with title case (already in display order or unknown format)
+  return parts.map(_toTitleCase).join(' ');
 }
 
 // Generate every possible DB-format string from a user query by trying all split points
